@@ -68,10 +68,7 @@ sjasmplus -DTAP main.asm
 ### Loading
 
 **+3DOS:**
-```basic
-LOAD "netmanzx.cod" CODE 32768
-RANDOMIZE USR 32768
-```
+Put NETMANZX.BAS file loder and netmanzx.cod in the same directory. Run NETMANZX.bas file.
 
 **TAP (tape/emulators):**
 Simply load the TAP file - the BASIC loader will auto-run and load the program automatically.

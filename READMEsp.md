@@ -68,9 +68,7 @@ sjasmplus -DTAP main.asm
 ### Carga
 
 **+3DOS:**
-```basic
-LOAD "netmanzx.cod" CODE 32768
-RANDOMIZE USR 32768
+Pon el fichero NETMANZX.BAS y netmanzx.cod en el mismo directorio. Ejecuta NETMANZX.BAS desde el navegador de ficheros de esxDOS.
 ```
 
 **TAP (cinta/emuladores):**
