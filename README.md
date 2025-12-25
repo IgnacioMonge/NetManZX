@@ -1,3 +1,5 @@
+![NetManZX Banner](images/netmanzxlogo-white.png)
+
 # NetManZX
 
 **WiFi Network Manager for ZX Spectrum**

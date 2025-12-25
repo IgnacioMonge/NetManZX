@@ -1,3 +1,5 @@
+![NetManZX Banner](images/netmanzxlogo-white.png)
+
 # NetManZX
 
 **Gestor de Redes WiFi para ZX Spectrum**
