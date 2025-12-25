@@ -101,6 +101,7 @@ This is the first release of **NetManZX**, a complete rewrite and enhancement of
 - Fixed EDIT key not working in diagnostics menu
 - Fixed ping showing "Response time: timeout ms" instead of proper message
 - Fixed infinite loops when ESP sends continuous data
+- Fixed password being visible in UART log during connection
 
 ---
 
@@ -108,7 +109,8 @@ This is the first release of **NetManZX**, a complete rewrite and enhancement of
 
 - Output binary renamed from `netman.cod` to `netmanzx.cod`
 - Version string centralized in main.asm
-- Support for both +3DOS (.cod) and esxDOS (.dot) formats
+- Support for +3DOS (.cod) and TAP formats
+- TAP includes auto-loading BASIC loader
 
 ---
 

@@ -49,14 +49,30 @@ NetManZX está basado en el proyecto original [netman-zx](https://github.com/nih
 ### Compilar
 
 ```bash
-# Compilación estándar (genera netmanzx.cod para +3DOS)
+# Compilación estándar para +3DOS (genera netmanzx.cod)
 sjasmplus main.asm
 
-# Para formato .DOT (esxDOS)
-sjasmplus -DDOT main.asm
+# Para formato TAP (cinta/emuladores) - incluye cargador BASIC
+sjasmplus -DTAP main.asm
 ```
 
-El archivo de salida `netmanzx.cod` puede cargarse en un ZX Spectrum +3 o mediante emulador.
+### Archivos de Salida
+
+| Formato | Archivo | Descripción |
+|---------|---------|-------------|
+| +3DOS | `netmanzx.cod` | Para sistemas +3 / +3DOS |
+| TAP | `netmanzx.tap` | Archivo de cinta completo con cargador BASIC auto-ejecutable |
+
+### Carga
+
+**+3DOS:**
+```basic
+LOAD "netmanzx.cod" CODE 32768
+RANDOMIZE USR 32768
+```
+
+**TAP (cinta/emuladores):**
+Simplemente carga el archivo TAP - el cargador BASIC se ejecutará automáticamente y cargará el programa.
 
 ## Uso
 
