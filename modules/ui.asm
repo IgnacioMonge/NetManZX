@@ -922,7 +922,8 @@ manualSSID:
     
     jr nc, .connSuccessManual
     
-    ; Fallo - mostrar "Retry" junto al mensaje actual
+    ; Fallo - mostrar "Retry" junto al mensaje actual (línea 10, después de "Connecting (x/3)...")
+    gotoXY 20, 10
     ld hl, msg_retry_suffix
     call Display.putStr
     
@@ -1399,7 +1400,8 @@ selectItem:
     
     jr nc, .connSuccess         ; CF=0 -> OK
     
-    ; Fallo - mostrar "Retry" junto al mensaje actual
+    ; Fallo - mostrar "Retry" junto al mensaje actual (línea 10, después de "Connecting (x/3)...")
+    gotoXY 20, 10
     ld hl, msg_retry_suffix
     call Display.putStr
     
