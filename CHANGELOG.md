@@ -137,6 +137,8 @@ This is the first release of **NetManZX**, a complete rewrite and enhancement of
 
 - **Already Connected Warning**: When selecting a network you're already connected to, the application now shows a warning message instead of attempting to reconnect.
 
+---
+
 ### UI Improvements
 
 - **Refined Connection Retry Display**: Changed retry message format to show "Retry" only between connection attempts (after failure, during wait), not during the attempt itself. The sequence is now: `Connecting (1/3)...` → fail → `Connecting (1/3)... Retry` → wait → `Connecting (2/3)...` → etc.
@@ -153,6 +155,8 @@ This is the first release of **NetManZX**, a complete rewrite and enhancement of
   - Disconnected: `Q/A:Nav O/P:Page R:Refresh D:Diag`
   - Connected: `Q/A:Nav R:Refresh D:Diag X:Disconn`
 
+---
+
 ### Technical Changes
 
 - `PER_PAGE` reduced from 10 to 9 to accommodate new UI layout
@@ -160,6 +164,8 @@ This is the first release of **NetManZX**, a complete rewrite and enhancement of
 - Scroll indicators adjusted accordingly
 - Main loop changed to non-blocking keyboard read to support async WiFi monitoring
 - Added 16-byte circular buffer for async UART message parsing
+
+---
 
 ### Internal Refactoring
 
