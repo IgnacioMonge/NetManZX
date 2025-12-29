@@ -26,9 +26,22 @@
 
     module Wifi
 
+; ============================================
+; UART lock (evita competencia con UI.checkAsyncWifi)
+; ============================================
+uartLock:
+    ld a, 1
+    ld (uart_busy), a
+    ret
+
+uartUnlock:
+    xor a
+    ld (uart_busy), a
+    ret
+
 ; Constantes de configuración
 MAX_NETWORKS    = 20          ; Máximo número de redes a almacenar
-MAX_SSID_LEN    = 29          ; Longitud máxima de SSID para display (barras en col 30)
+MAX_SSID_LEN    = 32          ; Longitud máxima de SSID
 BUFFER_END      = buffer + (MAX_NETWORKS * (MAX_SSID_LEN + 1))
 BUFFER_SIZE     = (MAX_NETWORKS * (MAX_SSID_LEN + 1))
 MAX_RETRIES     = 3           ; Reintentos en init
@@ -211,6 +224,7 @@ reset:
 .timeout_msg db 13, "ESP timeout!", 0
 
 getList:
+    call uartLock
     call flushInput
 
     ; --- LIMPIEZA DE MEMORIA SEGURA (LDIR) ---
@@ -256,6 +270,7 @@ loadList:
     call Uart.readTimeout : jp nc, .scan_timeout
     cp 13  : jr nz, loadList
     or a
+    call uartUnlock
     ret
 
 .errStart
@@ -272,6 +287,7 @@ loadList:
 .scan_timeout
     ld hl, .timeout_msg
     call Display.putStrLog
+    call uartUnlock
     scf
     ret
 .timeout_msg db 13, "Scan timeout!", 0
@@ -325,6 +341,7 @@ loadList:
     ld hl, .full_msg
     call Display.putStrLog
     or a
+    call uartUnlock
     ret
 .full_msg db 13, "Buffer full!", 0
 
@@ -408,6 +425,7 @@ checkOkErrLong:
     ; Fall through
 
 checkOkErrCommon:
+    call uartLock
     ; Límite de bytes para evitar bucle infinito con tráfico de red
     ld hl, 2000                 ; Máximo 2000 bytes antes de rendirse
     ld (byte_limit), hl
@@ -431,6 +449,7 @@ checkOkErrCommon:
     jr .mainLoop
 
 .timeout
+    call uartUnlock
     scf
     ret
 
@@ -441,6 +460,7 @@ checkOkErrCommon:
     cp 13  : jp nz, .mainLoop
     call .flushToLF
     or a
+    call uartUnlock
     ret
 .errStart
     call .doRead : jr nc, .timeout
@@ -452,7 +472,8 @@ checkOkErrCommon:
     call .doRead : jr nc, .timeout
     cp 'R' : jp nz, .mainLoop
     call .flushToLF
-    scf 
+    call uartUnlock
+    scf
     ret 
 .failStart
     call .doRead : jr nc, .timeout
@@ -462,6 +483,7 @@ checkOkErrCommon:
     call .doRead : jr nc, .timeout
     cp 'L' : jp nz, .mainLoop
     call .flushToLF
+    call uartUnlock
     scf
     ret
 
@@ -509,6 +531,7 @@ last_error       db 0           ; Código de error CWJAP (0=ninguno, 1-4=error)
 ; CF=0 si éxito, CF=1 si error
 ; ============================================
 getIP:
+    call uartLock
     ; Limpiar buffer primero
     ld hl, ip_buffer
     ld b, 16
@@ -518,38 +541,20 @@ getIP:
     inc hl
     djnz .clear
 
-    ; Límite de bytes para evitar cuelgue
-    ld bc, 500                  ; Máximo 500 bytes
-    
     EspCmd "AT+CIFSR"
 .loop
-    ; Verificar límite
-    ld a, b
-    or c
-    jr z, .noIP                 ; Límite alcanzado
-    dec bc
-    
-    call Uart.readTimeout
-    jr nc, .noIP                ; Timeout
+    call Uart.read
     cp 'P' : jr z, .infoStart
     jr .loop
 .infoStart
-    call Uart.readTimeout : jr nc, .noIP
-    cp ',' : jr nz, .loop
-    call Uart.readTimeout : jr nc, .noIP
-    cp '"' : jr nz, .loop
+    call Uart.read : cp ',' : jr nz, .loop
+    call Uart.read : cp '"' : jr nz, .loop
     ld hl, ip_buffer
-    ld d, 16                    ; Límite de caracteres de IP
 .copyIpLoop
     push hl
-    push de
-    call Uart.readTimeout
-    pop de
+    call Uart.read
     pop hl
-    jr nc, .noIP                ; Timeout
     cp '"' : jr z, .finish
-    dec d
-    jr z, .noIP                 ; IP demasiado larga
     ld (hl), a
     inc hl
     jr .copyIpLoop
@@ -565,8 +570,10 @@ getIP:
     jr z, .noIP
 .ok
     or a                    ; CF = 0
+    call uartUnlock
     ret
 .noIP
+    call uartUnlock
     scf                     ; CF = 1
     ret
 
@@ -577,6 +584,7 @@ networks_count  db 0
 old_fw          db 0
 retry_count     db 0
 is_connected    db 0
+uart_busy       db 0           ; 1=UART ocupado por parser/operación crítica
 
 rssi_buffer     ds MAX_NETWORKS
 connected_ssid  ds MAX_SSID_LEN + 1

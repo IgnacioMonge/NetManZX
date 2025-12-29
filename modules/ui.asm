@@ -308,11 +308,10 @@ renderList:
     call Display.putStr
     push hl
     
-    ; Mover cursor a columna fija (30) para RSSI
-    ; (1 lock + 10 barras = 11 chars, cols 30-40)
+    ; Mover cursor a columna fija (31) para RSSI
     ld a, (current_line)
     ld h, a
-    ld l, 30                ; Columna 30 en sistema 42-col
+    ld l, 31                ; Columna 31
     ld (Display.coords), hl
     
     ; Mostrar indicador RSSI
@@ -391,26 +390,22 @@ printRssi:
     ld a, (rssi_value)
     and #7F                 ; A = RSSI (0-127)
     
-    ; Calcular barras (1-10) según RSSI
-    ld b, 10                ; Empezar con máximo
-    cp 35 : jr c, .gotBars  ; < 35: 10 barras (excelente)
+    ; Calcular barras (1-8) según RSSI
+    ld b, 8                 ; Empezar con máximo
+    cp 40 : jr c, .gotBars  ; < 40: 8 barras
     dec b
-    cp 42 : jr c, .gotBars  ; < 42: 9 barras
+    cp 50 : jr c, .gotBars
     dec b
-    cp 49 : jr c, .gotBars  ; < 49: 8 barras
+    cp 58 : jr c, .gotBars
     dec b
-    cp 55 : jr c, .gotBars  ; < 55: 7 barras
+    cp 65 : jr c, .gotBars
     dec b
-    cp 61 : jr c, .gotBars  ; < 61: 6 barras
+    cp 70 : jr c, .gotBars
     dec b
-    cp 67 : jr c, .gotBars  ; < 67: 5 barras
+    cp 75 : jr c, .gotBars
     dec b
-    cp 72 : jr c, .gotBars  ; < 72: 4 barras
-    dec b
-    cp 77 : jr c, .gotBars  ; < 77: 3 barras
-    dec b
-    cp 83 : jr c, .gotBars  ; < 83: 2 barras
-    dec b                   ; >= 83: 1 barra (muy débil)
+    cp 82 : jr c, .gotBars
+    dec b                   ; 1 barra
     
 .gotBars
     ld a, b
@@ -429,7 +424,7 @@ printRssi:
     jr .drawFull
     
 .drawEmpty
-    ld a, 10
+    ld a, 8
     sub c
     jr z, .colorBars
     ld b, a
@@ -444,7 +439,7 @@ printRssi:
 
 .colorBars
     ; Colorear la zona de barras en verde
-    ; current_line tiene la línea actual (6-14)
+    ; current_line tiene la línea actual (5-14)
     ld a, (current_line)
     ld l, a
     ld h, 0
@@ -453,12 +448,12 @@ printRssi:
     add hl, hl              ; x8
     add hl, hl              ; x16
     add hl, hl              ; x32
-    ld de, #5800 + 22       ; Base + columna 22 (cubre cols texto 30-40)
+    ld de, #5800 + 23       ; Base + columna 23
     add hl, de              ; HL = dirección del atributo
     
-    ; Colorear 10 celdas en verde (columnas 22-31)
+    ; Colorear 9 celdas en verde (columnas 23-31)
     ld a, 004o              ; Verde sobre negro (sin brillo)
-    ld b, 10
+    ld b, 9
 .colorLoop
     ld (hl), a
     inc hl
@@ -519,37 +514,47 @@ cursor:
     ret
 
 uiLoop:
-    ld b, 15
-.loop
     halt
-    push bc
-    call checkAsyncWifi         ; Verificar eventos WiFi asíncronos
-    pop bc
-    djnz .loop
-    
-    call Keyboard.inKeyNoWait   ; Lectura no bloqueante
+
+    call Keyboard.inKeyNoWait
     and a
-    jr z, uiLoop                ; Sin tecla, seguir en loop
-    
+    jr z, .noKey
+
     cp Keyboard.KEY_UP : jp z, cursorUp
-    cp 'q' : jp z, cursorUp
+    cp 'q'             : jp z, cursorUp
     cp Keyboard.KEY_DN : jp z, cursorDown
-    cp 'a' : jp z, cursorDown
-    cp 'o' : jp z, pageUp           ; O = Page Up
+    cp 'a'             : jp z, cursorDown
+
+    cp 'o' : jp z, pageUp
     cp 'O' : jp z, pageUp
-    cp 'p' : jp z, pageDown         ; P = Page Down
+    cp 'p' : jp z, pageDown
     cp 'P' : jp z, pageDown
-    cp 'r' : jp z, rescan       
+
+    cp 'r' : jp z, rescan
     cp 'R' : jp z, rescan
-    cp 'd' : jp z, showDiagnostics  ; D = Diagnósticos
+    cp 'd' : jp z, showDiagnostics
     cp 'D' : jp z, showDiagnostics
-    cp 'h' : jp z, manualSSID       ; H = Hidden/Manual SSID
+    cp 'h' : jp z, manualSSID
     cp 'H' : jp z, manualSSID
-    cp 'x' : jp z, doDisconnect     ; X = Disconnect
+    cp 'x' : jp z, doDisconnect
     cp 'X' : jp z, doDisconnect
-    cp 15  : jp z, exitProgram
-    cp 13  : jp z, selectItem
+
+    cp 15  : jp z, exitProgram     ; ESC
+    cp 13  : jp z, selectItem      ; ENTER
+
     jr uiLoop
+
+.noKey:
+    ld a,(ui_async_div)
+    inc a
+    ld (ui_async_div),a
+    cp 4               ; 4 frames ≈ 80 ms (ajusta a 6/8 si quieres)
+    jr nz, uiLoop
+    xor a
+    ld (ui_async_div),a
+    call checkAsyncWifi
+    jr uiLoop
+
 
 rescan:
     call hideCursor
@@ -1082,13 +1087,29 @@ pageDown:
     call renderList
     jp uiLoop
 .lastPage
-    ; Ir a la última red
+    ; Ir a la última red.
+    ; Si la última ya es visible en la página actual, solo mover el cursor (sin repintar).
     ld a, (Wifi.networks_count)
     and a
     jp z, uiLoop                ; No hay redes
     dec a                       ; Última red (índice)
-    ld b, a                     ; Guardar índice absoluto
+    ld b, a                     ; B = last_index
+
+    ld a, (offset)
+    ld c, a                     ; C = offset actual
+    ld a, b
+    sub c                       ; A = last_index - offset
+    jr c, .needRepaint          ; (seguridad) last_index < offset
+    cp PER_PAGE
+    jr nc, .needRepaint         ; last_index fuera de la página actual -> repintar
+
+    ld (cursor_position), a     ; cursor_position = last_index - offset
+    call showCursor
+    jp uiLoop
+
+.needRepaint
     ; Calcular offset para que la última red esté visible
+    ld a, b
     sub PER_PAGE - 1
     jr nc, .setOffset
     xor a                       ; Si hay menos de PER_PAGE redes, offset=0
@@ -2404,131 +2425,117 @@ cmd_disconnect db "AT+CWQAP", 13, 10, 0
 
 ; ============================================
 ; checkAsyncWifi - Detecta eventos WiFi asíncronos
-; Busca "DISCONNECT" y "GOT IP" en el stream UART
+; Busca "DISCON" y "GOT IP" en el stream UART
+; Nota: se inhibe si Wifi.uart_busy=1 para no competir con parsers principales
 ; ============================================
 checkAsyncWifi:
+    ld a, (Wifi.uart_busy)
+    and a
+    ret nz                          ; UART ocupado por flujo principal
+
     ; Intentar leer un byte del UART (no bloqueante)
     call UartImpl.uartRead
-    ret nc                      ; No hay datos, salir
-    
+    ret nc                          ; No hay datos, salir
+
     ; Ignorar caracteres de control (CR, LF, etc)
     cp 32
     ret c
-    
-    ; Añadir al buffer
-    ld hl, async_buf_idx
-    ld e, (hl)
-    ld d, 0
-    ld hl, async_buffer
-    add hl, de
-    ld (hl), a
-    
-    ; Incrementar índice
-    ld a, e
+
+    ; Shift register de 6 bytes: async6[0..5] = últimos 6 chars válidos
+    ld c, a                         ; guardar nuevo char
+
+    ld hl, async6 + 1
+    ld de, async6
+    ld b, 5
+.shift6
+    ld a, (hl)
+    ld (de), a
+    inc hl
+    inc de
+    djnz .shift6
+
+    ld a, c
+    ld (async6 + 5), a
+
+    ; Contador de llenado (0..6)
+    ld a, (async_cnt)
+    cp 6
+    jr z, .have6
     inc a
-    cp ASYNC_BUF_SIZE
-    jr c, .storeIdx
-    ; Buffer lleno, resetear
-    xor a
-.storeIdx
-    ld (async_buf_idx), a
-    
-    ; Verificar si tenemos suficientes caracteres
-    cp 6                        ; Mínimo para "GOT IP"
-    ret c
-    
-    ; Buscar patrones
+    ld (async_cnt), a
+    ret
+
+.have6
     call .checkDisconnect
-    ret c                       ; Encontrado, ya procesado
+    ret c
     call .checkGotIP
     ret
 
 .checkDisconnect:
-    ; Buscar "DISCON" (6 chars) - suficiente para identificar
-    ld a, (async_buf_idx)
-    cp 6
-    jr c, .notFoundDisc
-    
-    ; Comparar últimos 6 caracteres con "DISCON"
-    ld a, (async_buf_idx)
-    sub 6
-    ld e, a
-    ld d, 0
-    ld hl, async_buffer
-    add hl, de
+    ld hl, async6
     ld de, .pat_discon
     ld b, 6
-.cmpDisc
+.cmpd
     ld a, (de)
     cp (hl)
     jr nz, .notFoundDisc
     inc hl
     inc de
-    djnz .cmpDisc
-    
-    ; ¡Encontrado DISCONNECT!
+    djnz .cmpd
+
+    ; Encontrado "DISCON"
     xor a
     ld (Wifi.is_connected), a
-    ld (async_buf_idx), a       ; Resetear buffer
+    ld (async_cnt), a
     call setStatusDisconnected
     call ipShowNotConnected
     scf
     ret
-    
+
 .notFoundDisc
-    or a                        ; CF = 0
+    or a                            ; CF=0
     ret
 
 .checkGotIP:
-    ; Buscar "GOT IP" (6 chars)
-    ld a, (async_buf_idx)
-    cp 6
-    jr c, .notFoundIP
-    
-    ; Comparar últimos 6 caracteres con "GOT IP"
-    ld a, (async_buf_idx)
-    sub 6
-    ld e, a
-    ld d, 0
-    ld hl, async_buffer
-    add hl, de
+    ld hl, async6
     ld de, .pat_gotip
     ld b, 6
-.cmpIP
+.cmpi
     ld a, (de)
     cp (hl)
     jr nz, .notFoundIP
     inc hl
     inc de
-    djnz .cmpIP
-    
-    ; ¡Encontrado GOT IP!
+    djnz .cmpi
+
+    ; Encontrado "GOT IP"
     ld a, 1
     ld (Wifi.is_connected), a
     xor a
-    ld (async_buf_idx), a       ; Resetear buffer
+    ld (async_cnt), a
     call setStatusConnected
-    ; Actualizar IP después de un pequeño delay
+
+    ; Pequeña espera para dar tiempo a que CIFSR sea coherente
     push bc
-    ld b, 25
+    ld b, 40
 .ipWait
     halt
     djnz .ipWait
     pop bc
+
     call ipShowConnected
     scf
     ret
 
 .notFoundIP
-    or a                        ; CF = 0
+    or a                            ; CF=0
     ret
 
 .pat_discon db "DISCON"
 .pat_gotip  db "GOT IP"
 
-ASYNC_BUF_SIZE = 16
-async_buffer    ds ASYNC_BUF_SIZE
-async_buf_idx   db 0
+async6          ds 6
+async_cnt       db 0
 
 ; ============================================
 ; Mensajes y datos
@@ -2558,6 +2565,8 @@ offset          db 0
 is_open_network db 0
 show_password   db 0                ; Flag para mostrar contraseña
 selected_ssid_ptr dw 0              ; Puntero al SSID seleccionado
+ui_async_div db 0
+
 
 msg_head
     ds 13, 196 

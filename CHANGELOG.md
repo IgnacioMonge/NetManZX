@@ -173,3 +173,19 @@ This is the first release of **NetManZX**, a complete rewrite and enhancement of
 - Added `selected_ssid_ptr` variable to avoid recalculating SSID pointer
 - New messages: `msg_edit_cancel`, `msg_retry_suffix`
 - New async detection infrastructure: `checkAsyncWifi`, `async_buffer`, pattern matching for ESP events
+
+## v1.2
+
+### UI / Navigation
+- Significantly reduced keyboard input latency in the network list.
+- UI loop optimized to prioritize keyboard handling over background tasks.
+- Restored full key mappings: arrow keys and Q/A for navigation, O/P for page up/down, and all action keys (R, H, D, X, Enter, Esc).
+- Removed obsolete and duplicated UI loop code.
+
+### Rendering
+- Optimized `Page Down` behavior to avoid unnecessary full list redraws.
+- Full list is redrawn only when a page change is required.
+
+### Stability & UX
+- Smoother and more responsive navigation in long network lists.
+- Eliminated unnecessary screen flicker when jumping to the end of the list.
