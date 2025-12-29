@@ -17,9 +17,12 @@ NetManZX is based on the original [netman-zx](https://github.com/nihirash/netman
 ## Features
 
 - **Network Scanning**: Automatically discovers available WiFi networks
+- **Hidden Network Support**: Manually enter SSID for networks that don't broadcast their name
 - **Visual Signal Strength**: 8-level RSSI bars show signal quality for each network
 - **Smart Connection Detection**: Detects if already connected and offers to keep or reconfigure
 - **Password Entry**: Full keyboard support with show/hide password toggle
+- **Disconnect Option**: Disconnect from current network without exiting the application
+- **Real-time Status Monitoring**: Automatically detects connection drops and reconnections
 - **Detailed Error Messages**: Specific feedback for connection failures (wrong password, AP not found, timeout, etc.)
 - **Diagnostics Menu**: 
   - Ping test with configurable IP address
@@ -68,7 +71,7 @@ sjasmplus -DTAP main.asm
 ### Loading
 
 **+3DOS:**
-Put NETMANZX.BAS file loder and netmanzx.cod in the same directory. Run NETMANZX.bas file.
+Put NETMANZX.BAS file loader and netmanzx.cod in the same directory. Run NETMANZX.BAS from the esxDOS file browser.
 
 **TAP (tape/emulators):**
 Simply load the TAP file - the BASIC loader will auto-run and load the program automatically.
@@ -78,7 +81,7 @@ Simply load the TAP file - the BASIC loader will auto-run and load the program a
 1. **Load the program** on your Spectrum
 2. **Wait for network scan** - available networks will appear in a list
 3. **Navigate** using cursor keys (up/down) or O/P for page up/down
-4. **Select a network** with ENTER
+4. **Select a network** with ENTER (or press H for hidden networks)
 5. **Enter password** (if required) - use arrow up to toggle password visibility
 6. **Wait for connection** - detailed error messages help troubleshoot failures
 7. **Access diagnostics** by pressing 'D' from the network list
@@ -87,12 +90,15 @@ Simply load the TAP file - the BASIC loader will auto-run and load the program a
 
 | Key | Action |
 |-----|--------|
-| ↑/↓ | Navigate network list |
+| ↑/↓ or Q/A | Navigate network list |
 | O/P | Page Up/Down |
 | ENTER | Select network / Confirm |
 | EDIT | Cancel / Back |
+| H | Connect to hidden network (manual SSID entry) |
+| X | Disconnect from current network |
 | D | Diagnostics menu |
 | R | Rescan networks |
+| BREAK | Cancel connection attempt in progress |
 
 ### Diagnostics Menu
 
@@ -100,6 +106,10 @@ Simply load the TAP file - the BASIC loader will auto-run and load the program a
 - **2. Module info**: Display ESP8266 firmware version
 - **3. Network info**: Show current IP and MAC address
 - **4. UART baud rate**: Display current communication speed
+
+## Version History
+
+See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
 
 ## License
 

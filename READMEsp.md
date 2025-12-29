@@ -17,9 +17,12 @@ NetManZX está basado en el proyecto original [netman-zx](https://github.com/nih
 ## Características
 
 - **Escaneo de Redes**: Descubre automáticamente las redes WiFi disponibles
+- **Soporte de Redes Ocultas**: Introduce manualmente el SSID de redes que no emiten su nombre
 - **Intensidad de Señal Visual**: Barras RSSI de 8 niveles muestran la calidad de señal de cada red
 - **Detección Inteligente de Conexión**: Detecta si ya está conectado y ofrece mantener o reconfigurar
 - **Entrada de Contraseña**: Soporte completo de teclado con opción de mostrar/ocultar contraseña
+- **Opción de Desconexión**: Desconecta de la red actual sin salir de la aplicación
+- **Monitorización de Estado en Tiempo Real**: Detecta automáticamente caídas y reconexiones
 - **Mensajes de Error Detallados**: Información específica sobre fallos de conexión (contraseña incorrecta, AP no encontrado, timeout, etc.)
 - **Menú de Diagnósticos**: 
   - Test de ping con IP configurable
@@ -69,7 +72,6 @@ sjasmplus -DTAP main.asm
 
 **+3DOS:**
 Pon el fichero NETMANZX.BAS y netmanzx.cod en el mismo directorio. Ejecuta NETMANZX.BAS desde el navegador de ficheros de esxDOS.
-```
 
 **TAP (cinta/emuladores):**
 Simplemente carga el archivo TAP - el cargador BASIC se ejecutará automáticamente y cargará el programa.
@@ -79,7 +81,7 @@ Simplemente carga el archivo TAP - el cargador BASIC se ejecutará automáticame
 1. **Carga el programa** en tu Spectrum
 2. **Espera al escaneo de redes** - las redes disponibles aparecerán en una lista
 3. **Navega** usando las teclas de cursor (arriba/abajo) u O/P para página arriba/abajo
-4. **Selecciona una red** con ENTER
+4. **Selecciona una red** con ENTER (o pulsa H para redes ocultas)
 5. **Introduce la contraseña** (si es necesaria) - usa flecha arriba para mostrar/ocultar contraseña
 6. **Espera a la conexión** - los mensajes de error detallados ayudan a resolver problemas
 7. **Accede a diagnósticos** pulsando 'D' desde la lista de redes
@@ -88,12 +90,15 @@ Simplemente carga el archivo TAP - el cargador BASIC se ejecutará automáticame
 
 | Tecla | Acción |
 |-------|--------|
-| ↑/↓ | Navegar lista de redes |
+| ↑/↓ o Q/A | Navegar lista de redes |
 | O/P | Página Arriba/Abajo |
 | ENTER | Seleccionar red / Confirmar |
 | EDIT | Cancelar / Volver |
+| H | Conectar a red oculta (introducir SSID manualmente) |
+| X | Desconectar de la red actual |
 | D | Menú de diagnósticos |
 | R | Reescanear redes |
+| BREAK | Cancelar intento de conexión en curso |
 
 ### Menú de Diagnósticos
 
@@ -101,6 +106,10 @@ Simplemente carga el archivo TAP - el cargador BASIC se ejecutará automáticame
 - **2. Module info**: Mostrar versión del firmware del ESP8266
 - **3. Network info**: Mostrar IP y dirección MAC actual
 - **4. UART baud rate**: Mostrar velocidad de comunicación actual
+
+## Historial de Versiones
+
+Ver [CHANGELOG.md](CHANGELOG.md) para el historial detallado de versiones.
 
 ## Licencia
 
