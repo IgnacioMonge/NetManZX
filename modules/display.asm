@@ -38,7 +38,7 @@ setAttrPartial:
 	and	252
 	ld	l,a
 
-    ld b, 22            ; Solo 22 celdas (dejar espacio para barras)
+    ld b, 22            ; 22 celdas de atributo (celdas 0-21, barras en 22-31)
     ld a, c
 .loop
     ld (hl), a

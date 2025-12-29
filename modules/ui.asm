@@ -308,10 +308,11 @@ renderList:
     call Display.putStr
     push hl
     
-    ; Mover cursor a columna fija (31) para RSSI
+    ; Mover cursor a columna fija (30) para RSSI
+    ; (1 lock + 10 barras = 11 chars, cols 30-40)
     ld a, (current_line)
     ld h, a
-    ld l, 31                ; Columna 31
+    ld l, 30                ; Columna 30 en sistema 42-col
     ld (Display.coords), hl
     
     ; Mostrar indicador RSSI
@@ -390,22 +391,26 @@ printRssi:
     ld a, (rssi_value)
     and #7F                 ; A = RSSI (0-127)
     
-    ; Calcular barras (1-8) según RSSI
-    ld b, 8                 ; Empezar con máximo
-    cp 40 : jr c, .gotBars  ; < 40: 8 barras
+    ; Calcular barras (1-10) según RSSI
+    ld b, 10                ; Empezar con máximo
+    cp 35 : jr c, .gotBars  ; < 35: 10 barras (excelente)
     dec b
-    cp 50 : jr c, .gotBars
+    cp 42 : jr c, .gotBars  ; < 42: 9 barras
     dec b
-    cp 58 : jr c, .gotBars
+    cp 49 : jr c, .gotBars  ; < 49: 8 barras
     dec b
-    cp 65 : jr c, .gotBars
+    cp 55 : jr c, .gotBars  ; < 55: 7 barras
     dec b
-    cp 70 : jr c, .gotBars
+    cp 61 : jr c, .gotBars  ; < 61: 6 barras
     dec b
-    cp 75 : jr c, .gotBars
+    cp 67 : jr c, .gotBars  ; < 67: 5 barras
     dec b
-    cp 82 : jr c, .gotBars
-    dec b                   ; 1 barra
+    cp 72 : jr c, .gotBars  ; < 72: 4 barras
+    dec b
+    cp 77 : jr c, .gotBars  ; < 77: 3 barras
+    dec b
+    cp 83 : jr c, .gotBars  ; < 83: 2 barras
+    dec b                   ; >= 83: 1 barra (muy débil)
     
 .gotBars
     ld a, b
@@ -424,7 +429,7 @@ printRssi:
     jr .drawFull
     
 .drawEmpty
-    ld a, 8
+    ld a, 10
     sub c
     jr z, .colorBars
     ld b, a
@@ -439,7 +444,7 @@ printRssi:
 
 .colorBars
     ; Colorear la zona de barras en verde
-    ; current_line tiene la línea actual (5-14)
+    ; current_line tiene la línea actual (6-14)
     ld a, (current_line)
     ld l, a
     ld h, 0
@@ -448,12 +453,12 @@ printRssi:
     add hl, hl              ; x8
     add hl, hl              ; x16
     add hl, hl              ; x32
-    ld de, #5800 + 23       ; Base + columna 23
+    ld de, #5800 + 22       ; Base + columna 22 (cubre cols texto 30-40)
     add hl, de              ; HL = dirección del atributo
     
-    ; Colorear 9 celdas en verde (columnas 23-31)
+    ; Colorear 10 celdas en verde (columnas 22-31)
     ld a, 004o              ; Verde sobre negro (sin brillo)
-    ld b, 9
+    ld b, 10
 .colorLoop
     ld (hl), a
     inc hl

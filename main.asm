@@ -48,7 +48,7 @@ start:
     call Display.putStrLog
     
     call Wifi.init
-    jr c, .init_failed
+    jp c, .init_failed
     
     ; Espera de calentamiento
     ld b, 125
@@ -83,6 +83,7 @@ start:
     xor a
     ld (UI.cursor_position), a
     ld (UI.offset), a
+    ld (.scan_fail_reason), a    ; 0 = sin fallo, 1 = timeout, 2 = 0 redes
     
     ld b, 5                 ; 5 intentos
     
@@ -96,17 +97,38 @@ start:
     
     call Wifi.getList
     
-    jr c, .retry_wait       ; Error -> Retry
+    jr c, .scan_timeout     ; CF=1 -> Error de comunicación
     
     ld a, (Wifi.networks_count)
     and a
     jr nz, .scan_success    ; Encontradas -> Salir
     
+    ; 0 redes encontradas
+    ld a, 2
+    ld (.scan_fail_reason), a
+    jr .retry_wait
+
+.scan_timeout
+    ld a, 1
+    ld (.scan_fail_reason), a
+    
 .retry_wait
     pop bc
     push bc
     
-    ld b, 25
+    ; Mostrar mensaje de reintento según tipo de fallo
+    gotoXY 1, 5
+    ld a, (.scan_fail_reason)
+    cp 1
+    jr nz, .show_no_networks
+    ld hl, .msg_esp_timeout
+    jr .show_retry_msg
+.show_no_networks
+    ld hl, .msg_no_networks
+.show_retry_msg
+    call Display.putStr
+    
+    ld b, 50                ; Espera más larga para ver mensaje
 .w  halt
     djnz .w
     
@@ -117,8 +139,26 @@ start:
 
 .scan_success
     pop bc
+    xor a
+    ld (.scan_fail_reason), a    ; Éxito
 
 .end_scan
+    ; Si no hay redes, mostrar razón en el log
+    ld a, (Wifi.networks_count)
+    and a
+    jr nz, .show_list
+    
+    ld a, (.scan_fail_reason)
+    cp 1
+    jr nz, .log_no_networks
+    ld hl, .msg_log_timeout
+    jr .log_reason
+.log_no_networks
+    ld hl, .msg_log_empty
+.log_reason
+    call Display.putStrLog
+
+.show_list
     call UI.renderList
     jp   UI.uiLoop
 
@@ -149,7 +189,13 @@ start:
 .msg_scanning   db "Scanning...", 0
 .msg_err_init   db "WiFi Init Failed", 0
 .msg_exit       db " Press key", 0
+.msg_esp_timeout db "ESP not responding, retrying...", 0
+.msg_no_networks db "No networks found, retrying...", 0
+.msg_log_timeout db "Scan failed: ESP timeout", 13, 0
+.msg_log_empty   db "Scan complete: no networks", 13, 0
 
+; Variables
+.scan_fail_reason db 0          ; 0=ok, 1=timeout, 2=empty
 saved_sp dw 0
 
 program_end:

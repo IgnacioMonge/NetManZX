@@ -28,7 +28,7 @@
 
 ; Constantes de configuración
 MAX_NETWORKS    = 20          ; Máximo número de redes a almacenar
-MAX_SSID_LEN    = 32          ; Longitud máxima de SSID
+MAX_SSID_LEN    = 29          ; Longitud máxima de SSID para display (barras en col 30)
 BUFFER_END      = buffer + (MAX_NETWORKS * (MAX_SSID_LEN + 1))
 BUFFER_SIZE     = (MAX_NETWORKS * (MAX_SSID_LEN + 1))
 MAX_RETRIES     = 3           ; Reintentos en init
@@ -518,20 +518,38 @@ getIP:
     inc hl
     djnz .clear
 
+    ; Límite de bytes para evitar cuelgue
+    ld bc, 500                  ; Máximo 500 bytes
+    
     EspCmd "AT+CIFSR"
 .loop
-    call Uart.read
+    ; Verificar límite
+    ld a, b
+    or c
+    jr z, .noIP                 ; Límite alcanzado
+    dec bc
+    
+    call Uart.readTimeout
+    jr nc, .noIP                ; Timeout
     cp 'P' : jr z, .infoStart
     jr .loop
 .infoStart
-    call Uart.read : cp ',' : jr nz, .loop
-    call Uart.read : cp '"' : jr nz, .loop
+    call Uart.readTimeout : jr nc, .noIP
+    cp ',' : jr nz, .loop
+    call Uart.readTimeout : jr nc, .noIP
+    cp '"' : jr nz, .loop
     ld hl, ip_buffer
+    ld d, 16                    ; Límite de caracteres de IP
 .copyIpLoop
     push hl
-    call Uart.read
+    push de
+    call Uart.readTimeout
+    pop de
     pop hl
+    jr nc, .noIP                ; Timeout
     cp '"' : jr z, .finish
+    dec d
+    jr z, .noIP                 ; IP demasiado larga
     ld (hl), a
     inc hl
     jr .copyIpLoop
