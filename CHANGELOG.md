@@ -123,3 +123,47 @@ This is the first release of **NetManZX**, a complete rewrite and enhancement of
 ---
 
 *First Contact - Because every Spectrum deserves to reach the cloud* ☁️
+
+
+## v1.1 - 2025-12-29
+
+### New Features
+
+- **Hidden Network Support (H key)**: Added ability to manually enter SSID for hidden networks that don't appear in scan results. Press 'H' from the network list to enter a custom SSID and password.
+
+- **Disconnect Option (X key)**: New option to disconnect from the current WiFi network without exiting the application. Only available when connected.
+
+- **Async WiFi Status Detection**: The application now automatically detects connection drops and reconnections by monitoring ESP async messages (`WIFI DISCONNECT`, `WIFI GOT IP`). The status bar updates in real-time without user intervention.
+
+- **Already Connected Warning**: When selecting a network you're already connected to, the application now shows a warning message instead of attempting to reconnect.
+
+### UI Improvements
+
+- **Refined Connection Retry Display**: Changed retry message format from two separate lines to a single line: `"Connecting (2/3)... Retry"`. The "Retry" suffix only appears from the second attempt onwards.
+
+- **Added Spacing in Network List**: Added a blank line between the menu options and the network list for better visual separation.
+
+- **Added Spacing in Password Entry**: Added a blank line between the banner and "Selected SSID:" when entering a password.
+
+- **Consistent Cancel Key**: Standardized on EDIT key for canceling text input (SSID and password entry). BREAK key is now reserved exclusively for canceling connection attempts in progress.
+
+- **Status Bar Flicker Fix**: Fixed an issue where the WiFi status indicator ("Connected"/"Disconnected") would flicker when navigating between menus. The status bar now only updates when the connection state actually changes.
+
+- **Dynamic Help Menu**: The help line now shows different options based on connection state:
+  - Disconnected: `Q/A:Nav O/P:Page R:Refresh D:Diag`
+  - Connected: `Q/A:Nav R:Refresh D:Diag X:Disconn`
+
+### Technical Changes
+
+- `PER_PAGE` reduced from 10 to 9 to accommodate new UI layout
+- Network list now starts at line 6 (was line 5)
+- Scroll indicators adjusted accordingly
+- Main loop changed to non-blocking keyboard read to support async WiFi monitoring
+- Added 16-byte circular buffer for async UART message parsing
+
+### Internal Refactoring
+
+- `topClean` no longer redraws the status bar unnecessarily
+- Added `selected_ssid_ptr` variable to avoid recalculating SSID pointer
+- New messages: `msg_edit_cancel`, `msg_retry_suffix`
+- New async detection infrastructure: `checkAsyncWifi`, `async_buffer`, pattern matching for ESP events

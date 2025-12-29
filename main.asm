@@ -7,7 +7,7 @@
     ENDIF
 
     ; Definición global de versión
-    DEFINE VERSION_STRING "v1.0"
+    DEFINE VERSION_STRING "v1.1"
 
 ; Constantes globales 
 buffer = #C000
