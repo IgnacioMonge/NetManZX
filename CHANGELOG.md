@@ -139,7 +139,7 @@ This is the first release of **NetManZX**, a complete rewrite and enhancement of
 
 ### UI Improvements
 
-- **Refined Connection Retry Display**: Changed retry message format from two separate lines to a single line: `"Connecting (2/3)... Retry"`. The "Retry" suffix only appears from the second attempt onwards.
+- **Refined Connection Retry Display**: Changed retry message format to show "Retry" only between connection attempts (after failure, during wait), not during the attempt itself. The sequence is now: `Connecting (1/3)...` → fail → `Connecting (1/3)... Retry` → wait → `Connecting (2/3)...` → etc.
 
 - **Added Spacing in Network List**: Added a blank line between the menu options and the network list for better visual separation.
 

@@ -892,13 +892,6 @@ manualSSID:
     ld hl, msg_conn_attempt
     call Display.putStr
     
-    ld a, (conn_retries)
-    cp 3
-    jr z, .noRetryMsgManual
-    ld hl, msg_retry_suffix
-    call Display.putStr
-.noRetryMsgManual
-    
     gotoXY 1, 12
     ld hl, msg_break_cancel
     call Display.putStr
@@ -929,7 +922,11 @@ manualSSID:
     
     jr nc, .connSuccessManual
     
-    ; Fallo - reintentar
+    ; Fallo - mostrar "Retry" junto al mensaje actual
+    ld hl, msg_retry_suffix
+    call Display.putStr
+    
+    ; Verificar si quedan reintentos
     ld a, (conn_retries)
     dec a
     ld (conn_retries), a
@@ -1354,7 +1351,7 @@ selectItem:
     djnz .clrConnLine
     
     gotoXY 1, 10
-    ; Mostrar intento actual
+    ; Mostrar intento actual (sin Retry - eso se muestra después del fallo)
     ld a, (conn_retries)
     ld b, a
     ld a, 4
@@ -1363,14 +1360,6 @@ selectItem:
     ld (msg_conn_attempt + 12), a
     ld hl, msg_conn_attempt
     call Display.putStr
-    
-    ; Mostrar "Retry" si no es el primer intento
-    ld a, (conn_retries)
-    cp 3
-    jr z, .noRetryMsg           ; Primer intento, no mostrar Retry
-    ld hl, msg_retry_suffix
-    call Display.putStr
-.noRetryMsg
     
     ; Mostrar opción de cancelar (en línea 12)
     gotoXY 1, 12
@@ -1410,7 +1399,11 @@ selectItem:
     
     jr nc, .connSuccess         ; CF=0 -> OK
     
-    ; Fallo - verificar si quedan reintentos
+    ; Fallo - mostrar "Retry" junto al mensaje actual
+    ld hl, msg_retry_suffix
+    call Display.putStr
+    
+    ; Verificar si quedan reintentos
     ld a, (conn_retries)
     dec a
     ld (conn_retries), a
