@@ -284,6 +284,47 @@ calc
       inc l
       jr 2b
 
+; Limpia exactamente 6 píxeles de una celda en la posición actual de coords
+; Usa la misma lógica de máscaras que drawC para no afectar celdas adyacentes
+clearCell:
+    ld hl, (coords)
+    ld b, l                     ; B = columna (0-41)
+    call calc                   ; L = byte column, A = pixel offset
+    ld d, h                     ; D = línea
+    ld e, l                     ; E = byte column
+    ld (.rot_tmp), a
+    call findAddr               ; IX = dirección de pantalla
+    
+    ; Calcular máscara rotando #03FF (igual que drawC)
+    ld a, 0
+.rot_tmp = $ - 1
+    ld hl, #03ff
+    and a
+    jr z, .gotMask
+.rotMask
+    push af
+    ld a, l
+    rrca
+    rr h
+    rr l
+    pop af
+    dec a
+    jr nz, .rotMask
+.gotMask
+    ; H = mask para byte izquierdo (ix), L = mask para byte derecho (ix+1)
+    ; Limpiar 8 scanlines aplicando AND con las máscaras
+    ld b, 8
+.clearLoop
+    ld a, (ix + 1)
+    and l
+    ld (ix + 1), a
+    ld a, (ix)
+    and h
+    ld (ix), a
+    inc ixh
+    djnz .clearLoop
+    ret
+
 coords dw 0
 font incbin "font.bin"    
     endmodule

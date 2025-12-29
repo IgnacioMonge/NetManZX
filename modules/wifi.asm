@@ -541,23 +541,36 @@ getIP:
     inc hl
     djnz .clear
 
+    ld bc, 500                  ; Límite de bytes
     EspCmd "AT+CIFSR"
 .loop
-    call Uart.read
+    dec bc
+    ld a, b
+    or c
+    jr z, .timeout              ; Límite alcanzado
+    call Uart.readTimeout
+    jr nc, .timeout
     cp 'P' : jr z, .infoStart
     jr .loop
 .infoStart
-    call Uart.read : cp ',' : jr nz, .loop
-    call Uart.read : cp '"' : jr nz, .loop
+    call Uart.readTimeout : jr nc, .timeout
+    cp ',' : jr nz, .loop
+    call Uart.readTimeout : jr nc, .timeout
+    cp '"' : jr nz, .loop
     ld hl, ip_buffer
+    ld b, 16                    ; Límite de caracteres IP
 .copyIpLoop
     push hl
-    call Uart.read
+    push bc
+    call Uart.readTimeout
+    pop bc
     pop hl
+    jr nc, .timeout
     cp '"' : jr z, .finish
     ld (hl), a
     inc hl
-    jr .copyIpLoop
+    djnz .copyIpLoop
+    ; IP demasiado larga, truncar
 .finish
     xor a
     ld (hl), a
@@ -572,6 +585,7 @@ getIP:
     or a                    ; CF = 0
     call uartUnlock
     ret
+.timeout
 .noIP
     call uartUnlock
     scf                     ; CF = 1

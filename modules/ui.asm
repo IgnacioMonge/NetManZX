@@ -217,6 +217,7 @@ clearPassBuffer:
     ldir
     xor a
     ld (pass_len), a
+    ld (pass_cursor), a
     ret
 
 topClean:
@@ -308,10 +309,11 @@ renderList:
     call Display.putStr
     push hl
     
-    ; Mover cursor a columna fija (31) para RSSI
+    ; Mover cursor a columna fija (30) para RSSI
+    ; (1 lock + 10 barras = 11 chars, cols 30-40)
     ld a, (current_line)
     ld h, a
-    ld l, 31                ; Columna 31
+    ld l, 30                ; Columna 30 en sistema 42-col
     ld (Display.coords), hl
     
     ; Mostrar indicador RSSI
@@ -390,22 +392,26 @@ printRssi:
     ld a, (rssi_value)
     and #7F                 ; A = RSSI (0-127)
     
-    ; Calcular barras (1-8) según RSSI
-    ld b, 8                 ; Empezar con máximo
-    cp 40 : jr c, .gotBars  ; < 40: 8 barras
+    ; Calcular barras (1-10) según RSSI
+    ld b, 10                ; Empezar con máximo
+    cp 35 : jr c, .gotBars  ; < 35: 10 barras (excelente)
     dec b
-    cp 50 : jr c, .gotBars
+    cp 42 : jr c, .gotBars  ; < 42: 9 barras
     dec b
-    cp 58 : jr c, .gotBars
+    cp 49 : jr c, .gotBars  ; < 49: 8 barras
     dec b
-    cp 65 : jr c, .gotBars
+    cp 55 : jr c, .gotBars  ; < 55: 7 barras
     dec b
-    cp 70 : jr c, .gotBars
+    cp 61 : jr c, .gotBars  ; < 61: 6 barras
     dec b
-    cp 75 : jr c, .gotBars
+    cp 67 : jr c, .gotBars  ; < 67: 5 barras
     dec b
-    cp 82 : jr c, .gotBars
-    dec b                   ; 1 barra
+    cp 72 : jr c, .gotBars  ; < 72: 4 barras
+    dec b
+    cp 77 : jr c, .gotBars  ; < 77: 3 barras
+    dec b
+    cp 83 : jr c, .gotBars  ; < 83: 2 barras
+    dec b                   ; >= 83: 1 barra (muy débil)
     
 .gotBars
     ld a, b
@@ -424,7 +430,7 @@ printRssi:
     jr .drawFull
     
 .drawEmpty
-    ld a, 8
+    ld a, 10
     sub c
     jr z, .colorBars
     ld b, a
@@ -439,7 +445,7 @@ printRssi:
 
 .colorBars
     ; Colorear la zona de barras en verde
-    ; current_line tiene la línea actual (5-14)
+    ; current_line tiene la línea actual (6-14)
     ld a, (current_line)
     ld l, a
     ld h, 0
@@ -448,12 +454,12 @@ printRssi:
     add hl, hl              ; x8
     add hl, hl              ; x16
     add hl, hl              ; x32
-    ld de, #5800 + 23       ; Base + columna 23
+    ld de, #5800 + 22       ; Base + columna 22 (cubre cols texto 30-40)
     add hl, de              ; HL = dirección del atributo
     
-    ; Colorear 9 celdas en verde (columnas 23-31)
+    ; Colorear 10 celdas en verde (columnas 22-31)
     ld a, 004o              ; Verde sobre negro (sin brillo)
-    ld b, 9
+    ld b, 10
 .colorLoop
     ld (hl), a
     inc hl
@@ -545,16 +551,15 @@ uiLoop:
     jr uiLoop
 
 .noKey:
-    ld a,(ui_async_div)
+    ld a, (ui_async_div)
     inc a
-    ld (ui_async_div),a
-    cp 4               ; 4 frames ≈ 80 ms (ajusta a 6/8 si quieres)
+    ld (ui_async_div), a
+    cp 4                           ; 4 frames ≈ 80 ms
     jr nz, uiLoop
     xor a
-    ld (ui_async_div),a
+    ld (ui_async_div), a
     call checkAsyncWifi
     jr uiLoop
-
 
 rescan:
     call hideCursor
@@ -634,6 +639,7 @@ manualSSID:
     djnz .clearSSID
     xor a
     ld (manual_ssid_len), a
+    ld (manual_ssid_cursor), a
     
     ; Mostrar título
     gotoXY 0, 3
@@ -646,7 +652,7 @@ manualSSID:
     
     ; Mostrar mensaje de cancelación
     gotoXY 0, 8
-    ld hl, msg_edit_cancel
+    ld hl, .msg_ssid_help
     call Display.putStr
     
     setLineColor 6, 171o
@@ -654,7 +660,7 @@ manualSSID:
 .drawSSID
     gotoXY 1, 6
     ; Limpiar línea
-    ld b, 32
+    ld b, 34
 .clearSSIDLine
     ld a, ' '
     push bc
@@ -662,10 +668,61 @@ manualSSID:
     pop bc
     djnz .clearSSIDLine
     
+    ; Dibujar: [chars 0..cursor-1] [cursor] [chars cursor..len-1]
     gotoXY 1, 6
+    
+    ; Parte 1: chars antes del cursor
+    ld a, (manual_ssid_cursor)
+    and a
+    jr z, .ssidDrawCursor
+    
+    ld b, a
     ld hl, manual_ssid_buffer
-    call Display.putStr
-    ld a, 219 : call Display.putC    ; Cursor
+.ssidDrawBefore
+    push bc
+    push hl
+    ld a, (hl)
+    call Display.putC
+    pop hl
+    inc hl
+    pop bc
+    djnz .ssidDrawBefore
+
+.ssidDrawCursor
+    ; Parte 2: cursor
+    ld a, 219
+    call Display.putC
+    
+    ; Parte 3: chars después del cursor
+    ld a, (manual_ssid_len)
+    ld b, a
+    ld a, (manual_ssid_cursor)
+    cp b
+    jr nc, .waitSSIDKey         ; cursor >= len, no hay más chars
+    
+    ; Cantidad = len - cursor
+    ld c, a
+    ld a, b
+    sub c
+    jr z, .waitSSIDKey
+    ld b, a
+    
+    ; HL = &buffer[cursor]
+    ld a, (manual_ssid_cursor)
+    ld hl, manual_ssid_buffer
+    ld d, 0
+    ld e, a
+    add hl, de
+    
+.ssidDrawAfter
+    push bc
+    push hl
+    ld a, (hl)
+    call Display.putC
+    pop hl
+    inc hl
+    pop bc
+    djnz .ssidDrawAfter
     
 .waitSSIDKey
     ld b, 5
@@ -678,61 +735,170 @@ manualSSID:
     jr z, .waitSSIDKey
     
     ; Cancelar con EDIT
-    cp 7 : jr z, .cancelManual
+    cp 7 : jp z, .cancelManual
+    
+    ; Cursor izquierda
+    cp 8 : jp z, .ssidCursorLeft
+    
+    ; Cursor derecha
+    cp 9 : jp z, .ssidCursorRight
     
     ; Borrar
-    cp Keyboard.KEY_BS : jr z, .removeSSIDChar
+    cp Keyboard.KEY_BS : jp z, .removeSSIDChar
     
     ; Enter = continuar a contraseña
-    cp 13 : jr z, .ssidEntered
+    cp 13 : jp z, .ssidEntered
     
     ; Filtrar caracteres válidos (32-126)
-    cp 32 : jr c, .waitSSIDKey
-    cp 127 : jr nc, .waitSSIDKey
+    cp 32 : jp c, .waitSSIDKey
+    cp 127 : jp nc, .waitSSIDKey
     
-    ; Añadir carácter
-    ld b, a
+    ; === Insertar carácter ===
+    ld c, a                         ; Guardar char
     ld a, (manual_ssid_len)
     cp 32                           ; Max 32 chars
-    jr nc, .waitSSIDKey
+    jp nc, .waitSSIDKey
     
+    ; Verificar si insertamos al final o en medio
+    ld a, (manual_ssid_cursor)
+    ld b, a
+    ld a, (manual_ssid_len)
+    cp b
+    jr z, .ssidInsertAtEnd
+    
+    ; Insertar en medio: desplazar caracteres a la derecha
+    ld a, (manual_ssid_len)
+    ld b, a
+    ld a, (manual_ssid_cursor)
+    ld e, a
+.ssidShiftRight
+    ld a, b
+    cp e
+    jr z, .ssidDoInsert
+    dec b
+    ld hl, manual_ssid_buffer
+    ld d, 0
+    push de
+    ld e, b
+    add hl, de
+    ld a, (hl)
+    inc hl
+    ld (hl), a
+    pop de
+    jr .ssidShiftRight
+
+.ssidInsertAtEnd
+.ssidDoInsert
+    ; Insertar carácter
+    ld a, (manual_ssid_cursor)
     ld hl, manual_ssid_buffer
     ld d, 0
     ld e, a
     add hl, de
-    ld (hl), b
-    inc hl
-    xor a
-    ld (hl), a
+    ld (hl), c
+    
+    ; Incrementar longitud
     ld a, (manual_ssid_len)
     inc a
     ld (manual_ssid_len), a
-    jr .drawSSID
-
-.removeSSIDChar
-    ld a, (manual_ssid_len)
-    and a
-    jr z, .waitSSIDKey
-    dec a
-    ld (manual_ssid_len), a
+    
+    ; Poner null terminator
     ld hl, manual_ssid_buffer
     ld d, 0
     ld e, a
     add hl, de
     xor a
     ld (hl), a
-    jr .drawSSID
+    
+    ; Incrementar cursor
+    ld a, (manual_ssid_cursor)
+    inc a
+    ld (manual_ssid_cursor), a
+    jp .drawSSID
+
+.ssidCursorLeft
+    ld a, (manual_ssid_cursor)
+    and a
+    jp z, .waitSSIDKey
+    dec a
+    ld (manual_ssid_cursor), a
+    jp .drawSSID
+
+.ssidCursorRight
+    ld a, (manual_ssid_cursor)
+    ld b, a
+    ld a, (manual_ssid_len)
+    cp b
+    jp z, .waitSSIDKey
+    ld a, (manual_ssid_cursor)
+    inc a
+    ld (manual_ssid_cursor), a
+    jp .drawSSID
+
+.removeSSIDChar
+    ld a, (manual_ssid_cursor)
+    and a
+    jp z, .waitSSIDKey
+    
+    ; Verificar si borramos al final o en medio
+    ld a, (manual_ssid_cursor)
+    ld b, a
+    ld a, (manual_ssid_len)
+    cp b
+    jr z, .ssidDeleteAtEnd
+    
+    ; Borrar en medio: desplazar caracteres a la izquierda
+    ld a, (manual_ssid_cursor)
+    ld b, a
+    ld a, (manual_ssid_len)
+    ld c, a
+.ssidShiftLeft
+    ld a, b
+    cp c
+    jr z, .ssidFinishDelete
+    ld hl, manual_ssid_buffer
+    ld d, 0
+    ld e, b
+    add hl, de
+    ld a, (hl)
+    dec hl
+    ld (hl), a
+    inc b
+    jr .ssidShiftLeft
+
+.ssidDeleteAtEnd
+.ssidFinishDelete
+    ; Decrementar longitud
+    ld a, (manual_ssid_len)
+    dec a
+    ld (manual_ssid_len), a
+    
+    ; Poner null terminator
+    ld hl, manual_ssid_buffer
+    ld d, 0
+    ld e, a
+    add hl, de
+    xor a
+    ld (hl), a
+    
+    ; Decrementar cursor
+    ld a, (manual_ssid_cursor)
+    dec a
+    ld (manual_ssid_cursor), a
+    jp .drawSSID
 
 .cancelManual
     setLineColor 6, 107o
     call renderList
     jp uiLoop
 
+.msg_ssid_help db "EDIT=cancel, L/R=move cursor", 0
+
 .ssidEntered
     ; Verificar que hay SSID
     ld a, (manual_ssid_len)
     and a
-    jr z, .waitSSIDKey              ; SSID vacío, seguir esperando
+    jp z, .waitSSIDKey              ; SSID vacío, seguir esperando
     
     ; Ahora pedir contraseña
     setLineColor 6, 107o
@@ -758,13 +924,14 @@ manualSSID:
     setLineColor 4, 071o : setLineColor 7, 171o
     xor a
     ld (show_password), a
+    ld (pass_cursor), a
     
     ; Usar el mismo código de entrada de contraseña
     jp .drawPassManual
 
 .drawPassManual
     gotoXY 1, 7
-    ld b, 32
+    ld b, 34
 .clearPassLine
     ld a, ' '
     push bc
@@ -772,30 +939,90 @@ manualSSID:
     pop bc
     djnz .clearPassLine
     
+    ; Dibujar: [chars 0..cursor-1] [cursor] [chars cursor..len-1]
     gotoXY 1, 7
+    
+    ; Parte 1: chars antes del cursor
+    ld a, (pass_cursor)
+    and a
+    jr z, .passDrawCursorManual
+    
+    ld b, a
+    ld hl, pass_buffer
+    
     ld a, (show_password)
     and a
-    jr nz, .showRealManual
+    jr nz, .passDrawRealBeforeManual
     
-    ; Mostrar asteriscos
-    ld a, (pass_len)
-    and a
-    jr z, .showCursorManual
-    ld b, a
-.showAsterManual
+.passDrawAsterBeforeManual
     push bc
+    push hl
     ld a, '*'
     call Display.putC
+    pop hl
+    inc hl
     pop bc
-    djnz .showAsterManual
-    jr .showCursorManual
+    djnz .passDrawAsterBeforeManual
+    jr .passDrawCursorManual
+    
+.passDrawRealBeforeManual
+    push bc
+    push hl
+    ld a, (hl)
+    call Display.putC
+    pop hl
+    inc hl
+    pop bc
+    djnz .passDrawRealBeforeManual
 
-.showRealManual
+.passDrawCursorManual
+    ; Parte 2: cursor
+    ld a, 219
+    call Display.putC
+    
+    ; Parte 3: chars después del cursor
+    ld a, (pass_len)
+    ld b, a
+    ld a, (pass_cursor)
+    cp b
+    jr nc, .waitKeyManual
+    
+    ld c, a
+    ld a, b
+    sub c
+    jr z, .waitKeyManual
+    ld b, a
+    
+    ld a, (pass_cursor)
     ld hl, pass_buffer
-    call Display.putStr
-
-.showCursorManual
-    ld a, 219 : call Display.putC
+    ld d, 0
+    ld e, a
+    add hl, de
+    
+    ld a, (show_password)
+    and a
+    jr nz, .passDrawRealAfterManual
+    
+.passDrawAsterAfterManual
+    push bc
+    push hl
+    ld a, '*'
+    call Display.putC
+    pop hl
+    inc hl
+    pop bc
+    djnz .passDrawAsterAfterManual
+    jr .waitKeyManual
+    
+.passDrawRealAfterManual
+    push bc
+    push hl
+    ld a, (hl)
+    call Display.putC
+    pop hl
+    inc hl
+    pop bc
+    djnz .passDrawRealAfterManual
 
 .waitKeyManual
     ld b, 5
@@ -807,30 +1034,91 @@ manualSSID:
     and a
     jr z, .waitKeyManual
     
-    cp Keyboard.KEY_UP : jr z, .toggleVisManual
+    cp Keyboard.KEY_UP : jp z, .toggleVisManual
     cp 7 : jp z, .cancelManual
-    cp Keyboard.KEY_BS : jr z, .removeCharManual
+    cp 8 : jp z, .passCursorLeftManual      ; LEFT
+    cp 9 : jp z, .passCursorRightManual     ; RIGHT
+    cp Keyboard.KEY_BS : jp z, .removeCharManual
     cp 13 : jp z, .connectManual
     cp 32 : jr c, .waitKeyManual
     cp 127 : jr nc, .waitKeyManual
     
-    ; Añadir carácter
-    ld b, a
+    ; === Insertar carácter ===
+    ld c, a                         ; Guardar char
     ld a, (pass_len)
     cp MAX_PASS_LEN
-    jr nc, .waitKeyManual
+    jp nc, .waitKeyManual
+    
+    ; Verificar si insertamos al final o en medio
+    ld a, (pass_cursor)
+    ld b, a
+    ld a, (pass_len)
+    cp b
+    jr z, .passInsertAtEndManual
+    
+    ; Insertar en medio: desplazar a la derecha
+    ld a, (pass_len)
+    ld b, a
+    ld a, (pass_cursor)
+    ld e, a
+.passShiftRightManual
+    ld a, b
+    cp e
+    jr z, .passDoInsertManual
+    dec b
+    ld hl, pass_buffer
+    ld d, 0
+    push de
+    ld e, b
+    add hl, de
+    ld a, (hl)
+    inc hl
+    ld (hl), a
+    pop de
+    jr .passShiftRightManual
+
+.passInsertAtEndManual
+.passDoInsertManual
+    ld a, (pass_cursor)
+    ld hl, pass_buffer
+    ld d, 0
+    ld e, a
+    add hl, de
+    ld (hl), c
+    
+    ld a, (pass_len)
+    inc a
+    ld (pass_len), a
     
     ld hl, pass_buffer
     ld d, 0
     ld e, a
     add hl, de
-    ld (hl), b
-    inc hl
     xor a
     ld (hl), a
-    ld a, (pass_len)
+    
+    ld a, (pass_cursor)
     inc a
-    ld (pass_len), a
+    ld (pass_cursor), a
+    jp .drawPassManual
+
+.passCursorLeftManual
+    ld a, (pass_cursor)
+    and a
+    jp z, .waitKeyManual
+    dec a
+    ld (pass_cursor), a
+    jp .drawPassManual
+
+.passCursorRightManual
+    ld a, (pass_cursor)
+    ld b, a
+    ld a, (pass_len)
+    cp b
+    jp z, .waitKeyManual
+    ld a, (pass_cursor)
+    inc a
+    ld (pass_cursor), a
     jp .drawPassManual
 
 .toggleVisManual
@@ -840,17 +1128,52 @@ manualSSID:
     jp .drawPassManual
 
 .removeCharManual
-    ld a, (pass_len)
+    ld a, (pass_cursor)
     and a
-    jr z, .waitKeyManual
+    jp z, .waitKeyManual
+    
+    ; Verificar si borramos al final o en medio
+    ld a, (pass_cursor)
+    ld b, a
+    ld a, (pass_len)
+    cp b
+    jr z, .passDeleteAtEndManual
+    
+    ; Borrar en medio: desplazar a la izquierda
+    ld a, (pass_cursor)
+    ld b, a
+    ld a, (pass_len)
+    ld c, a
+.passShiftLeftManual
+    ld a, b
+    cp c
+    jr z, .passFinishDeleteManual
+    ld hl, pass_buffer
+    ld d, 0
+    ld e, b
+    add hl, de
+    ld a, (hl)
+    dec hl
+    ld (hl), a
+    inc b
+    jr .passShiftLeftManual
+
+.passDeleteAtEndManual
+.passFinishDeleteManual
+    ld a, (pass_len)
     dec a
     ld (pass_len), a
+    
     ld hl, pass_buffer
     ld d, 0
     ld e, a
     add hl, de
     xor a
     ld (hl), a
+    
+    ld a, (pass_cursor)
+    dec a
+    ld (pass_cursor), a
     jp .drawPassManual
 
 .connectManual
@@ -1018,6 +1341,7 @@ manualSSID:
 
 manual_ssid_buffer ds 33
 manual_ssid_len    db 0
+manual_ssid_cursor db 0
 
 exitProgram:
     call Display.clrscr : ei : ret
@@ -1217,48 +1541,14 @@ selectItem:
     setLineColor 4, 071o : setLineColor 7, 171o
     xor a
     ld (show_password), a       ; Empezar ocultando
+    ld (pass_cursor), a         ; Cursor al inicio
     
-.drawPass
-    ; Dibujar contraseña (solo cuando hay cambios)
+    ; Dibujar línea inicial vacía con cursor
     gotoXY 1,7
-    ; Limpiar línea
-    ld b, 32
-.clearLine
-    ld a, ' '
-    push bc
-    call Display.putC
-    pop bc
-    djnz .clearLine
-    
-    gotoXY 1,7
-    
-    ; Mostrar según flag
-    ld a, (show_password)
-    and a
-    jr nz, .showReal
-    
-    ; Mostrar asteriscos
-    ld a, (pass_len)
-    and a
-    jr z, .showCursor
-    ld b, a
-.showAsterisks
-    push bc
-    ld a, '*'
-    call Display.putC
-    pop bc
-    djnz .showAsterisks
-    jr .showCursor
-    
-.showReal
-    ld hl, pass_buffer
-    call Display.putStr
-    
-.showCursor
-    ld a, 219 : call Display.putC
+    ld a, 219 : call Display.putC   ; Cursor
     
 .waitKey
-    ; Esperar tecla (no bloqueante) - bucle sin redibujar
+    ; Esperar tecla (no bloqueante)
     ld b, 5
 .waitLoop
     halt
@@ -1266,10 +1556,7 @@ selectItem:
     
     call Keyboard.inKeyNoWait
     and a
-    jp z, .waitKey              ; Sin tecla, seguir esperando (sin redibujar)
-    
-    ; Guardar tecla
-    ld c, a
+    jp z, .waitKey              ; Sin tecla, seguir esperando
     
     ; Toggle visibilidad con flecha arriba
     cp Keyboard.KEY_UP
@@ -1277,6 +1564,12 @@ selectItem:
     
     ; Cancelar con EDIT
     cp 7 : jp z, .cancel
+    
+    ; Mover cursor izquierda (KEY_LEFT = 8)
+    cp 8 : jp z, .cursorLeft
+    
+    ; Mover cursor derecha (KEY_RIGHT = 9)
+    cp 9 : jp z, .cursorRight
     
     ; Borrar
     cp Keyboard.KEY_BS : jp z, .removeChar
@@ -1288,44 +1581,535 @@ selectItem:
     cp 32 : jp c, .waitKey
     cp 127 : jp nc, .waitKey
     
-    ; Añadir carácter
-    ld b, a
+    ; === INSERTAR CARÁCTER ===
+    ld c, a                     ; Guardar carácter en C
     ld a, (pass_len)
     cp MAX_PASS_LEN
     jp nc, .waitKey             ; Buffer lleno
     
+    ; Verificar si insertamos al final o en medio
+    ld a, (pass_cursor)
+    ld b, a
+    ld a, (pass_len)
+    cp b
+    jr z, .insertAtEnd
+    
+    ; Insertar en medio: desplazar caracteres a la derecha
+    ; Desde pass_len-1 hasta pass_cursor, mover cada uno +1
+    ld a, (pass_len)
+    ld b, a                     ; B = pass_len (contador)
+    ld a, (pass_cursor)
+    ld e, a                     ; E = pass_cursor
+    
+.shiftRight
+    ld a, b
+    cp e
+    jr z, .insertChar           ; Llegamos a la posición del cursor
+    
+    ; Copiar pass_buffer[b-1] a pass_buffer[b]
+    dec b
+    ld hl, pass_buffer
+    ld d, 0
+    push de
+    ld e, b
+    add hl, de                  ; HL = &pass_buffer[b-1]
+    ld a, (hl)
+    inc hl                      ; HL = &pass_buffer[b]
+    ld (hl), a
+    pop de
+    inc b
+    dec b
+    jr .shiftRight
+
+.insertAtEnd
+.insertChar
+    ; Insertar carácter en posición del cursor
+    ld a, (pass_cursor)
     ld hl, pass_buffer
     ld d, 0
     ld e, a
     add hl, de
-    ld (hl), b
-    inc hl
-    xor a
-    ld (hl), a                  ; Null terminator
+    ld (hl), c                  ; Guardar carácter
+    
+    ; Incrementar longitud
     ld a, (pass_len)
     inc a
     ld (pass_len), a
-    jp .drawPass                ; Redibujar
-
-.toggleVis
-    ld a, (show_password)
-    xor 1
-    ld (show_password), a
-    jp .drawPass                ; Redibujar
-
-.removeChar
-    ld a, (pass_len)
-    and a
-    jp z, .waitKey
-    dec a
-    ld (pass_len), a
+    
+    ; Poner null terminator
     ld hl, pass_buffer
     ld d, 0
     ld e, a
     add hl, de
     xor a
     ld (hl), a
-    jp .drawPass
+    
+    ; Incrementar cursor
+    ld a, (pass_cursor)
+    inc a
+    ld (pass_cursor), a
+    
+    ; Redibujar todo
+    call .redrawAll
+    jp .waitKey
+
+.cursorLeft
+    ld a, (pass_cursor)
+    and a
+    jp z, .waitKey              ; Ya está al inicio
+    
+    dec a
+    ld (pass_cursor), a
+    call .redrawAll
+    jp .waitKey
+
+.cursorRight
+    ld a, (pass_cursor)
+    ld b, a
+    ld a, (pass_len)
+    cp b
+    jp z, .waitKey              ; Ya está al final
+    
+    ld a, (pass_cursor)
+    inc a
+    ld (pass_cursor), a
+    call .redrawAll
+    jp .waitKey
+
+.toggleVis
+    ld a, (show_password)
+    xor 1
+    ld (show_password), a
+    ; Redibujar todo
+    call .redrawAll
+    jp .waitKey
+
+.removeChar
+    ld a, (pass_cursor)
+    and a
+    jp z, .waitKey              ; Nada que borrar antes del cursor
+    
+    ; Verificar si borramos al final o en medio
+    ld a, (pass_cursor)
+    ld b, a
+    ld a, (pass_len)
+    cp b
+    jr z, .deleteAtEnd
+    
+    ; Borrar en medio: desplazar caracteres a la izquierda
+    ; Desde pass_cursor hasta pass_len-1
+    ld a, (pass_cursor)
+    ld b, a                     ; B = posición actual
+    ld a, (pass_len)
+    ld c, a                     ; C = pass_len
+    
+.shiftLeft
+    ld a, b
+    cp c
+    jr z, .finishDelete
+    
+    ; Copiar pass_buffer[b] a pass_buffer[b-1]
+    ld hl, pass_buffer
+    ld d, 0
+    ld e, b
+    add hl, de                  ; HL = &pass_buffer[b]
+    ld a, (hl)
+    dec hl                      ; HL = &pass_buffer[b-1]
+    ld (hl), a
+    inc b
+    jr .shiftLeft
+
+.deleteAtEnd
+.finishDelete
+    ; Decrementar longitud
+    ld a, (pass_len)
+    dec a
+    ld (pass_len), a
+    
+    ; Poner null terminator
+    ld hl, pass_buffer
+    ld d, 0
+    ld e, a
+    add hl, de
+    xor a
+    ld (hl), a
+    
+    ; Decrementar cursor
+    ld a, (pass_cursor)
+    dec a
+    ld (pass_cursor), a
+    
+    ; Redibujar todo
+    call .redrawAll
+    jp .waitKey
+
+; --- Subrutinas de renderizado ---
+
+; Restaura el carácter en la posición actual del cursor
+; (limpia y dibuja el char que hay ahí, o espacio si cursor está al final)
+.restoreCharAtCursor
+    ; Posicionar
+    ld a, (pass_cursor)
+    add a, 1
+    ld l, a
+    ld h, 7
+    ld (Display.coords), hl
+    
+    ; Limpiar la celda
+    call Display.clearCell
+    
+    ; Reposicionar
+    ld a, (pass_cursor)
+    add a, 1
+    ld l, a
+    ld h, 7
+    ld (Display.coords), hl
+    
+    ; Ver si hay carácter en esta posición
+    ld a, (pass_cursor)
+    ld b, a
+    ld a, (pass_len)
+    cp b
+    jr z, .restoreSpace         ; Cursor al final, dibujar espacio
+    jr c, .restoreSpace         ; Seguridad
+    
+    ; Hay carácter, dibujar * o char
+    ld a, (show_password)
+    and a
+    jr z, .restoreAster
+    
+    ; Dibujar carácter real
+    ld a, (pass_cursor)
+    ld hl, pass_buffer
+    ld d, 0
+    ld e, a
+    add hl, de
+    ld a, (hl)
+    jp Display.putC
+    
+.restoreAster
+    ld a, '*'
+    jp Display.putC
+    
+.restoreSpace
+    ld a, ' '
+    jp Display.putC
+
+; Dibuja el cursor en la posición pass_cursor
+.drawCursorAtPos
+    ld a, (pass_cursor)
+    add a, 1
+    ld l, a
+    ld h, 7
+    ld (Display.coords), hl
+    
+    call Display.clearCell
+    
+    ; Reposicionar y dibujar cursor
+    ld a, (pass_cursor)
+    add a, 1
+    ld l, a
+    ld h, 7
+    ld (Display.coords), hl
+    ld a, 219
+    jp Display.putC
+
+; Redibuja desde posición A hasta el final
+; A = índice del buffer desde donde empezar
+; Formato: [chars A..pass_cursor-1] [cursor] [chars pass_cursor..pass_len-1] [espacios]
+.redrawFromPos
+    ld (.startPos), a
+    
+    ; Limpiar desde columna A+1 hasta el final
+    add a, 1
+    ld l, a
+    ld h, 7
+    ld (Display.coords), hl
+    
+    ; Calcular cuántas posiciones limpiar: 34 - A
+    ld a, 0
+.startPos = $ - 1
+    ld b, a
+    ld a, 34
+    sub b
+    ld b, a                     ; B = posiciones a limpiar
+.clearFromPos
+    push bc
+    ld a, ' '
+    call Display.putC
+    pop bc
+    djnz .clearFromPos
+    
+    ; Reposicionar
+    ld a, (.startPos)
+    add a, 1
+    ld l, a
+    ld h, 7
+    ld (Display.coords), hl
+    
+    ; === Parte 1: chars desde startPos hasta pass_cursor-1 ===
+    ld a, (pass_cursor)
+    ld b, a                     ; B = pass_cursor
+    ld a, (.startPos)
+    cp b
+    jr nc, .fromDrawCursor      ; startPos >= pass_cursor, saltar a cursor
+    
+    ; Hay chars que dibujar antes del cursor
+    ; Cantidad = pass_cursor - startPos
+    ld c, a                     ; C = startPos
+    ld a, b
+    sub c                       ; A = pass_cursor - startPos
+    ld b, a                     ; B = cantidad
+    
+    ; HL = &pass_buffer[startPos]
+    ld a, (.startPos)
+    ld hl, pass_buffer
+    ld d, 0
+    ld e, a
+    add hl, de
+    
+    ld a, (show_password)
+    and a
+    jr nz, .fromRealBefore
+    
+.fromAsterBefore
+    push bc
+    push hl
+    ld a, '*'
+    call Display.putC
+    pop hl
+    inc hl
+    pop bc
+    djnz .fromAsterBefore
+    jr .fromDrawCursor
+    
+.fromRealBefore
+    push bc
+    push hl
+    ld a, (hl)
+    call Display.putC
+    pop hl
+    inc hl
+    pop bc
+    djnz .fromRealBefore
+
+.fromDrawCursor
+    ; === Parte 2: cursor ===
+    ld a, 219
+    call Display.putC
+    
+    ; === Parte 3: chars desde pass_cursor hasta pass_len-1 ===
+    ld a, (pass_len)
+    ld b, a
+    ld a, (pass_cursor)
+    cp b
+    ret nc                      ; pass_cursor >= pass_len, no hay chars después
+    
+    ; Cantidad = pass_len - pass_cursor
+    ld c, a                     ; C = pass_cursor
+    ld a, b
+    sub c                       ; A = cantidad
+    ret z
+    ld b, a
+    
+    ; HL = &pass_buffer[pass_cursor]
+    ld a, (pass_cursor)
+    ld hl, pass_buffer
+    ld d, 0
+    ld e, a
+    add hl, de
+    
+    ld a, (show_password)
+    and a
+    jr nz, .fromRealAfter
+    
+.fromAsterAfter
+    push bc
+    push hl
+    ld a, '*'
+    call Display.putC
+    pop hl
+    inc hl
+    pop bc
+    djnz .fromAsterAfter
+    ret
+    
+.fromRealAfter
+    push bc
+    push hl
+    ld a, (hl)
+    call Display.putC
+    pop hl
+    inc hl
+    pop bc
+    djnz .fromRealAfter
+    ret
+
+; Redibuja todo el campo de contraseña
+; Orden: [chars 0..pass_cursor-1] [cursor] [chars pass_cursor..pass_len-1]
+.redrawAll
+    gotoXY 1,7
+    ; Limpiar línea completa
+    ld b, 34
+.clearLineAll
+    ld a, ' '
+    push bc
+    call Display.putC
+    pop bc
+    djnz .clearLineAll
+    
+    ; Posicionar al inicio
+    gotoXY 1,7
+    
+    ; === Parte 1: Dibujar caracteres ANTES del cursor (0 a pass_cursor-1) ===
+    ld a, (pass_cursor)
+    and a
+    jr z, .drawCursorNow        ; pass_cursor=0, no hay chars antes
+    
+    ld b, a                     ; B = pass_cursor (cantidad de chars antes)
+    ld hl, pass_buffer
+    
+    ld a, (show_password)
+    and a
+    jr nz, .drawRealBefore
+    
+.drawAsterBefore
+    push bc
+    push hl
+    ld a, '*'
+    call Display.putC
+    pop hl
+    inc hl
+    pop bc
+    djnz .drawAsterBefore
+    jr .drawCursorNow
+    
+.drawRealBefore
+    push bc
+    push hl
+    ld a, (hl)
+    call Display.putC
+    pop hl
+    inc hl
+    pop bc
+    djnz .drawRealBefore
+
+.drawCursorNow
+    ; === Parte 2: Dibujar el cursor ===
+    ld a, 219
+    call Display.putC
+    
+    ; === Parte 3: Dibujar caracteres DESPUÉS del cursor (pass_cursor a pass_len-1) ===
+    ld a, (pass_len)
+    ld b, a
+    ld a, (pass_cursor)
+    cp b
+    ret nc                      ; pass_cursor >= pass_len, no hay chars después
+    
+    ; Calcular cuántos chars después: pass_len - pass_cursor
+    ld c, a                     ; C = pass_cursor
+    ld a, b
+    sub c                       ; A = pass_len - pass_cursor
+    ret z                       ; 0 chars después
+    
+    ld b, a                     ; B = cantidad de chars después
+    ; HL ya apunta al buffer en posición pass_cursor (si vinimos de drawRealBefore/drawAsterBefore)
+    ; Pero si pass_cursor=0, HL no está inicializado, así que lo hacemos explícito
+    ld a, (pass_cursor)
+    ld hl, pass_buffer
+    ld d, 0
+    ld e, a
+    add hl, de                  ; HL = &pass_buffer[pass_cursor]
+    
+    ld a, (show_password)
+    and a
+    jr nz, .drawRealAfter
+    
+.drawAsterAfter
+    push bc
+    push hl
+    ld a, '*'
+    call Display.putC
+    pop hl
+    inc hl
+    pop bc
+    djnz .drawAsterAfter
+    ret
+    
+.drawRealAfter
+    push bc
+    push hl
+    ld a, (hl)
+    call Display.putC
+    pop hl
+    inc hl
+    pop bc
+    djnz .drawRealAfter
+    ret
+
+; Redibuja desde la posición del cursor hacia adelante
+; (usado después de insertar/borrar)
+.redrawFromCursor
+    ; Posicionar en pass_cursor
+    ld a, (pass_cursor)
+    add a, 1
+    ld l, a
+    ld h, 7
+    ld (Display.coords), hl
+    
+    ; Primero dibujar el cursor
+    ld a, 219
+    call Display.putC
+    
+    ; Calcular cuántos caracteres hay desde pass_cursor hasta el final
+    ld a, (pass_len)
+    ld b, a
+    ld a, (pass_cursor)
+    ld c, a
+    ld a, b
+    sub c                       ; A = pass_len - pass_cursor
+    jr z, .clearAfterCursor     ; No hay más caracteres después del cursor
+    
+    ; Dibujar caracteres desde pass_cursor hasta pass_len
+    ld b, a                     ; B = caracteres a dibujar
+    ld a, (pass_cursor)
+    ld hl, pass_buffer
+    ld d, 0
+    ld e, a
+    add hl, de                  ; HL = &pass_buffer[pass_cursor]
+    
+    ld a, (show_password)
+    and a
+    jr nz, .redrawRealFrom
+    
+.redrawAsterFrom
+    push bc
+    push hl
+    ld a, '*'
+    call Display.putC
+    pop hl
+    inc hl
+    pop bc
+    djnz .redrawAsterFrom
+    jr .clearAfterCursor
+    
+.redrawRealFrom
+    push bc
+    push hl
+    ld a, (hl)
+    call Display.putC
+    pop hl
+    inc hl
+    pop bc
+    djnz .redrawRealFrom
+
+.clearAfterCursor
+    ; Limpiar posición después de todo (por si borramos un carácter)
+    ld a, ' '
+    call Display.putC
+    ld a, ' '
+    call Display.putC
+    ret
 
 .cancel
     setLineColor 4, 107o : setLineColor 7, 107o
@@ -2425,117 +3209,153 @@ cmd_disconnect db "AT+CWQAP", 13, 10, 0
 
 ; ============================================
 ; checkAsyncWifi - Detecta eventos WiFi asíncronos
-; Busca "DISCON" y "GOT IP" en el stream UART
-; Nota: se inhibe si Wifi.uart_busy=1 para no competir con parsers principales
+; Busca "DISCONNECT" y "GOT IP" en el stream UART
 ; ============================================
 checkAsyncWifi:
+    ; NO leer UART si hay operación crítica en curso
     ld a, (Wifi.uart_busy)
     and a
-    ret nz                          ; UART ocupado por flujo principal
-
+    ret nz                      ; UART ocupado, salir
+    
     ; Intentar leer un byte del UART (no bloqueante)
     call UartImpl.uartRead
-    ret nc                          ; No hay datos, salir
-
+    ret nc                      ; No hay datos, salir
+    
     ; Ignorar caracteres de control (CR, LF, etc)
     cp 32
     ret c
-
-    ; Shift register de 6 bytes: async6[0..5] = últimos 6 chars válidos
-    ld c, a                         ; guardar nuevo char
-
-    ld hl, async6 + 1
-    ld de, async6
-    ld b, 5
-.shift6
-    ld a, (hl)
-    ld (de), a
-    inc hl
-    inc de
-    djnz .shift6
-
-    ld a, c
-    ld (async6 + 5), a
-
-    ; Contador de llenado (0..6)
-    ld a, (async_cnt)
-    cp 6
-    jr z, .have6
+    
+    ; Añadir al buffer circular
+    ld hl, async_buf_idx
+    ld e, (hl)
+    ld d, 0
+    ld hl, async_buffer
+    add hl, de
+    ld (hl), a
+    
+    ; Incrementar índice circular
+    ld a, e
     inc a
-    ld (async_cnt), a
-    ret
-
-.have6
-    call .checkDisconnect
+    cp ASYNC_BUF_SIZE
+    jr c, .storeIdx
+    xor a                       ; Wrap to 0
+.storeIdx
+    ld (async_buf_idx), a
+    
+    ; Incrementar contador de bytes recibidos (hasta ASYNC_BUF_SIZE)
+    ld a, (async_buf_count)
+    cp ASYNC_BUF_SIZE
+    jr nc, .checkPatterns       ; Ya lleno, no incrementar más
+    inc a
+    ld (async_buf_count), a
+    
+.checkPatterns
+    ; Verificar si tenemos suficientes caracteres
+    ld a, (async_buf_count)
+    cp 6                        ; Mínimo para "GOT IP" o "DISCON"
     ret c
+    
+    ; Buscar patrones
+    call .checkDisconnect
+    ret c                       ; Encontrado, ya procesado
     call .checkGotIP
     ret
 
 .checkDisconnect:
-    ld hl, async6
+    ; Buscar "DISCON" (6 chars)
+    ; Calcular posición de inicio considerando wrap-around
+    ld a, (async_buf_idx)
+    sub 6
+    jr nc, .discNoWrap
+    add a, ASYNC_BUF_SIZE       ; Wrap: idx + (SIZE - 6)
+.discNoWrap
+    ; A = posición de inicio del patrón
     ld de, .pat_discon
-    ld b, 6
-.cmpd
-    ld a, (de)
-    cp (hl)
+    call .comparePattern
     jr nz, .notFoundDisc
-    inc hl
-    inc de
-    djnz .cmpd
-
-    ; Encontrado "DISCON"
+    
+    ; ¡Encontrado DISCONNECT!
     xor a
     ld (Wifi.is_connected), a
-    ld (async_cnt), a
+    ld (async_buf_idx), a       ; Resetear buffer
+    ld (async_buf_count), a
     call setStatusDisconnected
     call ipShowNotConnected
     scf
     ret
-
+    
 .notFoundDisc
-    or a                            ; CF=0
+    or a                        ; CF = 0
     ret
 
 .checkGotIP:
-    ld hl, async6
+    ; Buscar "GOT IP" (6 chars)
+    ld a, (async_buf_idx)
+    sub 6
+    jr nc, .gotNoWrap
+    add a, ASYNC_BUF_SIZE
+.gotNoWrap
     ld de, .pat_gotip
-    ld b, 6
-.cmpi
-    ld a, (de)
-    cp (hl)
-    jr nz, .notFoundIP
-    inc hl
-    inc de
-    djnz .cmpi
-
-    ; Encontrado "GOT IP"
+    call .comparePattern
+    jr nz, .notFoundGot
+    
+    ; ¡Encontrado GOT IP!
     ld a, 1
     ld (Wifi.is_connected), a
     xor a
-    ld (async_cnt), a
+    ld (async_buf_idx), a
+    ld (async_buf_count), a
     call setStatusConnected
-
-    ; Pequeña espera para dar tiempo a que CIFSR sea coherente
-    push bc
-    ld b, 40
-.ipWait
-    halt
-    djnz .ipWait
-    pop bc
-
-    call ipShowConnected
     scf
     ret
+    
+.notFoundGot
+    or a
+    ret
 
-.notFoundIP
-    or a                            ; CF=0
+; Compara 6 bytes del buffer circular con patrón
+; A = posición inicial en buffer, DE = patrón
+; Retorna Z si coincide, NZ si no
+.comparePattern
+    ld b, 6
+.cmpLoop
+    push bc
+    push de
+    
+    ; Calcular dirección en buffer (con wrap)
+    ld c, a                     ; Guardar índice
+    ld hl, async_buffer
+    ld d, 0
+    ld e, a
+    add hl, de
+    
+    ; Comparar byte
+    pop de
+    ld a, (de)
+    cp (hl)
+    pop bc
+    ret nz                      ; No coincide
+    
+    ; Siguiente byte
+    inc de
+    ld a, c
+    inc a
+    cp ASYNC_BUF_SIZE
+    jr c, .noWrap
+    xor a                       ; Wrap
+.noWrap
+    djnz .cmpLoop
+    
+    xor a                       ; Z = coincide
     ret
 
 .pat_discon db "DISCON"
 .pat_gotip  db "GOT IP"
 
-async6          ds 6
-async_cnt       db 0
+ASYNC_BUF_SIZE = 16
+async_buffer    ds ASYNC_BUF_SIZE
+async_buf_idx   db 0
+async_buf_count db 0                ; Contador de bytes en buffer (para wrap correcto)
 
 ; ============================================
 ; Mensajes y datos
@@ -2556,17 +3376,17 @@ at_start        db 'AT+CWJAP="',0
 at_start_old    db 'AT+CWJAP_DEF="',0
 at_middle       db '","', 0
 msg_ssid        db "Selected SSID:", 0
-msg_pass        db "Password (EDIT=cancel, UP=toggle):", 0
+msg_pass        db "Password (EDIT=cancel, UP=show):", 0
 
 pass_buffer     ds MAX_PASS_LEN + 2
 pass_len        db 0
+pass_cursor     db 0                ; Posición del cursor en el password
 cursor_position db 0
 offset          db 0
 is_open_network db 0
 show_password   db 0                ; Flag para mostrar contraseña
 selected_ssid_ptr dw 0              ; Puntero al SSID seleccionado
-ui_async_div db 0
-
+ui_async_div    db 0                ; Divisor para checkAsyncWifi
 
 msg_head
     ds 13, 196 

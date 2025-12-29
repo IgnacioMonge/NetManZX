@@ -186,6 +186,17 @@ This is the first release of **NetManZX**, a complete rewrite and enhancement of
 - Optimized `Page Down` behavior to avoid unnecessary full list redraws.
 - Full list is redrawn only when a page change is required.
 
+### Text Editors
+- **Navigable cursor in password editor**: LEFT/RIGHT arrows move the cursor, allowing insertion and deletion at any position.
+- **Navigable cursor in manual SSID editor**: Same cursor navigation for hidden network SSID entry.
+- Updated password prompt to show available controls: "EDIT=cancel, UP=show".
+
+### UART / Async WiFi
+- **UART busy flag**: Added `uart_busy` mutex to prevent `checkAsyncWifi` from stealing bytes during critical operations (scan, connect, getIP).
+- **Async buffer wrap-around fix**: Fixed circular buffer pattern matching to correctly detect "DISCON" and "GOT IP" across buffer boundaries.
+- **getIP timeout**: Replaced blocking `Uart.read` with `Uart.readTimeout` and added byte limit (500) to prevent hangs.
+
 ### Stability & UX
 - Smoother and more responsive navigation in long network lists.
 - Eliminated unnecessary screen flicker when jumping to the end of the list.
+
