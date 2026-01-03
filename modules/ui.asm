@@ -559,7 +559,27 @@ uiLoop:
     xor a
     ld (ui_async_div), a
     call checkAsyncWifi
-    jr uiLoop
+    ; A = código de evento
+    and a
+    jr z, uiLoop                   ; Sin evento
+    cp ASYNC_EVENT_DISCONNECT
+    jr z, .handleDisconnect
+    cp ASYNC_EVENT_GOTIP
+    jr z, .handleGotIP
+    jp uiLoop
+
+.handleDisconnect
+    xor a
+    ld (Wifi.is_connected), a
+    call setStatusDisconnected
+    call ipShowNotConnected
+    jp uiLoop
+
+.handleGotIP
+    ld a, 1
+    ld (Wifi.is_connected), a
+    call setStatusConnected
+    jp uiLoop
 
 rescan:
     call hideCursor
@@ -1744,206 +1764,6 @@ selectItem:
     jp .waitKey
 
 ; --- Subrutinas de renderizado ---
-
-; Restaura el carácter en la posición actual del cursor
-; (limpia y dibuja el char que hay ahí, o espacio si cursor está al final)
-.restoreCharAtCursor
-    ; Posicionar
-    ld a, (pass_cursor)
-    add a, 1
-    ld l, a
-    ld h, 7
-    ld (Display.coords), hl
-    
-    ; Limpiar la celda
-    call Display.clearCell
-    
-    ; Reposicionar
-    ld a, (pass_cursor)
-    add a, 1
-    ld l, a
-    ld h, 7
-    ld (Display.coords), hl
-    
-    ; Ver si hay carácter en esta posición
-    ld a, (pass_cursor)
-    ld b, a
-    ld a, (pass_len)
-    cp b
-    jr z, .restoreSpace         ; Cursor al final, dibujar espacio
-    jr c, .restoreSpace         ; Seguridad
-    
-    ; Hay carácter, dibujar * o char
-    ld a, (show_password)
-    and a
-    jr z, .restoreAster
-    
-    ; Dibujar carácter real
-    ld a, (pass_cursor)
-    ld hl, pass_buffer
-    ld d, 0
-    ld e, a
-    add hl, de
-    ld a, (hl)
-    jp Display.putC
-    
-.restoreAster
-    ld a, '*'
-    jp Display.putC
-    
-.restoreSpace
-    ld a, ' '
-    jp Display.putC
-
-; Dibuja el cursor en la posición pass_cursor
-.drawCursorAtPos
-    ld a, (pass_cursor)
-    add a, 1
-    ld l, a
-    ld h, 7
-    ld (Display.coords), hl
-    
-    call Display.clearCell
-    
-    ; Reposicionar y dibujar cursor
-    ld a, (pass_cursor)
-    add a, 1
-    ld l, a
-    ld h, 7
-    ld (Display.coords), hl
-    ld a, 219
-    jp Display.putC
-
-; Redibuja desde posición A hasta el final
-; A = índice del buffer desde donde empezar
-; Formato: [chars A..pass_cursor-1] [cursor] [chars pass_cursor..pass_len-1] [espacios]
-.redrawFromPos
-    ld (.startPos), a
-    
-    ; Limpiar desde columna A+1 hasta el final
-    add a, 1
-    ld l, a
-    ld h, 7
-    ld (Display.coords), hl
-    
-    ; Calcular cuántas posiciones limpiar: 34 - A
-    ld a, 0
-.startPos = $ - 1
-    ld b, a
-    ld a, 34
-    sub b
-    ld b, a                     ; B = posiciones a limpiar
-.clearFromPos
-    push bc
-    ld a, ' '
-    call Display.putC
-    pop bc
-    djnz .clearFromPos
-    
-    ; Reposicionar
-    ld a, (.startPos)
-    add a, 1
-    ld l, a
-    ld h, 7
-    ld (Display.coords), hl
-    
-    ; === Parte 1: chars desde startPos hasta pass_cursor-1 ===
-    ld a, (pass_cursor)
-    ld b, a                     ; B = pass_cursor
-    ld a, (.startPos)
-    cp b
-    jr nc, .fromDrawCursor      ; startPos >= pass_cursor, saltar a cursor
-    
-    ; Hay chars que dibujar antes del cursor
-    ; Cantidad = pass_cursor - startPos
-    ld c, a                     ; C = startPos
-    ld a, b
-    sub c                       ; A = pass_cursor - startPos
-    ld b, a                     ; B = cantidad
-    
-    ; HL = &pass_buffer[startPos]
-    ld a, (.startPos)
-    ld hl, pass_buffer
-    ld d, 0
-    ld e, a
-    add hl, de
-    
-    ld a, (show_password)
-    and a
-    jr nz, .fromRealBefore
-    
-.fromAsterBefore
-    push bc
-    push hl
-    ld a, '*'
-    call Display.putC
-    pop hl
-    inc hl
-    pop bc
-    djnz .fromAsterBefore
-    jr .fromDrawCursor
-    
-.fromRealBefore
-    push bc
-    push hl
-    ld a, (hl)
-    call Display.putC
-    pop hl
-    inc hl
-    pop bc
-    djnz .fromRealBefore
-
-.fromDrawCursor
-    ; === Parte 2: cursor ===
-    ld a, 219
-    call Display.putC
-    
-    ; === Parte 3: chars desde pass_cursor hasta pass_len-1 ===
-    ld a, (pass_len)
-    ld b, a
-    ld a, (pass_cursor)
-    cp b
-    ret nc                      ; pass_cursor >= pass_len, no hay chars después
-    
-    ; Cantidad = pass_len - pass_cursor
-    ld c, a                     ; C = pass_cursor
-    ld a, b
-    sub c                       ; A = cantidad
-    ret z
-    ld b, a
-    
-    ; HL = &pass_buffer[pass_cursor]
-    ld a, (pass_cursor)
-    ld hl, pass_buffer
-    ld d, 0
-    ld e, a
-    add hl, de
-    
-    ld a, (show_password)
-    and a
-    jr nz, .fromRealAfter
-    
-.fromAsterAfter
-    push bc
-    push hl
-    ld a, '*'
-    call Display.putC
-    pop hl
-    inc hl
-    pop bc
-    djnz .fromAsterAfter
-    ret
-    
-.fromRealAfter
-    push bc
-    push hl
-    ld a, (hl)
-    call Display.putC
-    pop hl
-    inc hl
-    pop bc
-    djnz .fromRealAfter
-    ret
 
 ; Redibuja todo el campo de contraseña
 ; Orden: [chars 0..pass_cursor-1] [cursor] [chars pass_cursor..pass_len-1]
@@ -3210,28 +3030,47 @@ cmd_disconnect db "AT+CWQAP", 13, 10, 0
 ; ============================================
 ; checkAsyncWifi - Detecta eventos WiFi asíncronos
 ; Busca "DISCONNECT" y "GOT IP" en el stream UART
+; Retorna: A = código de evento
+;   ASYNC_EVENT_NONE (0) = sin evento
+;   ASYNC_EVENT_DISCONNECT (1) = desconexión detectada
+;   ASYNC_EVENT_GOTIP (2) = conexión detectada
 ; ============================================
+ASYNC_EVENT_NONE       = 0
+ASYNC_EVENT_DISCONNECT = 1
+ASYNC_EVENT_GOTIP      = 2
+
 checkAsyncWifi:
     ; NO leer UART si hay operación crítica en curso
     ld a, (Wifi.uart_busy)
     and a
-    ret nz                      ; UART ocupado, salir
+    jr z, .canRead
+    xor a                       ; A = ASYNC_EVENT_NONE
+    ret
     
+.canRead
     ; Intentar leer un byte del UART (no bloqueante)
     call UartImpl.uartRead
-    ret nc                      ; No hay datos, salir
+    jr c, .gotByte
+    xor a                       ; A = ASYNC_EVENT_NONE
+    ret
     
+.gotByte
+    ; A = byte leído
     ; Ignorar caracteres de control (CR, LF, etc)
     cp 32
-    ret c
+    jr nc, .validChar
+    xor a                       ; A = ASYNC_EVENT_NONE
+    ret
     
+.validChar
     ; Añadir al buffer circular
+    ld c, a                     ; Guardar byte en C
     ld hl, async_buf_idx
     ld e, (hl)
     ld d, 0
     ld hl, async_buffer
     add hl, de
-    ld (hl), a
+    ld (hl), c                  ; Guardar byte
     
     ; Incrementar índice circular
     ld a, e
@@ -3253,13 +3092,16 @@ checkAsyncWifi:
     ; Verificar si tenemos suficientes caracteres
     ld a, (async_buf_count)
     cp 6                        ; Mínimo para "GOT IP" o "DISCON"
-    ret c
+    jr nc, .enoughChars
+    xor a                       ; A = ASYNC_EVENT_NONE
+    ret
     
+.enoughChars
     ; Buscar patrones
     call .checkDisconnect
-    ret c                       ; Encontrado, ya procesado
+    ret nz                      ; Si NZ, A ya tiene ASYNC_EVENT_DISCONNECT
     call .checkGotIP
-    ret
+    ret                         ; A tiene el resultado (0 o 2)
 
 .checkDisconnect:
     ; Buscar "DISCON" (6 chars)
@@ -3276,16 +3118,13 @@ checkAsyncWifi:
     
     ; ¡Encontrado DISCONNECT!
     xor a
-    ld (Wifi.is_connected), a
     ld (async_buf_idx), a       ; Resetear buffer
     ld (async_buf_count), a
-    call setStatusDisconnected
-    call ipShowNotConnected
-    scf
-    ret
+    ld a, ASYNC_EVENT_DISCONNECT
+    ret                         ; NZ porque A != 0
     
 .notFoundDisc
-    or a                        ; CF = 0
+    xor a                       ; Z, A = 0
     ret
 
 .checkGotIP:
@@ -3300,17 +3139,14 @@ checkAsyncWifi:
     jr nz, .notFoundGot
     
     ; ¡Encontrado GOT IP!
-    ld a, 1
-    ld (Wifi.is_connected), a
     xor a
     ld (async_buf_idx), a
     ld (async_buf_count), a
-    call setStatusConnected
-    scf
+    ld a, ASYNC_EVENT_GOTIP
     ret
     
 .notFoundGot
-    or a
+    xor a                       ; A = ASYNC_EVENT_NONE
     ret
 
 ; Compara 6 bytes del buffer circular con patrón
