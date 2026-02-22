@@ -108,7 +108,7 @@ Simplemente carga el archivo TAP - el cargador BASIC se ejecutará automáticame
 - **4. UART baud rate**: Mostrar velocidad de comunicación actual
 
 
-### Robustez de Conectividad (v1.2.1)
+### Robustez de Conectividad
 
 - **Detección Automática de Caída WiFi**: Parseo asíncrono de eventos del ESP para detectar desconexiones inesperadas.
 - **Chequeo Periódico en Idle**: Validación periódica mediante comandos AT para comprobar que el enlace sigue activo.
