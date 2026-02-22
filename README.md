@@ -39,6 +39,9 @@ NetManZX is based on the original [netman-zx](https://github.com/nihirash/netman
   - IP address display in status bar
 - **Navigation**: Page Up/Down support, scroll indicators
 
+[![NetManZX1](images/NETMANZX_snap1_th.png)](images/NETMANZX_snap1.png) [![BitStream2](images/BTS2_1.png)](images/BTS2.png) [![BitStream3](images/BTS3_1.png)](images/BTS3.png)
+
+
 ## Requirements
 
 - ZX Spectrum (48K or higher) or compatible
