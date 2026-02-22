@@ -39,6 +39,8 @@ NetManZX está basado en el proyecto original [netman-zx](https://github.com/nih
   - Dirección IP en la barra de estado
 - **Navegación**: Soporte Page Up/Down, indicadores de scroll
 
+[![NetManZX_1](images/NETMANZX_snap1_th.png)](images/NETMANZX_snap1.png) [![NetManZX_2](images/NETMANZX_snap3_th.png)](images/NETMANZX_snap3.png) [![NetManZX_3](images/NETMANZX_snap5_th.png)](images/NETMANZX_snap5.png)
+
 ## Requisitos
 
 - ZX Spectrum (48K o superior) o compatible
