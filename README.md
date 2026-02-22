@@ -108,7 +108,7 @@ Simply load the TAP file - the BASIC loader will auto-run and load the program a
 - **4. UART baud rate**: Display current communication speed
 
 
-### Connection Robustness (v1.2.1)
+### Connection Robustness
 
 - **Automatic WiFi Drop Detection**: Asynchronous ESP event parsing detects unexpected disconnections instantly.
 - **Idle Connection Health Check**: Periodic AT-based link validation (idle polling) ensures the ESP connection remains alive.
