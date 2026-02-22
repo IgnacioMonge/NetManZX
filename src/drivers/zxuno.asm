@@ -11,33 +11,28 @@ init:
     ld bc, ZXUNO_ADDR : ld a, UART_DATA_REG : out (c), a
     ld bc, ZXUNO_REG : in A, (c)
 
-    ei 
+    ; Espera breve de arranque y drenaje de basura RX.
+    ; Importante: no hacer logging aquí (muy caro) para evitar pérdida de bytes
+    ; en backends rápidos (115200).
+    ei
     ld b,50
 1
     push bc
-    call uartRead
+    call uartRead           ; descartar (si lo hay)
     pop bc
     halt
     djnz 1b
 
-    ld bc, #ffff
-.loop
+    ; Drenaje adicional acotado
+    ld bc, #0800
+.flush
     push bc
-    call uartRead
-    call c, Display.putLogC
+    call uartRead           ; descartar (si lo hay)
     pop bc
-    dec bc 
+    dec bc
     ld a,b : or c
-    jr z, .loop
-
-    ld hl, set_speed_cmd
-.speedCmd
-    ld a, (hl) : and a : ret z
-    push hl
-    call write
-    pop hl
-    inc hl
-    jr .speedCmd
+    jr nz, .flush
+    ret
 
 write:
     push af
@@ -60,11 +55,11 @@ write:
     jr .checkSent
 
 
+; read: Alias para compatibilidad con uart-common.asm
 read:
     call uartRead
     jr nc, read
     ret
-
 
 ; Read byte from UART
 ; A: byte
@@ -106,7 +101,6 @@ recvRet:
     scf
     ret
 
-set_speed_cmd db "AT+UART_DEF=115200,8,1,0,2", 13, 10, 0
 
 poked_byte defb 0
 byte_buff defb 0

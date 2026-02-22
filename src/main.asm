@@ -6,8 +6,11 @@
         org #8000          
     ENDIF
 
-    ; Definición global de versión
-    DEFINE VERSION_STRING "v1.1"
+    ; Definición global de versión (fuente única)
+    ; V = Mmp...  (M=major, m=minor, p=patch opcional)
+    ; Ejemplos: V=12  -> 1.2
+    ;           V=121 -> 1.2.1
+    DEFINE V 121
 
 ; Constantes globales 
 buffer = #C000
@@ -18,11 +21,33 @@ text
     
     include "modules/display.asm"
     include "modules/wifi.asm"
+    include "modules/version.asm"    ; genera VERSION_STRING desde V
+version_string:
+    db VERSION_STRING, 0
     include "modules/ui.asm"
     include "modules/uart-common.asm"
     include "modules/keyboard.asm"
     include "modules/compat.asm"
-    include "drivers/ay.asm"
+
+    ; ------------------------------------------------------------
+    ; UART backend selection (SjASMPlus compatible)
+    ;
+    ; Build defines:
+    ;   -DUNO  : ZX-Uno compatible UART (e.g., divMMC+ESP-12 boards such as DivTIESUS)
+    ;   -DNEXT : ZX Spectrum Next UART
+    ;   -DAY   : AY-3-8912 UART (ZX-Badaloc and similar)
+    ;
+    ; If none is provided, AY is used as a safe default.
+    ; ------------------------------------------------------------
+    IFDEF UNO
+        include "drivers/zxuno.asm"
+    ELSE
+        IFDEF NEXT
+            include "drivers/next.asm"
+        ELSE
+            include "drivers/ay.asm"
+        ENDIF
+    ENDIF
 
 start:
     ld (saved_sp), sp
@@ -37,12 +62,37 @@ start:
     ; Inicializar UART
     ld hl, .msg_preparing
     call Display.putStrLog
-    call UartImpl.init
+    call Uart.init
     
     ; Comprobar si ya hay conexión
+    ld hl, .msg_query_status
+    call Display.putStrLog
     call Wifi.checkConnection
     jr nc, .already_connected  ; Si CF=0 (OK), estamos conectados
 
+    ; Fallback: algunos firmwares no responden a CWJAP? pero sí tienen IP asignada.
+    ; Si hay IP válida, consideramos que ya está conectado.
+    call Wifi.getIP
+    jr c, .no_preconn
+    ld a, 1
+    ld (Wifi.is_connected), a
+    ld hl, Wifi.connected_ssid
+    ld a, (hl)
+    and a
+    jr nz, .already_connected
+    ; SSID desconocido -> mostrar marcador
+    ld hl, .ssid_unknown
+    ld de, Wifi.connected_ssid
+.copy_ssid_u
+    ld a, (hl)
+    ld (de), a
+    inc hl
+    inc de
+    and a
+    jr nz, .copy_ssid_u
+    jr .already_connected
+
+.no_preconn
     ; --- NO CONECTADO: inicialización completa ---
     ld hl, .msg_init_wifi
     call Display.putStrLog
@@ -185,6 +235,8 @@ start:
 ; Textos auxiliares
 .msg_checking   db "Checking connection...", 13, 0
 .msg_preparing  db "Preparing UART...", 13, 0
+.msg_query_status db "Checking WiFi status...", 13, 0
+.ssid_unknown     db "(unknown)", 0
 .msg_init_wifi  db "Initializing WiFi module...", 13, 0
 .msg_scanning   db "Scanning...", 0
 .msg_err_init   db "WiFi Init Failed", 0
@@ -199,6 +251,9 @@ start:
 saved_sp dw 0
 
 program_end:
+
+    ; Build-time safety: ensure code/data does not overlap the runtime buffer at #C000
+    ASSERT program_end <= buffer
 
     IFDEF TAP
         ; ==========================================

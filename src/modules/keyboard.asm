@@ -18,21 +18,18 @@ checkBreak:
 
 ; Lectura bloqueante - espera hasta que haya tecla
 inKey:
-    ld a,(BASIC_KEY)
-    and a : jr z, inKey
-    ld c, a
-    xor a : ld (BASIC_KEY),a
-    ld a, c
+    call inKeyNoWait
+    and a
+    jr z, inKey
     ret
 
 ; Lectura no bloqueante - devuelve 0 si no hay tecla
 inKeyNoWait:
-    ld a,(BASIC_KEY)
+    ld hl, BASIC_KEY
+    ld a, (hl)
     and a
     ret z               ; Sin tecla, devolver 0
-    ld c, a
-    xor a : ld (BASIC_KEY),a
-    ld a, c
+    ld (hl), 0          ; Limpiar inmediatamente
     ret
 
     endmodule

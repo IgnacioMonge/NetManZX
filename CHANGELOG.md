@@ -125,7 +125,7 @@ This is the first release of **NetManZX**, a complete rewrite and enhancement of
 *First Contact - Because every Spectrum deserves to reach the cloud* ☁️
 
 
-## v1.1 - 2025-12-29
+## [1.1.0] - 2025-12-29
 
 ### New Features
 
@@ -174,29 +174,24 @@ This is the first release of **NetManZX**, a complete rewrite and enhancement of
 - New messages: `msg_edit_cancel`, `msg_retry_suffix`
 - New async detection infrastructure: `checkAsyncWifi`, `async_buffer`, pattern matching for ESP events
 
-## v1.2
 
-### UI / Navigation
-- Significantly reduced keyboard input latency in the network list.
-- UI loop optimized to prioritize keyboard handling over background tasks.
-- Restored full key mappings: arrow keys and Q/A for navigation, O/P for page up/down, and all action keys (R, H, D, X, Enter, Esc).
-- Removed obsolete and duplicated UI loop code.
+## [1.2.1]- "Pulse Check" - 2026-02-22
 
-### Rendering
-- Optimized `Page Down` behavior to avoid unnecessary full list redraws.
-- Full list is redrawn only when a page change is required.
+### New Features
 
-### Text Editors
-- **Navigable cursor in password editor**: LEFT/RIGHT arrows move the cursor, allowing insertion and deletion at any position.
-- **Navigable cursor in manual SSID editor**: Same cursor navigation for hidden network SSID entry.
-- Updated password prompt to show available controls: "EDIT=cancel, UP=show".
+- **Periodic Connection Health-Check**: When idle, NetManZX periodically queries the ESP (`AT+CWJAP?`, with `_CUR`/`_DEF` fallbacks) to verify that the connection is still valid. If the query fails, the UI is immediately marked as disconnected and an automatic rescan is triggered.
 
-### UART / Async WiFi
-- **UART busy flag**: Added `uart_busy` mutex to prevent `checkAsyncWifi` from stealing bytes during critical operations (scan, connect, getIP).
-- **Async buffer wrap-around fix**: Fixed circular buffer pattern matching to correctly detect "DISCON" and "GOT IP" across buffer boundaries.
-- **getIP timeout**: Replaced blocking `Uart.read` with `Uart.readTimeout` and added byte limit (500) to prevent hangs.
+### Improvements
 
-### Stability & UX
-- Smoother and more responsive navigation in long network lists.
-- Eliminated unnecessary screen flicker when jumping to the end of the list.
+- **Much lower keyboard latency in the network list**: The UI loop was reorganized to prioritize keyboard handling and avoid unnecessary work while navigating.
+- **Full key mapping restored**: Arrow keys and Q/A for navigation, O/P for page up/down, plus all action keys (R, H, D, X, Enter, Esc).
+- **More efficient Page Down rendering**: The list is redrawn only when a page boundary is crossed, avoiding redundant full-screen redraws.
+- **Network counter and page info on line 17**: Right-aligned indicator shows `X networks detected` and, when applicable, `(A/B pages)`.
 
+### Bug Fixes
+
+- **Automatic drop detection made robust**: Async parsing now correctly detects disconnection/reconnection markers across circular-buffer boundaries (e.g., `"DISCON"` / `"GOT IP"`), preventing missed events.
+- **UART contention fixed**: Added a `uart_busy` mutex to prevent `checkAsyncWifi` from consuming bytes during critical operations (scan/connect/getIP).
+- **getIP hang prevention**: Replaced blocking reads with `readTimeout` and enforced a maximum byte budget to avoid stalls.
+- **Selection clamping after rescan**: When a rescan returns fewer APs than before, `offset`/`cursor_position` are clamped so the highlight never lands on a non-existing row.
+- **Stale counters removed**: When `networks_count == 0`, line 17 is fully cleared to avoid displaying outdated values after rescans.
