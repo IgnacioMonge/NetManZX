@@ -14,7 +14,7 @@ NetManZX is a WiFi network configuration utility for ZX Spectrum computers equip
 
 NetManZX is based on the original [netman-zx](https://github.com/nihirash/netman-zx) project by **Alex Nihirash**. This version has been significantly enhanced with new features, improved reliability, and a better user experience.
 
-## Features
+## Features (v1.2.1 "Link Guardian" - 2026-01)
 
 - **Network Scanning**: Automatically discovers available WiFi networks
 - **Hidden Network Support**: Manually enter SSID for networks that don't broadcast their name
@@ -107,6 +107,15 @@ Simply load the TAP file - the BASIC loader will auto-run and load the program a
 - **3. Network info**: Show current IP and MAC address
 - **4. UART baud rate**: Display current communication speed
 
+
+### Connection Robustness (v1.2.1)
+
+- **Automatic WiFi Drop Detection**: Asynchronous ESP event parsing detects unexpected disconnections instantly.
+- **Idle Connection Health Check**: Periodic AT-based link validation (idle polling) ensures the ESP connection remains alive.
+- **UART Busy Protection**: Mutex-style guard prevents background async parsing from stealing bytes during critical operations (scan/connect/getIP).
+- **Circular Buffer Pattern Fix**: Reliable detection of ESP events (e.g., DISCONNECT/GOT IP) even across buffer boundaries.
+- **Automatic State Recovery**: On link loss, UI transitions to *Disconnected* and schedules a safe rescan.
+
 ## Version History
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
@@ -118,7 +127,7 @@ This project is open source. Based on original work by Alex Nihirash.
 ## Copyright
 
 - Original netman-zx: **Alex Nihirash** (https://github.com/nihirash)
-- NetManZX enhancements: **M. Ignacio Monge García** (2025)
+- NetManZX enhancements: **M. Ignacio Monge García** (2026)
 
 ---
 

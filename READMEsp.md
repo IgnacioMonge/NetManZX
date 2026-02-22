@@ -14,7 +14,7 @@ NetManZX es una utilidad de configuración de redes WiFi para ordenadores ZX Spe
 
 NetManZX está basado en el proyecto original [netman-zx](https://github.com/nihirash/netman-zx) de **Alex Nihirash**. Esta versión ha sido significativamente mejorada con nuevas funcionalidades, mayor fiabilidad y mejor experiencia de usuario.
 
-## Características
+## Características (v1.2.1 "Link Guardian" - 2026-01)
 
 - **Escaneo de Redes**: Descubre automáticamente las redes WiFi disponibles
 - **Soporte de Redes Ocultas**: Introduce manualmente el SSID de redes que no emiten su nombre
@@ -106,6 +106,15 @@ Simplemente carga el archivo TAP - el cargador BASIC se ejecutará automáticame
 - **2. Module info**: Mostrar versión del firmware del ESP8266
 - **3. Network info**: Mostrar IP y dirección MAC actual
 - **4. UART baud rate**: Mostrar velocidad de comunicación actual
+
+
+### Robustez de Conectividad (v1.2.1)
+
+- **Detección Automática de Caída WiFi**: Parseo asíncrono de eventos del ESP para detectar desconexiones inesperadas.
+- **Chequeo Periódico en Idle**: Validación periódica mediante comandos AT para comprobar que el enlace sigue activo.
+- **Protección UART Busy**: Mecanismo tipo mutex que evita que el parser asíncrono interfiera durante operaciones críticas (scan/conexión/getIP).
+- **Corrección de Buffer Circular**: Detección fiable de eventos del ESP incluso cuando cruzan el límite del buffer.
+- **Recuperación Automática de Estado**: Al perder conexión, la interfaz pasa a *Disconnected* y programa un rescaneo seguro.
 
 ## Historial de Versiones
 
