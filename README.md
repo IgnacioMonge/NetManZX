@@ -14,7 +14,7 @@ NetManZX is a WiFi network configuration utility for ZX Spectrum computers equip
 
 NetManZX is based on the original [netman-zx](https://github.com/nihirash/netman-zx) project by **Alex Nihirash**. This version has been significantly enhanced with new features, improved reliability, and a better user experience.
 
-## Features (v1.2.1 "Link Guardian" - 2026-01)
+## Features
 
 - **Network Scanning**: Automatically discovers available WiFi networks
 - **Hidden Network Support**: Manually enter SSID for networks that don't broadcast their name
