@@ -14,6 +14,8 @@ NetManZX is a WiFi network configuration utility for ZX Spectrum computers equip
 
 NetManZX is based on the original [netman-zx](https://github.com/nihirash/netman-zx) project by **Alex Nihirash**. This version has been significantly enhanced with new features, improved reliability, and a better user experience.
 
+[![NetManZX_1](images/NETMANZX_snap1_th.png)](images/NETMANZX_snap1.png) [![NetManZX_2](images/NETMANZX_snap3_th.png)](images/NETMANZX_snap3.png) [![NetManZX_3](images/NETMANZX_snap5_th.png)](images/NETMANZX_snap5.png)
+
 ## Features
 
 - **Network Scanning**: Automatically discovers available WiFi networks
@@ -38,9 +40,6 @@ NetManZX is based on the original [netman-zx](https://github.com/nihirash/netman
   - UART activity log with border color feedback
   - IP address display in status bar
 - **Navigation**: Page Up/Down support, scroll indicators
-
-[![NetManZX1](images/NETMANZX_snap1_th.png)](images/NETMANZX_snap1.png) [![BitStream2](images/BTS2_1.png)](images/BTS2.png) [![BitStream3](images/BTS3_1.png)](images/BTS3.png)
-
 
 ## Requirements
 
