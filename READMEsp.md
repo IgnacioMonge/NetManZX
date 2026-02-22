@@ -14,7 +14,7 @@ NetManZX es una utilidad de configuración de redes WiFi para ordenadores ZX Spe
 
 NetManZX está basado en el proyecto original [netman-zx](https://github.com/nihirash/netman-zx) de **Alex Nihirash**. Esta versión ha sido significativamente mejorada con nuevas funcionalidades, mayor fiabilidad y mejor experiencia de usuario.
 
-## Características (v1.2.1 "Link Guardian" - 2026-01)
+## Características
 
 - **Escaneo de Redes**: Descubre automáticamente las redes WiFi disponibles
 - **Soporte de Redes Ocultas**: Introduce manualmente el SSID de redes que no emiten su nombre
