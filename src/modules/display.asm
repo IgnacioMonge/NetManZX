@@ -428,42 +428,6 @@ calc:
     ld l, a
     ret
 
-clearCell:
-    ld hl, (coords)
-    ld b, l
-    call calc
-    ld d, h
-    ld e, l
-    ld (.rot_tmp), a
-    call findAddr
-    
-    ld a, 0
-.rot_tmp = $ - 1
-    ld hl, #03ff
-    and a
-    jr z, .gotMask
-.rotMask
-    push af
-    ld a, l
-    rrca
-    rr h
-    rr l
-    pop af
-    dec a
-    jr nz, .rotMask
-.gotMask
-    ld b, 8
-.clearLoop
-    ld a, (ix + 1)
-    and l
-    ld (ix + 1), a
-    ld a, (ix)
-    and h
-    ld (ix), a
-    inc ixh
-    djnz .clearLoop
-    ret
-
 coords dw 0
 font incbin "../../assets/font.bin"
 
@@ -499,6 +463,56 @@ compareStringZ:
     pop de
     pop hl
     or 1                    ; Z=0 (A nunca será 0)
+    ret
+
+; ============================================
+; draw_hline - Línea horizontal de 1 pixel a lo ancho de pantalla
+; Entrada: A = fila (0-23), E = scanline (0-7), D = atributo
+; Destruye: AF, BC, DE, HL
+; ============================================
+draw_hline:
+    push de
+    call draw_hline_only
+    pop de
+    ; Atributos
+    ld a, c
+    ld l, 0
+    srl a : rr l
+    srl a : rr l
+    srl a : rr l
+    or #58
+    ld h, a
+    ld a, d
+    ld b, 32
+.attr
+    ld (hl), a
+    inc l
+    djnz .attr
+    ret
+
+; draw_hline_only - Solo píxeles, sin tocar atributos
+; Entrada: A = fila (0-23), E = scanline (0-7)
+; Destruye: AF, BC, HL. Preserva C = fila
+draw_hline_only:
+    ld c, a
+    and #18
+    ld h, a
+    ld a, c
+    and #07
+    rrca
+    rrca
+    rrca
+    ld l, a
+    ld a, h
+    or #40
+    add a, e
+    ld h, a
+    ld a, #FF
+    ld b, 32
+.fill
+    ld (hl), a
+    inc l
+    djnz .fill
     ret
 
     endmodule

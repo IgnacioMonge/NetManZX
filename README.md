@@ -24,11 +24,16 @@ NetManZX is based on the original [netman-zx](https://github.com/nihirash/netman
 - **Disconnect Option**: Disconnect from current network without exiting the application
 - **Real-time Status Monitoring**: Automatically detects connection drops and reconnections
 - **Detailed Error Messages**: Specific feedback for connection failures (wrong password, AP not found, timeout, etc.)
-- **Diagnostics Menu**: 
+- **Diagnostics Menu**:
   - Ping test with configurable IP address
   - Module firmware information
   - Network info (IP/MAC address)
   - UART baud rate display
+  - Static IP configuration
+  - Hostname configuration
+  - Config summary (all settings at a glance)
+- **WPS Support**: Push-button WPS connection via W key
+- **UART Debug Log**: Toggle live UART log display with L key
 - **Robust Communication**: 
   - Network traffic filtering during diagnostics
   - Timeout-based termination to prevent hangs
@@ -56,19 +61,25 @@ NetManZX is based on the original [netman-zx](https://github.com/nihirash/netman
 ### Compilation
 
 ```bash
-# Standard build for +3DOS (generates netmanzx.cod)
-sjasmplus main.asm
+# Build for ZX-Uno / DivMMC (default)
+make uno
 
-# For TAP format (tape/emulators) - includes BASIC loader
-sjasmplus -DTAP main.asm
+# Build for AY-UART / ZX-Badaloc
+make ay
+
+# Build for ZX Spectrum Next
+make next
+
+# Build all targets
+make all
 ```
 
 ### Output Files
 
 | Format | File | Description |
 |--------|------|-------------|
-| +3DOS | `netmanzx.cod` | For +3 / +3DOS systems |
-| TAP | `netmanzx.tap` | Complete tape file with auto-loading BASIC loader |
+| TAP | `build/netmanzx.tap` | Complete tape file with auto-loading BASIC loader |
+| +3DOS | `netmanzx.cod` | For +3 / +3DOS systems (build without `-DTAP`) |
 
 ### Loading
 
@@ -95,12 +106,14 @@ Simply load the TAP file - the BASIC loader will auto-run and load the program a
 | ↑/↓ or Q/A | Navigate network list |
 | O/P | Page Up/Down |
 | ENTER | Select network / Confirm |
-| EDIT | Cancel / Back |
+| BREAK | Cancel / Back |
 | H | Connect to hidden network (manual SSID entry) |
 | X | Disconnect from current network |
 | D | Diagnostics menu |
 | R | Rescan networks |
-| BREAK | Cancel connection attempt in progress |
+| L | Toggle UART debug log |
+| W | WPS push-button connect |
+| ESC | Exit program |
 
 ### Diagnostics Menu
 
@@ -108,6 +121,9 @@ Simply load the TAP file - the BASIC loader will auto-run and load the program a
 - **2. Module info**: Display ESP8266 firmware version
 - **3. Network info**: Show current IP and MAC address
 - **4. UART baud rate**: Display current communication speed
+- **5. Static IP**: Configure static IP, gateway and subnet mask
+- **6. Hostname**: Set a custom hostname for the ESP module
+- **7. Config summary**: View all current WiFi settings at a glance
 
 
 ### Connection Robustness

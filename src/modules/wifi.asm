@@ -39,11 +39,7 @@ uartUnlock:
     ld (uart_busy), a
     ret
 
-; Constantes de configuración
-MAX_NETWORKS    = 20          ; Máximo número de redes a almacenar
-MAX_SSID_LEN    = 32          ; Longitud máxima de SSID
-BUFFER_END      = buffer + (MAX_NETWORKS * (MAX_SSID_LEN + 1))
-BUFFER_SIZE     = (MAX_NETWORKS * (MAX_SSID_LEN + 1))
+; Constantes de configuración (MAX_NETWORKS, MAX_SSID_LEN, BUFFER_* defined in main.asm)
 MAX_RETRIES     = 3           ; Reintentos en init
 
 checkConnection:
@@ -190,19 +186,24 @@ checkConnection:
     ret
 
 flushInput:
-    call UartImpl.uartRead  
-    jr c, flushInput        
-    ret                     
+    call UartImpl.uartRead
+    jr c, flushInput
+    ret
+
+; Salir de modo transparente (+++, guard time, flush)
+; Seguro llamar aunque el ESP no esté en modo transparente.
+exitTransparent:
+    EspSend "+++"
+    ld b, 75               ; ~1.5s guard time
+.etp_wait
+    halt
+    djnz .etp_wait
+    call flushInput         ; Descartar respuesta (puede ser "NO CHANGE" etc.)
+    ret
 
 init:
-    call flushInput         
+    call flushInput
 
-    EspSend "+++"
-    ld b, 50
-.wait_init
-    halt
-    djnz .wait_init
-    
     ld a, MAX_RETRIES
     ld (retry_count), a
     
@@ -240,8 +241,6 @@ init:
 .check_mode
     jr c, .err
     EspCmdOkErr "AT+CWAUTOCONN=1"
-    jr c, .err
-    EspCmdOkErr "AT+CWQAP"
     jr c, .err
     ret
 
@@ -356,7 +355,7 @@ loadList:
     cp 'L' : jr nz, loadList
     ld a, 1
     ld (seen_cwlap), a
-    jr .loadAp
+    jp .loadAp
 
 .okStart
     call Uart.readTimeout : jp nc, .scan_timeout
@@ -379,6 +378,7 @@ loadList:
 
 .ok_return
     call initDisplayIndices     ; Inicializar índices para mostrar
+    call sortNetworks           ; Ordenar por RSSI automáticamente
     or a
     call uartUnlock
     ret
@@ -392,7 +392,13 @@ loadList:
     cp 'O' : jp nz, loadList
     call Uart.readTimeout : jp nc, .scan_timeout
     cp 'R' : jp nz, loadList
-    jp init.err
+    ; Scan devolvió ERROR - limpiar y salir
+    ld hl, .scan_err_msg
+    call Display.putStrLog
+    call uartUnlock
+    scf
+    ret
+.scan_err_msg db 13, "Scan fail!", 0
 
 .scan_timeout
     ld hl, .timeout_msg
@@ -405,7 +411,14 @@ loadList:
 .loadAp
     ld a, (networks_count)
     cp MAX_NETWORKS
-    jp nc, loadList     
+    jr c, .skipToEcn
+    ; Drenar resto de línea antes de volver (evita desincronización)
+.flushMax
+    call Uart.readTimeout
+    jp nc, .scan_timeout
+    cp 10
+    jr nz, .flushMax
+    jp loadList
 
 .skipToEcn
     call Uart.readTimeout : jp nc, .scan_timeout
@@ -450,8 +463,8 @@ loadList:
 .bufferFull
     ld hl, .full_msg
     call Display.putStrLog
-    or a
     call uartUnlock
+    scf
     ret
 .full_msg db 13, "Buffer full!", 0
 
@@ -992,7 +1005,7 @@ getDisplayIndex:
 sort_passes     db 0
 sort_compares   db 0
 sort_index      db 0
-display_indices ds MAX_NETWORKS
+    RTVAR display_indices, MAX_NETWORKS
 is_sorted       db 0
 
 ; Variables del módulo
@@ -1007,8 +1020,8 @@ is_connected    db 0
 uart_busy       db 0           ; 1=UART ocupado por parser/operación crítica
 debug_log      db 0           ; 1=log TX/RX key info (safe)
 
-rssi_buffer     ds MAX_NETWORKS
-connected_ssid  ds MAX_SSID_LEN + 1
-ip_buffer       ds 16               ; Buffer para IP (xxx.xxx.xxx.xxx + null)
+    RTVAR rssi_buffer, MAX_NETWORKS
+    RTVAR connected_ssid, MAX_SSID_LEN + 1
+    RTVAR ip_buffer, 17
 
     endmodule

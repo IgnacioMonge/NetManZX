@@ -1,0 +1,6 @@
+build/
+log/
+*.lst
+*.sym
+*.cod
+*.tap

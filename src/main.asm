@@ -10,11 +10,24 @@
     ; V = Mmp...  (M=major, m=minor, p=patch opcional)
     ; Ejemplos: V=12  -> 1.2
     ;           V=121 -> 1.2.1
-    DEFINE V 121
+    DEFINE V 130
 
-; Constantes globales 
+; Constantes globales
 buffer = #C000
-stack_top = #BFFE
+stack_top = #FFF0
+
+; Runtime data area: uninitialized buffers placed after the SSID buffer
+; to keep them out of the binary. Use RTVAR to allocate.
+MAX_NETWORKS    = 20
+MAX_SSID_LEN    = 32
+BUFFER_SIZE     = (MAX_NETWORKS * (MAX_SSID_LEN + 1))
+BUFFER_END      = buffer + BUFFER_SIZE
+rt_ptr = BUFFER_END
+
+    MACRO RTVAR name?, size?
+name? = @rt_ptr
+@rt_ptr = @rt_ptr + size?
+    ENDM
 
 text 
     jp start
@@ -27,7 +40,6 @@ version_string:
     include "modules/ui.asm"
     include "modules/uart-common.asm"
     include "modules/keyboard.asm"
-    include "modules/compat.asm"
 
     ; ------------------------------------------------------------
     ; UART backend selection (SjASMPlus compatible)
@@ -63,7 +75,11 @@ start:
     ld hl, .msg_preparing
     call Display.putStrLog
     call Uart.init
-    
+
+    ; Salir de modo transparente (si SpecTalkZX u otro lo dejó activo)
+    ; Requiere 1s de silencio previo (cumplido: acabamos de iniciar)
+    call Wifi.exitTransparent
+
     ; Comprobar si ya hay conexión
     ld hl, .msg_query_status
     call Display.putStrLog
@@ -225,7 +241,7 @@ start:
     call Keyboard.inKey
     and a
     jr z, .k
-    ret
+    ; Fall through to exit_clean
 
 .exit_clean
     ld sp, (saved_sp)
@@ -252,8 +268,9 @@ saved_sp dw 0
 
 program_end:
 
-    ; Build-time safety: ensure code/data does not overlap the runtime buffer at #C000
-    ASSERT program_end <= buffer
+    ; Build-time safety checks
+    ASSERT program_end <= buffer              ; code must not overlap SSID buffer
+    ASSERT rt_ptr <= stack_top - 64           ; runtime vars must not reach stack
 
     IFDEF TAP
         ; ==========================================

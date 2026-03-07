@@ -24,11 +24,16 @@ NetManZX está basado en el proyecto original [netman-zx](https://github.com/nih
 - **Opción de Desconexión**: Desconecta de la red actual sin salir de la aplicación
 - **Monitorización de Estado en Tiempo Real**: Detecta automáticamente caídas y reconexiones
 - **Mensajes de Error Detallados**: Información específica sobre fallos de conexión (contraseña incorrecta, AP no encontrado, timeout, etc.)
-- **Menú de Diagnósticos**: 
+- **Menú de Diagnósticos**:
   - Test de ping con IP configurable
   - Información del firmware del módulo
   - Info de red (dirección IP/MAC)
   - Velocidad del UART
+  - Configuración de IP estática
+  - Configuración de hostname
+  - Resumen de configuración (todos los ajustes de un vistazo)
+- **Soporte WPS**: Conexión WPS por pulsación de botón con la tecla W
+- **Log de Depuración UART**: Muestra/oculta el log UART en tiempo real con la tecla L
 - **Comunicación Robusta**: 
   - Filtrado de tráfico de red durante diagnósticos
   - Terminación basada en timeout para evitar bloqueos
@@ -56,19 +61,25 @@ NetManZX está basado en el proyecto original [netman-zx](https://github.com/nih
 ### Compilar
 
 ```bash
-# Compilación estándar para +3DOS (genera netmanzx.cod)
-sjasmplus main.asm
+# Compilar para ZX-Uno / DivMMC (por defecto)
+make uno
 
-# Para formato TAP (cinta/emuladores) - incluye cargador BASIC
-sjasmplus -DTAP main.asm
+# Compilar para AY-UART / ZX-Badaloc
+make ay
+
+# Compilar para ZX Spectrum Next
+make next
+
+# Compilar todos los targets
+make all
 ```
 
 ### Archivos de Salida
 
 | Formato | Archivo | Descripción |
 |---------|---------|-------------|
-| +3DOS | `netmanzx.cod` | Para sistemas +3 / +3DOS |
-| TAP | `netmanzx.tap` | Archivo de cinta completo con cargador BASIC auto-ejecutable |
+| TAP | `build/netmanzx.tap` | Archivo de cinta completo con cargador BASIC auto-ejecutable |
+| +3DOS | `netmanzx.cod` | Para sistemas +3 / +3DOS (compilar sin `-DTAP`) |
 
 ### Carga
 
@@ -95,12 +106,14 @@ Simplemente carga el archivo TAP - el cargador BASIC se ejecutará automáticame
 | ↑/↓ o Q/A | Navegar lista de redes |
 | O/P | Página Arriba/Abajo |
 | ENTER | Seleccionar red / Confirmar |
-| EDIT | Cancelar / Volver |
+| BREAK | Cancelar / Volver |
 | H | Conectar a red oculta (introducir SSID manualmente) |
 | X | Desconectar de la red actual |
 | D | Menú de diagnósticos |
 | R | Reescanear redes |
-| BREAK | Cancelar intento de conexión en curso |
+| L | Alternar log de depuración UART |
+| W | Conexión WPS por pulsación |
+| ESC | Salir del programa |
 
 ### Menú de Diagnósticos
 
@@ -108,6 +121,9 @@ Simplemente carga el archivo TAP - el cargador BASIC se ejecutará automáticame
 - **2. Module info**: Mostrar versión del firmware del ESP8266
 - **3. Network info**: Mostrar IP y dirección MAC actual
 - **4. UART baud rate**: Mostrar velocidad de comunicación actual
+- **5. Static IP**: Configurar IP estática, gateway y máscara de subred
+- **6. Hostname**: Establecer un nombre de host personalizado para el módulo ESP
+- **7. Config summary**: Ver todos los ajustes WiFi actuales de un vistazo
 
 
 ### Robustez de Conectividad
@@ -129,7 +145,7 @@ Este proyecto es código abierto. Basado en el trabajo original de Alex Nihirash
 ## Copyright
 
 - netman-zx original: **Alex Nihirash** (https://github.com/nihirash)
-- Mejoras de NetManZX: **M. Ignacio Monge García** (2025)
+- Mejoras de NetManZX: **M. Ignacio Monge García** (2026)
 
 ---
 

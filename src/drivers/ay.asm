@@ -62,11 +62,18 @@ dataSequence:
 dataSize = $ - dataSequence
 
 setSpeed:
-    ld hl, dataSequence : ld bc, #bffd
+    ld hl, dataSequence
+    ld bc, #bffd
+    ld de, dataSize         ; 16-bit counter (dataSize > 255)
     di
-    dup dataSize
-    outi : ld bc, #bffd : nop
-    edup
+.loop
+    outi
+    ld bc, #bffd
+    nop
+    dec de
+    ld a, d
+    or e
+    jr nz, .loop
     ei
     ret
 

@@ -50,29 +50,6 @@ write:
     ret
   
 
-writeStringZ:
-.loop
-    ld a,(hl) : and a : ret z
-    push hl
-    call UartImpl.write
-    pop hl
-    inc hl
-    jr .loop
-
-; Lectura bloqueante (compatibilidad)
-read:
-    call UartImpl.read
-    push af
-    ld a, (log_enabled)
-    and a
-    jr z, .skipLogRead
-    pop af
-    push af
-    call log_char
-.skipLogRead
-    pop af
-    ret
-
 ; Lectura con timeout normal
 ; Salida: A = byte leído, CF=1 si éxito
 ;         CF=0 si timeout
@@ -218,6 +195,6 @@ logReset:
 log_enabled  db 1
 log_overflow db 0
 log_ptr      dw 0
-log_buf      ds LOG_BUF_SIZE
+    RTVAR log_buf, LOG_BUF_SIZE
 
     endmodule

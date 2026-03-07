@@ -4,6 +4,119 @@ All notable changes to NetManZX are documented in this file.
 
 ---
 
+## [1.3.0] - "Clean Sweep" - 2026-03-07
+
+### New Features
+
+#### Diagnostics Menu Expanded (options 5-7)
+- **Static IP configuration**: Set a static IP address, gateway, and subnet mask via AT+CIPSTA
+- **Hostname configuration**: Set a custom hostname for the ESP module via AT+CWHOSTNAME
+- **Config summary**: View all current WiFi configuration at a glance (SSID, IP, MAC, hostname, DNS, baud rate)
+
+#### New Key Bindings
+- **L key**: Toggle UART debug log display on/off
+- **W key**: Initiate WPS push-button connection
+
+#### UI Enhancements
+- **Pixel-drawn banner**: Cyan horizontal lines flanking the title with proper attribute separation (no color clash)
+- **Centered IP bar**: IP address centered on line 1 with blue background
+- **Status bar partial separator**: Pixel line between "UART log" and "WiFi:" labels
+- **BREAK key replaces EDIT**: All cancel operations now use BREAK (CAPS+SPACE) instead of EDIT (CAPS+1), which is the standard ZX Spectrum convention
+
+### Bug Fixes
+- **Critical: `exitProgram` crash**: Program now correctly restores the saved stack pointer before returning to BASIC, preventing infinite loops/crashes
+- **Diagnostics menu blocking**: Changed from blocking `inKey` to non-blocking `inKeyNoWait`, allowing BREAK to work at any time
+- **Uppercase Q/A navigation**: Added missing uppercase key checks for cursor up/down
+- **IP buffer off-by-one**: Increased `ip_buffer` from 16 to 17 bytes to safely accommodate the null terminator in worst case
+- **UART parser desync**: When scan finds more than MAX_NETWORKS, the parser now drains the current line before returning to the main loop, preventing desynchronization
+- **IP bar overflow**: Fixed `drawIpBar` writing 2 extra characters into the next screen line (44→42 spaces)
+
+### Code Cleanup
+- **Removed dead code**: `simpleTextInput` routine (unused), `esxdos.asm` module (not part of build), `compat.asm` module and reconnect flow (feature gated behind undefined flag)
+- **Removed build artifacts**: `.cod` and `.lst` files no longer ship in `src/`
+- **Added `.gitignore`**: Build outputs excluded from version control
+
+### Memory Layout Refactored
+- **RTVAR macro**: Runtime variables (uninitialized buffers) allocated after the SSID buffer at #C000, keeping them out of the binary
+- **Stack relocated**: Moved from #BFFE to #FFF0, freeing ~1KB of code space
+- **Build-time safety checks**: `ASSERT` guards verify code doesn't overlap buffers and runtime vars don't reach the stack
+
+---
+
+## [1.2.1] - "Pulse Check" - 2026-02-22
+
+### New Features
+
+- **Periodic Connection Health-Check**: When idle, NetManZX periodically queries the ESP (`AT+CWJAP?`, with `_CUR`/`_DEF` fallbacks) to verify that the connection is still valid. If the query fails, the UI is immediately marked as disconnected and an automatic rescan is triggered.
+
+### Improvements
+
+- **Much lower keyboard latency in the network list**: The UI loop was reorganized to prioritize keyboard handling and avoid unnecessary work while navigating.
+- **Full key mapping restored**: Arrow keys and Q/A for navigation, O/P for page up/down, plus all action keys (R, H, D, X, Enter, Esc).
+- **More efficient Page Down rendering**: The list is redrawn only when a page boundary is crossed, avoiding redundant full-screen redraws.
+- **Network counter and page info on line 17**: Right-aligned indicator shows `X networks detected` and, when applicable, `(A/B pages)`.
+
+### Bug Fixes
+
+- **Automatic drop detection made robust**: Async parsing now correctly detects disconnection/reconnection markers across circular-buffer boundaries (e.g., `"DISCON"` / `"GOT IP"`), preventing missed events.
+- **UART contention fixed**: Added a `uart_busy` mutex to prevent `checkAsyncWifi` from consuming bytes during critical operations (scan/connect/getIP).
+- **getIP hang prevention**: Replaced blocking reads with `readTimeout` and enforced a maximum byte budget to avoid stalls.
+- **Selection clamping after rescan**: When a rescan returns fewer APs than before, `offset`/`cursor_position` are clamped so the highlight never lands on a non-existing row.
+- **Stale counters removed**: When `networks_count == 0`, line 17 is fully cleared to avoid displaying outdated values after rescans.
+
+---
+
+## [1.1.0] - 2025-12-29
+
+### New Features
+
+- **Hidden Network Support (H key)**: Added ability to manually enter SSID for hidden networks that don't appear in scan results. Press 'H' from the network list to enter a custom SSID and password.
+
+- **Disconnect Option (X key)**: New option to disconnect from the current WiFi network without exiting the application. Only available when connected.
+
+- **Async WiFi Status Detection**: The application now automatically detects connection drops and reconnections by monitoring ESP async messages (`WIFI DISCONNECT`, `WIFI GOT IP`). The status bar updates in real-time without user intervention.
+
+- **Already Connected Warning**: When selecting a network you're already connected to, the application now shows a warning message instead of attempting to reconnect.
+
+---
+
+### UI Improvements
+
+- **Refined Connection Retry Display**: Changed retry message format to show "Retry" only between connection attempts (after failure, during wait), not during the attempt itself. The sequence is now: `Connecting (1/3)...` → fail → `Connecting (1/3)... Retry` → wait → `Connecting (2/3)...` → etc.
+
+- **Added Spacing in Network List**: Added a blank line between the menu options and the network list for better visual separation.
+
+- **Added Spacing in Password Entry**: Added a blank line between the banner and "Selected SSID:" when entering a password.
+
+- **Consistent Cancel Key**: Standardized on EDIT key for canceling text input (SSID and password entry). BREAK key is now reserved exclusively for canceling connection attempts in progress.
+
+- **Status Bar Flicker Fix**: Fixed an issue where the WiFi status indicator ("Connected"/"Disconnected") would flicker when navigating between menus. The status bar now only updates when the connection state actually changes.
+
+- **Dynamic Help Menu**: The help line now shows different options based on connection state:
+  - Disconnected: `Q/A:Nav O/P:Page R:Refresh D:Diag`
+  - Connected: `Q/A:Nav R:Refresh D:Diag X:Disconn`
+
+---
+
+### Technical Changes
+
+- `PER_PAGE` reduced from 10 to 9 to accommodate new UI layout
+- Network list now starts at line 6 (was line 5)
+- Scroll indicators adjusted accordingly
+- Main loop changed to non-blocking keyboard read to support async WiFi monitoring
+- Added 16-byte circular buffer for async UART message parsing
+
+---
+
+### Internal Refactoring
+
+- `topClean` no longer redraws the status bar unnecessarily
+- Added `selected_ssid_ptr` variable to avoid recalculating SSID pointer
+- New messages: `msg_edit_cancel`, `msg_retry_suffix`
+- New async detection infrastructure: `checkAsyncWifi`, `async_buffer`, pattern matching for ESP events
+
+---
+
 ## [1.0.0] - "First Contact" - 2025-12-25
 
 ### 🎄 Initial Release
@@ -123,75 +236,3 @@ This is the first release of **NetManZX**, a complete rewrite and enhancement of
 ---
 
 *First Contact - Because every Spectrum deserves to reach the cloud* ☁️
-
-
-## [1.1.0] - 2025-12-29
-
-### New Features
-
-- **Hidden Network Support (H key)**: Added ability to manually enter SSID for hidden networks that don't appear in scan results. Press 'H' from the network list to enter a custom SSID and password.
-
-- **Disconnect Option (X key)**: New option to disconnect from the current WiFi network without exiting the application. Only available when connected.
-
-- **Async WiFi Status Detection**: The application now automatically detects connection drops and reconnections by monitoring ESP async messages (`WIFI DISCONNECT`, `WIFI GOT IP`). The status bar updates in real-time without user intervention.
-
-- **Already Connected Warning**: When selecting a network you're already connected to, the application now shows a warning message instead of attempting to reconnect.
-
----
-
-### UI Improvements
-
-- **Refined Connection Retry Display**: Changed retry message format to show "Retry" only between connection attempts (after failure, during wait), not during the attempt itself. The sequence is now: `Connecting (1/3)...` → fail → `Connecting (1/3)... Retry` → wait → `Connecting (2/3)...` → etc.
-
-- **Added Spacing in Network List**: Added a blank line between the menu options and the network list for better visual separation.
-
-- **Added Spacing in Password Entry**: Added a blank line between the banner and "Selected SSID:" when entering a password.
-
-- **Consistent Cancel Key**: Standardized on EDIT key for canceling text input (SSID and password entry). BREAK key is now reserved exclusively for canceling connection attempts in progress.
-
-- **Status Bar Flicker Fix**: Fixed an issue where the WiFi status indicator ("Connected"/"Disconnected") would flicker when navigating between menus. The status bar now only updates when the connection state actually changes.
-
-- **Dynamic Help Menu**: The help line now shows different options based on connection state:
-  - Disconnected: `Q/A:Nav O/P:Page R:Refresh D:Diag`
-  - Connected: `Q/A:Nav R:Refresh D:Diag X:Disconn`
-
----
-
-### Technical Changes
-
-- `PER_PAGE` reduced from 10 to 9 to accommodate new UI layout
-- Network list now starts at line 6 (was line 5)
-- Scroll indicators adjusted accordingly
-- Main loop changed to non-blocking keyboard read to support async WiFi monitoring
-- Added 16-byte circular buffer for async UART message parsing
-
----
-
-### Internal Refactoring
-
-- `topClean` no longer redraws the status bar unnecessarily
-- Added `selected_ssid_ptr` variable to avoid recalculating SSID pointer
-- New messages: `msg_edit_cancel`, `msg_retry_suffix`
-- New async detection infrastructure: `checkAsyncWifi`, `async_buffer`, pattern matching for ESP events
-
-
-## [1.2.1]- "Pulse Check" - 2026-02-22
-
-### New Features
-
-- **Periodic Connection Health-Check**: When idle, NetManZX periodically queries the ESP (`AT+CWJAP?`, with `_CUR`/`_DEF` fallbacks) to verify that the connection is still valid. If the query fails, the UI is immediately marked as disconnected and an automatic rescan is triggered.
-
-### Improvements
-
-- **Much lower keyboard latency in the network list**: The UI loop was reorganized to prioritize keyboard handling and avoid unnecessary work while navigating.
-- **Full key mapping restored**: Arrow keys and Q/A for navigation, O/P for page up/down, plus all action keys (R, H, D, X, Enter, Esc).
-- **More efficient Page Down rendering**: The list is redrawn only when a page boundary is crossed, avoiding redundant full-screen redraws.
-- **Network counter and page info on line 17**: Right-aligned indicator shows `X networks detected` and, when applicable, `(A/B pages)`.
-
-### Bug Fixes
-
-- **Automatic drop detection made robust**: Async parsing now correctly detects disconnection/reconnection markers across circular-buffer boundaries (e.g., `"DISCON"` / `"GOT IP"`), preventing missed events.
-- **UART contention fixed**: Added a `uart_busy` mutex to prevent `checkAsyncWifi` from consuming bytes during critical operations (scan/connect/getIP).
-- **getIP hang prevention**: Replaced blocking reads with `readTimeout` and enforced a maximum byte budget to avoid stalls.
-- **Selection clamping after rescan**: When a rescan returns fewer APs than before, `offset`/`cursor_position` are clamped so the highlight never lands on a non-existing row.
-- **Stale counters removed**: When `networks_count == 0`, line 17 is fully cleared to avoid displaying outdated values after rescans.

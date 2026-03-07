@@ -80,19 +80,4 @@ uartRead:
     scf                  ; Marcar éxito (CF=1)
     ret
 
-;; HL - buffptr
-;; DE - size
-;; Nota: Esta rutina es bloqueante por diseño (lee un bloque entero)
-readBlock:
-    call uartRead
-    jr nc, readBlock     ; Esperar hasta que llegue un byte
-    
-    ld (hl), a
-    inc hl
-    dec de
-    ld a, d
-    or e
-    ret z
-    jr readBlock
-
     endmodule
