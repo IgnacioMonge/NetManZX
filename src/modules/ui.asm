@@ -576,7 +576,7 @@ renderList:
 no_net_msg db "No networks found. Press 'R' to rescan.", 0
 msg_help   db "Q/A:Nav O/P:Page R:Refresh D:Diag", 0
 msg_help_conn db "Q/A:Nav R:Refresh X:Disconn D:Diag", 0
-msg_help2  db "H:Hidden W:WPS L:Log D:Diag", 0
+msg_help2  db "H:Hidden W:WPS L:Log I:About", 0
 
 ; ============================================
 ; Muestra flechas de scroll en línea 16
@@ -1063,6 +1063,8 @@ uiLoopMain:
     cp 'L' : jp z, toggleDebugLog
     cp 'w' : jp z, doWPS
     cp 'W' : jp z, doWPS
+    cp 'i' : jp z, showAbout
+    cp 'I' : jp z, showAbout
 
     cp 15  : jp z, exitProgram     ; ESC
     cp 13  : jp z, selectItem      ; ENTER
@@ -4148,6 +4150,73 @@ printNumber:
 
 page_total      db 0
 page_current    db 0
+
+; ============================================
+; About screen (I key)
+; ============================================
+showAbout:
+    call topClean
+
+    gotoXY 0, 3
+    ld hl, .msg_about_title
+    call Display.putStr
+    ld a, 4 : ld e, 0 : ld d, Display.ATTR_NORMAL
+    call Display.draw_hline
+
+    gotoXY 0, 5
+    ld hl, .msg_about_ver
+    call Display.putStr
+    gotoXY 0, 6
+    ld hl, .msg_about_driver
+    call Display.putStr
+    gotoXY 0, 8
+    ld hl, .msg_about_desc
+    call Display.putStr
+    gotoXY 0, 9
+    ld hl, .msg_about_desc2
+    call Display.putStr
+    gotoXY 0, 11
+    ld hl, .msg_about_author
+    call Display.putStr
+    gotoXY 0, 12
+    ld hl, .msg_about_inspired
+    call Display.putStr
+    gotoXY 0, 14
+    ld hl, .msg_about_github
+    call Display.putStr
+    gotoXY 0, 15
+    ld hl, .msg_about_license
+    call Display.putStr
+    gotoXY 0, 17
+    ld hl, msg_press_key
+    call Display.putStr
+
+.aboutWait
+    halt
+    call Keyboard.inKey
+    and a
+    jr z, .aboutWait
+    call renderList
+    jp uiLoop
+
+.msg_about_title db "About", 0
+.msg_about_ver   db "NetManZX v", VERSION_STRING, 0
+.msg_about_driver:
+    IFDEF UNO
+        db "UART driver: ZX-Uno", 0
+    ELSE
+        IFDEF NEXT
+            db "UART driver: ZX Spectrum Next", 0
+        ELSE
+            db "UART driver: AY-3-8912", 0
+        ENDIF
+    ENDIF
+.msg_about_desc  db "WiFi network manager for", 0
+.msg_about_desc2 db "ZX Spectrum + ESP8266", 0
+.msg_about_author db "By M. Ignacio Monge Garcia", 0
+.msg_about_inspired db "Inspired by netman-zx (Nihirash)", 0
+.msg_about_github db "github.com/IgnacioMonge/NetManZX", 0
+.msg_about_license db "License: MIT", 0
 
 ; ============================================
 ; Mensajes y datos
