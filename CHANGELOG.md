@@ -39,7 +39,7 @@ All notable changes to NetManZX are documented in this file.
 - **Connection attempts**: AT+CWJAP can be cancelled immediately via BREAK
 
 #### Platform Improvements
-- **NextSync baud recovery**: Detects if ESP was left at 1152000 baud by NextSync, tries AT at 115200, falls back to tryFastBaud + AT+RST for automatic recovery
+- **NextSync baud recovery** (Next build only): Detects if ESP was left at 1152000 baud by NextSync, tries AT at 115200, falls back to tryFastBaud + AT+RST for automatic recovery
 - **IP retry on connect**: 3 attempts with 1-second intervals after successful WiFi association
 - **flushInput drain limit**: 1024-byte maximum prevents infinite loop when ESP sends continuous data
 

@@ -60,7 +60,7 @@ NetManZX is based on the original [netman-zx](https://github.com/nihirash/netman
 - **UART Debug Log**: Toggle live UART log display with L key
 - **Compressed font**: Built-in nibble-packed font system (no external font.bin dependency)
 - **Three UART backends**: Supports ZX-Uno, AY-UART (ZX-Badaloc), and ZX Spectrum Next hardware
-- **NextSync baud recovery**: Automatically detects and recovers if ESP was left at wrong baud rate by NextSync
+- **NextSync baud recovery** (Next build only): Automatically detects and recovers if ESP was left at wrong baud rate by NextSync
 - **Build date**: Automatically embedded at assembly time via Lua
 
 ## Requirements
@@ -146,7 +146,7 @@ Put NETMANZX.BAS file loader and netmanzx.cod in the same directory. Run NETMANZ
 - **UART Busy Protection**: Mutex-style guard prevents background async parsing from interfering during critical operations
 - **IP Retry on Connect**: 3 attempts with 1-second intervals after successful WiFi association
 - **Automatic State Recovery**: On link loss, UI transitions to Disconnected and schedules a safe rescan
-- **NextSync Recovery**: Detects ESP left at 1152000 baud by NextSync and auto-resets to correct speed
+- **NextSync Recovery** (Next build only): Detects ESP left at 1152000 baud by NextSync and auto-resets to correct speed
 
 ## Version History
 

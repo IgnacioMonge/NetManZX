@@ -60,7 +60,7 @@ NetManZX esta basado en el proyecto original [netman-zx](https://github.com/nihi
 - **Log de Depuracion UART**: Muestra/oculta el log UART en tiempo real con la tecla L
 - **Fuente comprimida**: Sistema de fuente comprimida por nibbles integrado (sin dependencia de archivo font.bin externo)
 - **Tres backends UART**: Soporta hardware ZX-Uno, AY-UART (ZX-Badaloc) y ZX Spectrum Next
-- **Recuperacion de baudios NextSync**: Detecta y recupera automaticamente si el ESP fue dejado a velocidad incorrecta por NextSync
+- **Recuperacion de baudios NextSync** (solo build Next): Detecta y recupera automaticamente si el ESP fue dejado a velocidad incorrecta por NextSync
 - **Fecha de compilacion**: Incrustada automaticamente en tiempo de ensamblado via Lua
 
 ## Requisitos
@@ -146,7 +146,7 @@ Pon el fichero NETMANZX.BAS y netmanzx.cod en el mismo directorio. Ejecuta NETMA
 - **Proteccion UART Busy**: Mecanismo tipo mutex que evita que el parser asincrono interfiera durante operaciones criticas
 - **Reintento de IP al Conectar**: 3 intentos con intervalos de 1 segundo tras la asociacion WiFi exitosa
 - **Recuperacion Automatica de Estado**: Al perder conexion, la interfaz pasa a Disconnected y programa un rescaneo seguro
-- **Recuperacion NextSync**: Detecta ESP dejado a 1152000 baudios por NextSync y reinicia automaticamente a la velocidad correcta
+- **Recuperacion NextSync** (solo build Next): Detecta ESP dejado a 1152000 baudios por NextSync y reinicia automaticamente a la velocidad correcta
 
 ## Historial de Versiones
 
