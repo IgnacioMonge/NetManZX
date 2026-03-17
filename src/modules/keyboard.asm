@@ -16,8 +16,9 @@ checkBreak:
     bit 0, a                ; CAPS SHIFT es bit 0
     ret                     ; Z=1 si ambos pulsados
 
-; Lectura bloqueante - espera hasta que haya tecla
+; Lectura bloqueante - espera hasta que haya tecla (sync 50Hz)
 inKey:
+    halt
     call inKeyNoWait
     and a
     jr z, inKey

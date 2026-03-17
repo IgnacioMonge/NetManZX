@@ -67,7 +67,6 @@ write:
 ;   CF = 1 : Byte leído en A
 ;   CF = 0 : No hay datos disponibles (retorno inmediato)
 ; -----------------------------------------------------------------
-read:                        ; Alias para compatibilidad
 uartRead:
     ld bc, UART_GetStatus
     in a, (c)
@@ -79,5 +78,42 @@ uartRead:
     in a, (c)            ; Leer el byte
     scf                  ; Marcar éxito (CF=1)
     ret
+
+; -----------------------------------------------------------------
+; tryFastBaud - Cambia UART a ~1152000 baud temporalmente
+; Para recuperación si NextSync dejó la ESP a velocidad alta.
+; Después de usar, llamar a init para restaurar 115200.
+; -----------------------------------------------------------------
+tryFastBaud:
+    ; Detectar tipo de core (igual que init)
+    ld hl, .tableFast
+    ld bc, 9275
+    ld a, 17
+    out (c), a
+    ld bc, 9531
+    in a, (c)
+    ld e, a
+    rlc e
+    ld d, 0
+    add hl, de
+    ld e, (hl)
+    inc hl
+    ld d, (hl)
+    ex de, hl
+    ; Set baud rate (misma secuencia que init)
+    ld bc, UART_SetBaud
+    ld a, l
+    and %01111111
+    out (c), a
+    ld a, h
+    rl l
+    rla
+    or %10000000
+    out (c), a
+    ret
+
+; Prescalar para ~1152000 baud (tabla 115200 / 10)
+.tableFast
+    dw 24,25,26,26,27,28,29,23
 
     endmodule

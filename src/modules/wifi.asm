@@ -185,9 +185,16 @@ checkConnection:
     cp 10 : jr nz, .flushToLF
     ret
 
+; Drena el UART hasta silencio (con límite de 1024 bytes para evitar bloqueo)
 flushInput:
+    ld de, 1024
+.flushLoop
     call UartImpl.uartRead
-    jr c, flushInput
+    jr nc, .flushDone           ; CF=0 → silencio, fin
+    dec de
+    ld a, d : or e
+    jr nz, .flushLoop           ; Quedan bytes por drenar
+.flushDone
     ret
 
 ; Salir de modo transparente (+++, guard time, flush)
@@ -308,6 +315,10 @@ getList:
     ld (buff_ptr), hl
     ld hl, rssi_buffer
     ld (rssi_ptr), hl
+    ld hl, ecn_buffer
+    ld (ecn_ptr), hl
+    ld hl, channel_buffer
+    ld (chan_ptr), hl
     xor a
     ld (networks_count), a
     ld (seen_cwlap), a
@@ -426,9 +437,12 @@ loadList:
     
     call Uart.readTimeout : jp nc, .scan_timeout
     sub '0'
+    ; Save ECN to its own buffer and also to rssi_ptr (open flag, overwritten later)
+    ld hl, (ecn_ptr)
+    ld (hl), a
     ld hl, (rssi_ptr)
-    ld (hl), a          
-    
+    ld (hl), a
+
 .findQuote
     call Uart.readTimeout : jp nc, .scan_timeout
     cp '"' : jr nz, .findQuote
@@ -510,7 +524,47 @@ loadList:
     ld (hl), a
     inc hl
     ld (rssi_ptr), hl
-    
+
+    ; Parse channel: format after RSSI is "mac",channel,...
+    ; The comma after RSSI was already consumed by readRssiDigit.
+    ; Skip MAC field (e.g. "aa:bb:cc:dd:ee:ff") until comma after it.
+.skipMac
+    call Uart.readTimeout : jp nc, .scan_timeout
+    cp ',' : jr nz, .skipMac
+    ; Comma after MAC consumed. Next chars are channel digits.
+
+    ; Parse channel number (1-14)
+    ld e, 0
+.readChanDigit
+    call Uart.readTimeout : jp nc, .scan_timeout
+    cp '0' : jr c, .chanDone
+    cp '9'+1 : jr nc, .chanDone
+    sub '0'
+    ld b, a
+    ld a, e
+    add a, a            ; x2
+    ld e, a
+    add a, a            ; x4
+    add a, a            ; x8
+    add a, e            ; x10
+    add a, b            ; x10 + digit
+    ld e, a
+    jr .readChanDigit
+.chanDone
+    ld a, e
+    jr .saveChannel
+.noChannel
+    xor a               ; Channel unknown = 0
+.saveChannel
+    ld hl, (chan_ptr)
+    ld (hl), a
+    inc hl
+    ld (chan_ptr), hl
+    ; Advance ecn_ptr (was written earlier, just increment)
+    ld hl, (ecn_ptr)
+    inc hl
+    ld (ecn_ptr), hl
+
     ld hl, networks_count : inc (hl)
     jp loadList
 
@@ -1011,6 +1065,8 @@ is_sorted       db 0
 ; Variables del módulo
 buff_ptr        dw buffer
 rssi_ptr        dw rssi_buffer
+ecn_ptr         dw ecn_buffer
+chan_ptr         dw channel_buffer
 networks_count  db 0
 seen_cwlap      db 0
 ok_ignored      db 0
@@ -1021,6 +1077,8 @@ uart_busy       db 0           ; 1=UART ocupado por parser/operación crítica
 debug_log      db 0           ; 1=log TX/RX key info (safe)
 
     RTVAR rssi_buffer, MAX_NETWORKS
+    RTVAR ecn_buffer, MAX_NETWORKS      ; Encryption type per network (0-5)
+    RTVAR channel_buffer, MAX_NETWORKS  ; WiFi channel per network (1-14)
     RTVAR connected_ssid, MAX_SSID_LEN + 1
     RTVAR ip_buffer, 17
 

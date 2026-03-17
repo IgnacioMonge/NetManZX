@@ -55,12 +55,6 @@ write:
     jr .checkSent
 
 
-; read: Alias para compatibilidad con uart-common.asm
-read:
-    call uartRead
-    jr nc, read
-    ret
-
 ; Read byte from UART
 ; A: byte
 ; B:

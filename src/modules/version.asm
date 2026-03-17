@@ -15,4 +15,7 @@
     end
 
     sj.insert_define("VERSION_STRING", "\"" .. ver .. "\"")
+
+    -- Build date: dd/mm/yyyy
+    sj.insert_define("BUILD_DATE", "\"" .. os.date("%d/%m/%Y") .. "\"")
     ENDLUA

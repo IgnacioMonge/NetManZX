@@ -78,7 +78,7 @@ readTimeoutMedium:
 
 ; Lectura con timeout largo (para conexión WiFi)
 ; Salida: A = byte leído, CF=1 si éxito
-;         CF=0 si timeout
+;         CF=0 si timeout o BREAK pulsado
 readTimeoutLong:
     push bc, de, hl
     ld b, LONG_TIMEOUT_REPS
@@ -86,8 +86,12 @@ readTimeoutLong:
     ld de, LONG_TIMEOUT_BLOCK
     call poll_block
     jr c, got_byte
+    ; Chequear BREAK entre bloques (~370ms cada uno)
+    call Keyboard.checkBreak
+    jr z, .breakAbort           ; Z=1 → BREAK pulsado
     djnz .outer
-    ; Timeout total
+.breakAbort
+    ; Timeout total o BREAK
     pop hl, de, bc
     or a
     ret
@@ -109,9 +113,17 @@ poll_block:
     jr nz, .delay
 
     dec de
+    ld a, e
+    or a
+    jr nz, .loop          ; E no es 0: seguir rápido
+    ; E=0: cada 256 iteraciones, chequear BREAK
     ld a, d
-    or e
-    jr nz, .loop
+    or a
+    jr z, .done           ; D también 0: timeout
+    call Keyboard.checkBreak
+    jr z, .done           ; Z=1 → BREAK pulsado, abortar
+    jr .loop
+.done
     or a
     ret
 

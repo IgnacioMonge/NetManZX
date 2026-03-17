@@ -73,18 +73,18 @@ define MOVE_FILE
 endef
 
 define CLEAN_CMD
-	@if exist "$(OUTPUT_TAP)" del /q "$(OUTPUT_TAP)"
-	@if exist "*.lst" del /q *.lst
-	@if exist "*.sym" del /q *.sym
-	@if exist "$(BUILDDIR)" rmdir /s /q "$(BUILDDIR)"
+	@if exist "$(OUTPUT_TAP)" (del /q "$(OUTPUT_TAP)" 2>NUL || ver >NUL)
+	@if exist "*.lst" del /q *.lst 2>NUL
+	@if exist "*.sym" del /q *.sym 2>NUL
+	@if exist "$(BUILDDIR)" (rmdir /s /q "$(BUILDDIR)" 2>NUL || ver >NUL)
 endef
 
 define CLEAN_ALL
-	@if exist "$(OUTPUT_TAP)" del /q "$(OUTPUT_TAP)"
-	@if exist "*.lst" del /q *.lst
-	@if exist "*.sym" del /q *.sym
-	@if exist "$(BUILDDIR)" rmdir /s /q "$(BUILDDIR)"
-	@if exist "$(LOGDIR)" rmdir /s /q "$(LOGDIR)"
+	@if exist "$(OUTPUT_TAP)" (del /q "$(OUTPUT_TAP)" 2>NUL || ver >NUL)
+	@if exist "*.lst" del /q *.lst 2>NUL
+	@if exist "*.sym" del /q *.sym 2>NUL
+	@if exist "$(BUILDDIR)" (rmdir /s /q "$(BUILDDIR)" 2>NUL || ver >NUL)
+	@if exist "$(LOGDIR)" (rmdir /s /q "$(LOGDIR)" 2>NUL || ver >NUL)
 endef
 
 else

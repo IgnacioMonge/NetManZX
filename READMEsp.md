@@ -4,59 +4,80 @@
 
 **Gestor de Redes WiFi para ZX Spectrum**
 
-[🇬🇧 English version](README.md)
+[English version](README.md)
 
-## ¿Qué es NetManZX?
+## Que es NetManZX?
 
-NetManZX es una utilidad de configuración de redes WiFi para ordenadores ZX Spectrum equipados con módulos WiFi basados en ESP8266 (como ZX-Badaloc o similares). Proporciona una interfaz amigable para escanear, seleccionar y conectarse a redes inalámbricas directamente desde tu Spectrum.
+NetManZX es una utilidad de configuracion de redes WiFi para ordenadores ZX Spectrum equipados con modulos WiFi basados en ESP8266 (como ZX-Badaloc o similares). Proporciona una interfaz amigable para escanear, seleccionar y conectarse a redes inalambricas directamente desde tu Spectrum.
 
 ## Origen
 
-NetManZX está basado en el proyecto original [netman-zx](https://github.com/nihirash/netman-zx) de **Alex Nihirash**. Esta versión ha sido significativamente mejorada con nuevas funcionalidades, mayor fiabilidad y mejor experiencia de usuario.
+NetManZX esta basado en el proyecto original [netman-zx](https://github.com/nihirash/netman-zx) de **Alex Nihirash**. Esta version ha sido significativamente mejorada con nuevas funcionalidades, mayor fiabilidad y mejor experiencia de usuario.
 
-## Características
+## Capturas de Pantalla
 
-- **Escaneo de Redes**: Descubre automáticamente las redes WiFi disponibles
+| | | |
+|:---:|:---:|:---:|
+| [![Startup](images/screenshot_startup.png)](images/screenshot_startup.png) | [![Network List](images/screenshot_network_list.png)](images/screenshot_network_list.png) | [![Connected Prompt](images/screenshot_connected_prompt.png)](images/screenshot_connected_prompt.png) |
+| *Inicio y escaneo* | *Lista de redes con barras RSSI* | *Dialogo de red ya conectada* |
+| [![Network Detail](images/screenshot_password_masked.png)](images/screenshot_password_masked.png) | [![Password Visible](images/screenshot_password_visible.png)](images/screenshot_password_visible.png) | [![Hidden Network](images/screenshot_hidden_network.png)](images/screenshot_hidden_network.png) |
+| *Detalle de red y password* | *Password visible* | *Red oculta (SSID manual)* |
+| [![Diagnostics](images/screenshot_diagnostics.png)](images/screenshot_diagnostics.png) | [![Config Summary](images/screenshot_config_summary.png)](images/screenshot_config_summary.png) | [![About](images/screenshot_about.png)](images/screenshot_about.png) |
+| *Menu de diagnosticos (7 opciones)* | *Resumen de configuracion* | *Pantalla Acerca de* |
+
+## Caracteristicas
+
+### Interfaz de Usuario
+- **Renderizado en doble altura**: Banner, barra de estado, campos de entrada y mensajes renderizados en texto de doble altura sin parpadeo mediante un renderizador a nivel de pixel
+- **Pantalla de Detalle de Red**: Al seleccionar una red, una vista de detalle muestra el SSID (doble altura), tipo de seguridad, canal WiFi y barras de intensidad de senal antes de solicitar la contrasena
+- **Badge arcoiris**: Triangulo decorativo con transiciones de color en el banner
+- **Barras de senal RSSI de 8 niveles**: Indicador visual de intensidad de senal WiFi para cada red, con glifos personalizados de circulo cerrado/abierto
+- **Barra de estado anti-parpadeo**: Renderizado por sobreescritura directa con actualizaciones agrupadas que elimina el parpadeo visual
+- **Indicadores de scroll**: Flechas visuales que indican cuando hay mas redes disponibles
+
+### Gestion de Redes
+- **Escaneo de Redes**: Descubre automaticamente las redes WiFi disponibles con ordenacion por intensidad de senal
 - **Soporte de Redes Ocultas**: Introduce manualmente el SSID de redes que no emiten su nombre
-- **Intensidad de Señal Visual**: Barras RSSI de 8 niveles muestran la calidad de señal de cada red
-- **Detección Inteligente de Conexión**: Detecta si ya está conectado y ofrece mantener o reconfigurar
-- **Entrada de Contraseña**: Soporte completo de teclado con opción de mostrar/ocultar contraseña
-- **Opción de Desconexión**: Desconecta de la red actual sin salir de la aplicación
-- **Monitorización de Estado en Tiempo Real**: Detecta automáticamente caídas y reconexiones
-- **Mensajes de Error Detallados**: Información específica sobre fallos de conexión (contraseña incorrecta, AP no encontrado, timeout, etc.)
-- **Menú de Diagnósticos**:
-  - Test de ping con IP configurable
-  - Información del firmware del módulo
-  - Info de red (dirección IP/MAC)
-  - Velocidad del UART
-  - Configuración de IP estática
-  - Configuración de hostname
-  - Resumen de configuración (todos los ajustes de un vistazo)
-- **Soporte WPS**: Conexión WPS por pulsación de botón con la tecla W
-- **Log de Depuración UART**: Muestra/oculta el log UART en tiempo real con la tecla L
-- **Comunicación Robusta**: 
-  - Filtrado de tráfico de red durante diagnósticos
-  - Terminación basada en timeout para evitar bloqueos
-  - Mecanismo de reintento con recuperación del ESP
-- **Feedback Visual**: 
-  - Indicador de estado WiFi (Scanning/Connected/Disconnected)
-  - Log de actividad UART con color de borde
-  - Dirección IP en la barra de estado
-- **Navegación**: Soporte Page Up/Down, indicadores de scroll
+- **Deteccion Inteligente de Conexion**: Al iniciar, detecta si ya esta conectado y ofrece mantener o reconfigurar
+- **Entrada de Contrasena**: Soporte completo de teclado con opcion de mostrar/ocultar, entrada en doble altura con edicion de cursor
+- **Soporte WPS**: Conexion WPS por pulsacion de boton (tecla W), con dialogo de confirmacion si ya esta conectado
+- **Opcion de Desconexion**: Desconecta de la red actual sin salir de la aplicacion
+- **Monitorizacion de Estado en Tiempo Real**: Detecta automaticamente caidas y reconexiones
+- **Mensajes de Error Detallados**: Informacion especifica sobre fallos de conexion (contrasena incorrecta, AP no encontrado, timeout, etc.)
+- **Cancelacion con BREAK**: Cancelacion casi instantanea (~5ms de respuesta) durante cualquier comando AT o intento de conexion
 
-[![NetManZX_1](images/NETMANZX_snap1_th.png)](images/NETMANZX_snap1.png) [![NetManZX_2](images/NETMANZX_snap3_th.png)](images/NETMANZX_snap3.png) [![NetManZX_3](images/NETMANZX_snap5_th.png)](images/NETMANZX_snap5.png)
+### Menu de Diagnosticos
+1. **Ping test** - Probar conectividad con IP configurable (por defecto: 8.8.8.8)
+2. **Module info** - Mostrar version del firmware del ESP8266 y conjunto de comandos AT
+3. **Network info** - Mostrar direccion IP y direccion MAC actual
+4. **UART baud rate** - Mostrar velocidad de comunicacion actual
+5. **Static IP** - Configurar direccion IP estatica, gateway y mascara de subred
+6. **Hostname** - Establecer un nombre de host personalizado para el modulo ESP
+7. **Config summary** - Ver todos los ajustes WiFi actuales de un vistazo (SSID, IP, MAC, hostname, firmware, version de la app)
+
+### Otros
+- **Pantalla Acerca de** (tecla I): Muestra version, fecha de compilacion, autor, URL de GitHub y licencia
+- **Log de Depuracion UART**: Muestra/oculta el log UART en tiempo real con la tecla L
+- **Fuente comprimida**: Sistema de fuente comprimida por nibbles integrado (sin dependencia de archivo font.bin externo)
+- **Tres backends UART**: Soporta hardware ZX-Uno, AY-UART (ZX-Badaloc) y ZX Spectrum Next
+- **Recuperacion de baudios NextSync**: Detecta y recupera automaticamente si el ESP fue dejado a velocidad incorrecta por NextSync
+- **Fecha de compilacion**: Incrustada automaticamente en tiempo de ensamblado via Lua
 
 ## Requisitos
 
 - ZX Spectrum (48K o superior) o compatible
-- Módulo WiFi basado en ESP8266 (ZX-Badaloc, o implementaciones AY-UART similares)
+- Modulo WiFi basado en ESP8266:
+  - **ZX-Uno**: UART integrado (target por defecto)
+  - **AY-UART**: ZX-Badaloc o implementaciones similares bit-banged AY-3-8912
+  - **ZX Spectrum Next**: UART hardware con FIFO
 - Sistema compatible con +3DOS para carga (o tap2wav para carga desde cinta)
 
-## Compilación
+## Compilacion
 
 ### Prerrequisitos
 
 - [SjASMPlus](https://github.com/z00m128/sjasmplus) Z80 Cross-Assembler v1.20+
+- GNU Make
 
 ### Compilar
 
@@ -76,63 +97,56 @@ make all
 
 ### Archivos de Salida
 
-| Formato | Archivo | Descripción |
-|---------|---------|-------------|
-| TAP | `build/netmanzx.tap` | Archivo de cinta completo con cargador BASIC auto-ejecutable |
-| +3DOS | `netmanzx.cod` | Para sistemas +3 / +3DOS (compilar sin `-DTAP`) |
+| Target | Archivo | Descripcion |
+|--------|---------|-------------|
+| UNO | `netmanzx-uno.tap` | ZX-Uno / DivMMC |
+| AY | `netmanzx-ay.tap` | AY-UART / ZX-Badaloc |
+| NEXT | `netmanzx-next.tap` | ZX Spectrum Next |
 
 ### Carga
+
+**TAP (cinta/emuladores):**
+Simplemente carga el archivo TAP - el cargador BASIC se ejecutara automaticamente y cargara el programa.
 
 **+3DOS:**
 Pon el fichero NETMANZX.BAS y netmanzx.cod en el mismo directorio. Ejecuta NETMANZX.BAS desde el navegador de ficheros de esxDOS.
 
-**TAP (cinta/emuladores):**
-Simplemente carga el archivo TAP - el cargador BASIC se ejecutará automáticamente y cargará el programa.
-
 ## Uso
 
 1. **Carga el programa** en tu Spectrum
-2. **Espera al escaneo de redes** - las redes disponibles aparecerán en una lista
-3. **Navega** usando las teclas de cursor (arriba/abajo) u O/P para página arriba/abajo
-4. **Selecciona una red** con ENTER (o pulsa H para redes ocultas)
-5. **Introduce la contraseña** (si es necesaria) - usa flecha arriba para mostrar/ocultar contraseña
-6. **Espera a la conexión** - los mensajes de error detallados ayudan a resolver problemas
-7. **Accede a diagnósticos** pulsando 'D' desde la lista de redes
+2. **Espera al escaneo de redes** - las redes disponibles apareceran en una lista
+3. **Navega** usando las teclas de cursor (arriba/abajo) o Q/A, O/P para pagina arriba/abajo
+4. **Selecciona una red** con ENTER - una pantalla de detalle muestra seguridad, canal y senal
+5. **Introduce la contrasena** (si es necesaria) - usa flecha arriba para mostrar/ocultar contrasena
+6. **Espera a la conexion** - BREAK cancela inmediatamente, mensajes de error detallados en caso de fallo
+7. **Accede a diagnosticos** pulsando D desde la lista de redes
 
 ### Controles
 
-| Tecla | Acción |
+| Tecla | Accion |
 |-------|--------|
-| ↑/↓ o Q/A | Navegar lista de redes |
-| O/P | Página Arriba/Abajo |
+| Arriba/Abajo o Q/A | Navegar lista de redes |
+| O/P | Pagina Arriba/Abajo |
 | ENTER | Seleccionar red / Confirmar |
-| BREAK | Cancelar / Volver |
+| BREAK | Cancelar / Volver (respuesta instantanea) |
 | H | Conectar a red oculta (introducir SSID manualmente) |
 | X | Desconectar de la red actual |
-| D | Menú de diagnósticos |
+| D | Menu de diagnosticos |
 | R | Reescanear redes |
-| L | Alternar log de depuración UART |
-| W | Conexión WPS por pulsación |
+| L | Alternar log de depuracion UART |
+| W | Conexion WPS por pulsacion |
+| I | Pantalla Acerca de |
 | ESC | Salir del programa |
-
-### Menú de Diagnósticos
-
-- **1. Ping test**: Probar conectividad (por defecto: 8.8.8.8, configurable)
-- **2. Module info**: Mostrar versión del firmware del ESP8266
-- **3. Network info**: Mostrar IP y dirección MAC actual
-- **4. UART baud rate**: Mostrar velocidad de comunicación actual
-- **5. Static IP**: Configurar IP estática, gateway y máscara de subred
-- **6. Hostname**: Establecer un nombre de host personalizado para el módulo ESP
-- **7. Config summary**: Ver todos los ajustes WiFi actuales de un vistazo
-
 
 ### Robustez de Conectividad
 
-- **Detección Automática de Caída WiFi**: Parseo asíncrono de eventos del ESP para detectar desconexiones inesperadas.
-- **Chequeo Periódico en Idle**: Validación periódica mediante comandos AT para comprobar que el enlace sigue activo.
-- **Protección UART Busy**: Mecanismo tipo mutex que evita que el parser asíncrono interfiera durante operaciones críticas (scan/conexión/getIP).
-- **Corrección de Buffer Circular**: Detección fiable de eventos del ESP incluso cuando cruzan el límite del buffer.
-- **Recuperación Automática de Estado**: Al perder conexión, la interfaz pasa a *Disconnected* y programa un rescaneo seguro.
+- **Deteccion BREAK**: Tecla BREAK comprobada cada ~5ms durante comandos AT para cancelacion casi instantanea
+- **Deteccion Automatica de Caida WiFi**: Parseo asincrono de eventos del ESP para detectar desconexiones inesperadas al instante
+- **Chequeo Periodico en Idle**: Validacion periodica mediante comandos AT para comprobar que el enlace sigue activo
+- **Proteccion UART Busy**: Mecanismo tipo mutex que evita que el parser asincrono interfiera durante operaciones criticas
+- **Reintento de IP al Conectar**: 3 intentos con intervalos de 1 segundo tras la asociacion WiFi exitosa
+- **Recuperacion Automatica de Estado**: Al perder conexion, la interfaz pasa a Disconnected y programa un rescaneo seguro
+- **Recuperacion NextSync**: Detecta ESP dejado a 1152000 baudios por NextSync y reinicia automaticamente a la velocidad correcta
 
 ## Historial de Versiones
 
@@ -140,13 +154,15 @@ Ver [CHANGELOG.md](CHANGELOG.md) para el historial detallado de versiones.
 
 ## Licencia
 
-Este proyecto es código abierto. Basado en el trabajo original de Alex Nihirash.
+Licencia MIT. Ver [LICENSE](LICENSE) para mas detalles.
+
+Basado en el trabajo original de Alex Nihirash.
 
 ## Copyright
 
 - netman-zx original: **Alex Nihirash** (https://github.com/nihirash)
-- Mejoras de NetManZX: **M. Ignacio Monge García** (2026)
+- Mejoras de NetManZX: **M. Ignacio Monge Garcia** (2025-2026)
 
 ---
 
-*Hecho con ❤️ para la comunidad del ZX Spectrum*
+*Hecho con amor para la comunidad del ZX Spectrum*

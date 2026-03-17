@@ -10,7 +10,7 @@
     ; V = Mmp...  (M=major, m=minor, p=patch opcional)
     ; Ejemplos: V=12  -> 1.2
     ;           V=121 -> 1.2.1
-    DEFINE V 130
+    DEFINE V 140
 
 ; Constantes globales
 buffer = #C000
@@ -76,6 +76,27 @@ start:
     call Display.putStrLog
     call Uart.init
 
+    IFDEF NEXT
+    ; Recuperación de baud rate: si NextSync dejó la ESP a 1152000
+    call Wifi.flushInput
+    EspCmd "AT"
+    call Wifi.checkOkErr
+    jr nc, .baudOk
+    ; Sin respuesta a 115200 - intentar reset a 1152000 (NextSync)
+    ld hl, .msg_baud_fix
+    call Display.putStrLog
+    call UartImpl.tryFastBaud   ; UART → ~1152000
+    call Wifi.flushInput
+    EspCmd "AT+RST"             ; Reset ESP (restaura baud guardado)
+    ld b, 100                   ; Esperar ~2s para reinicio
+.recWait:
+    halt
+    djnz .recWait
+    call Uart.init              ; UART → 115200
+    call Wifi.flushInput
+.baudOk:
+    ENDIF
+
     ; Salir de modo transparente (si SpecTalkZX u otro lo dejó activo)
     ; Requiere 1s de silencio previo (cumplido: acabamos de iniciar)
     call Wifi.exitTransparent
@@ -128,8 +149,8 @@ start:
     
 .already_connected:
     ; --- CASO: CONECTADO ---
-    call UI.updateWifiStatus    ; Cambia de Scanning a Connected (Verde)
-    call UI.ipShowConnected     ; Mostrar IP
+    call UI.updateWifiStatus_q  ; Cambia de Scanning a Connected (sin render)
+    call UI.ipShowConnected     ; Mostrar IP (render único)
     
     call UI.showConnectedDialog 
     jr nc, .force_scan       ; Usuario eligió 'Y' (Reconfigurar) -> Escanear
@@ -139,8 +160,8 @@ start:
 
 .not_connected
     ; --- MODIFICADO: Actualizar barra superior e inferior explícitamente ---
-    call UI.ipShowNotConnected  ; Pone "IP: not connected" en la barra superior
-    call UI.updateWifiStatus    ; Asegura que la barra inferior esté en ROJO (Disconnected)
+    call UI.updateWifiStatus_q  ; Asegura que la barra inferior esté en ROJO (sin render)
+    call UI.ipShowNotConnected  ; Pone "IP: not connected" (render único)
 
 .force_scan
     ; --- CASO: NO CONFIGURADO / REESCANEAR ---
@@ -157,7 +178,7 @@ start:
     push bc
     
     call UI.topClean
-    gotoXY 1, 3
+    gotoXY 0, 17
     ld hl, .msg_scanning
     call Display.putStr
     
@@ -251,6 +272,7 @@ start:
 ; Textos auxiliares
 .msg_checking   db "Checking connection...", 13, 0
 .msg_preparing  db "Preparing UART...", 13, 0
+.msg_baud_fix   db "Baud recovery...", 13, 0
 .msg_query_status db "Checking WiFi status...", 13, 0
 .ssid_unknown     db "(unknown)", 0
 .msg_init_wifi  db "Initializing WiFi module...", 13, 0

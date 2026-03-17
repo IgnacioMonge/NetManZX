@@ -4,6 +4,70 @@ All notable changes to NetManZX are documented in this file.
 
 ---
 
+## [1.4.0] - "Double Vision" - 2026-03-17
+
+### New Features
+
+#### Double-Height Display System
+- **drawCBig / putCBig / putStrBig**: Flicker-free double-height character renderer using pixel-level operations with self-modifying code for mask rotation
+- **Double-height everywhere**: Banner, status bar, password input, SSID input, IP input, hostname input, messages, and titles all use the new double-height renderer
+- **stretchRows**: Dedicated stretch routines for banner (rows 0-1), titles (rows 3-4), SSID detail (rows 4-5), and status bar (rows 18-19)
+
+#### Network Detail Screen
+- **showNetDetail**: New screen shown when selecting a network, displaying SSID in double-height cyan text, security type (WPA2-PSK, WPA-PSK, WEP, Open), WiFi channel number, and signal strength with graphical bars
+- **Password input** moved to network detail screen with double-height input field at rows 12-13
+
+#### Visual Enhancements
+- **Rainbow badge**: Decorative dither-triangle with color transitions replacing the old banner lines
+- **1px separator**: White pixel line at row 2 scanline 0 between banner and content
+- **Custom font glyphs**: Filled circle (backtick) and hollow circle (tilde) for locked/open network indicators
+- **Status bar anti-flicker**: Direct-overwrite rendering with quiet update variants (updateWifiStatus_q, setStatusCommon_q) for batched single-render updates
+- **Status bar text 1px lower**: Scanline 0 of row 18 cleared after stretch for cleaner appearance
+
+#### Compressed Font System
+- **Nibble-packed font**: Built-in compressed font with decompressChar, font_packed data, font_lut lookup table, and font_exceptions for special cases
+- **No external dependency**: Eliminates the need for external font.bin binary file
+
+#### New Screens and Features
+- **About screen** (I key): Shows version (with UART backend), build date (auto-generated via Lua os.date), description, author, GitHub URL, and MIT license
+- **WPS confirmation dialog**: When already connected, shows warning "WPS requires disconnecting first" with Y/N choice before proceeding
+- **Build date**: Automatically embedded at assembly time via Lua os.date("%d/%m/%Y")
+
+#### BREAK Detection
+- **poll_block**: Checks BREAK every 256 iterations (~5ms) for near-instant cancellation during AT command responses
+- **readTimeoutLong**: Checks BREAK between blocks (~370ms each) for responsive cancellation during long operations
+- **Connection attempts**: AT+CWJAP can be cancelled immediately via BREAK
+
+#### Platform Improvements
+- **NextSync baud recovery**: Detects if ESP was left at 1152000 baud by NextSync, tries AT at 115200, falls back to tryFastBaud + AT+RST for automatic recovery
+- **IP retry on connect**: 3 attempts with 1-second intervals after successful WiFi association
+- **flushInput drain limit**: 1024-byte maximum prevents infinite loop when ESP sends continuous data
+
+### Bug Fixes
+- **showBigMessage**: gotoXY was destroying HL (text pointer), causing garbage text from ROM
+- **showBigMessage**: setAttr clobbers BC, causing row 4 to be invisible (black on black)
+- **Color values**: 044o/042o were green-on-green (paper=green, not black) - fixed attribute values
+- **Lock/open indicators**: Used chars 7/9 (outside font range) - replaced with custom backtick/tilde glyphs
+- **passwordInput fall-through**: .piClrTail fell through into .piSetPos causing immediate return
+- **passwordInput register corruption**: Incremental handlers assumed B/C preserved after putCBig - B now reloaded from memory before each call
+- **setStatusDisconnected**: Fell through to _q variant (no render) - added explicit ret
+- **drawSSIDFull fall-through**: Fell through into drawSSID causing double redraw
+- **Password rows**: Rows 12-13 not cleaned on .connect path before showing "Connecting..." message
+- **Connecting message**: "Retry" displayed on wrong row
+- **.piRedraw corruption**: Called stretchRowPair after putCBig causing double-stretch visual corruption
+- **drawCBig third-crossing**: `inc h` replaced with `and #F8 : add a, 8` for correct next-third calculation
+- **Network Info wrong data**: Showed wrong network data when connected SSID was not in scan list
+
+### Optimizations
+- **Dead code removed** (~70B): clrTop, clearRow18Pixels, stretchRowPair, dcb_rc_bot, rssi_bars
+- **RSSI bar rendering deduplicated**: Shared drawRssiBars routine (~45B saved)
+- **SSID comparison**: Uses compareStringZ in renderNetworksCommon (~20B saved)
+- **clearRowPixels**: Shared LDIR-based row clearing routine (17x faster than putC clearing loops)
+- **Blocking read removed**: Unused blocking read routines removed from all three UART drivers (AY, UNO, NEXT)
+- **Redundant instructions**: Removed unnecessary `or a` after `and a`, dead computations, and redundant push/pop pairs
+
+---
+
 ## [1.3.0] - "Clean Sweep" - 2026-03-07
 
 ### New Features

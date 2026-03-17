@@ -13,10 +13,13 @@ ATTR_STATUSBAR   = 170o   ; Negro sobre blanco brillante (barra estado)
 ATTR_LOG         = 014o   ; Verde sobre azul (ventana log)
 ATTR_HEADER      = 117o   ; Blanco brillante sobre azul (cabecera)
 ATTR_TITLE       = 116o   ; Amarillo brillante sobre azul (título)
+ATTR_BANNER_TOP  = 01000111b  ; Blanco sobre negro, BRIGHT (row 0 banner)
+ATTR_BANNER_BOT  = 00000111b  ; Blanco sobre negro, sin BRIGHT (row 1 banner)
 ATTR_RSSI        = 004o   ; Verde sobre negro (barras señal)
-ATTR_SSID_INPUT  = 044o   ; Verde sobre negro (SSID seleccionado)
+ATTR_SSID_INPUT  = 104o   ; Verde brillante sobre negro (SSID seleccionado)
 ATTR_PASS_LINE   = 071o   ; Blanco sobre azul
 ATTR_PASS_INPUT  = 171o   ; Blanco brillante sobre azul
+ATTR_STATUS_BOT  = 00111000b  ; Negro ink, blanco paper, sin BRIGHT (doble alto bot)
 
 ; a - line number
 ; c - color
@@ -71,6 +74,14 @@ putStr:
     inc hl
     jr putStr
 
+putStrBig:
+    ld a, (hl) : and a : ret z
+    push hl
+    call putCBig
+    pop hl
+    inc hl
+    jr putStrBig
+
 putStrLog:
     ld a, (hl) : and a : ret z
     push hl
@@ -93,8 +104,22 @@ putC:
     inc hl : inc (hl)
     ret
 
+putCBig:
+    cp 13 : jr z, .cr
+    ld hl, (coords) : ld (drawCBig.coords), hl
+    call drawCBig
+    ld hl, coords
+    inc (hl)
+    ld a,(hl) : cp 42 : jr nc, .cr
+    ret
+.cr
+    ld hl, coords
+    xor a : ld (hl), a
+    inc hl : inc (hl)
+    ret
+
 ; ============================================
-; putLogC - Escribe en la ventana de log (Líneas 19-23)
+; putLogC - Escribe en la ventana de log (Líneas 20-23)
 ; ============================================
 putLogC:
     cp 13 : jr z, .cr
@@ -119,23 +144,23 @@ putLogC:
     ; Caer en .scrollLog
 
 .scrollLog
-    ; --- SCROLL LOG: Líneas 19-23 (5 líneas) ---
-    ; Método: Para cada scanline, copiar líneas 20-23 a 19-22 y limpiar línea 23
-    ; Tercio 2: línea 19=#5060, línea 20=#5080, línea 23=#50E0
-    
+    ; --- SCROLL LOG: Líneas 20-23 (4 líneas) ---
+    ; Método: Para cada scanline, copiar líneas 21-23 a 20-22 y limpiar línea 23
+    ; Tercio 2: línea 20=#5080, línea 21=#50A0, línea 23=#50E0
+
     di
-    
+
     ld b, 8             ; 8 scanlines por fila de texto
-    ld hl, #5080        ; Origen: Línea 20, scanline 0
-    ld de, #5060        ; Destino: Línea 19, scanline 0
+    ld hl, #50A0        ; Origen: Línea 21, scanline 0
+    ld de, #5080        ; Destino: Línea 20, scanline 0
 
 .scrollLoop
     push bc
     push hl
     push de
     
-    ; Copiar 4 líneas de texto (128 bytes): líneas 20-23 → 19-22
-    ld bc, 128
+    ; Copiar 3 líneas de texto (96 bytes): líneas 21-23 → 20-22
+    ld bc, 96
     ldir
     ; Ahora DE apunta a #5060+128=#50E0 (línea 23) - exactamente donde limpiar
     
@@ -164,7 +189,8 @@ putLogC:
 
 
 drawC:
-    ld (.char_tmp),a
+    call decompressChar     ; A = char, devuelve DE = glyph_buf
+    push de                 ; guardar ptr datos fuente
     ld hl, 0
 .coords = $ - 2
     ld b, l
@@ -173,18 +199,7 @@ drawC:
     ld e, l
     ld (.rot_tmp), a
     call findAddr
-
-;; Get char
-    ld a, 0
-.char_tmp = $ - 1
-    ld l, a
-    ld h, 0
-    add hl, hl
-    add hl, hl
-    add hl, hl
-    ld bc, font
-    add hl, bc
-    push hl, de
+    push de                 ; guardar dir pantalla
 ;; Mask rotation
     ld a, (.rot_tmp)
     ld hl, #03ff
@@ -241,13 +256,85 @@ drawC:
     djnz .printIt
     ret
 
-clrTop:
-    ld hl, #4000
-    ld de, #4001
-    ld bc, #fff
-    xor a 
-    ld (hl),a
-    ldir
+; Variables SMC para drawCBig (nivel de módulo, fuera del flujo)
+dcb_rot     db 0
+dcb_rc_top  db 0
+dcb_m1      db 0
+dcb_m2      db 0
+
+drawCBig:
+    call decompressChar
+    push de
+    ld hl, 0
+.coords = $ - 2
+    ld b, l
+    call calc
+    ld d, h
+    ld e, l
+    ld (dcb_rot), a
+    call findAddr
+    push de
+    ld a, (dcb_rot)
+    ld hl, #03ff
+    and a : jr z, .maskReady
+.rot_loop
+    ex af, af
+    ld a, l : rrca : rr h : rr l
+    ex af, af
+    dec a : jr nz, .rot_loop
+.maskReady
+    ld a, l : ld (dcb_m1), a
+    ld a, h : ld (dcb_m2), a
+    pop ix, de
+    push ix
+    ld a, (dcb_rot)
+    ld (dcb_rc_top), a
+    ld b, 4
+.topLoop
+    call .writeOnePair
+    inc de
+    djnz .topLoop
+    ; Calcular base de row Y+1
+    pop hl
+    ld a, l : add a, 32 : ld l, a
+    jr nc, .botBaseReady
+    ld a, h : and #F8 : add a, 8 : ld h, a
+.botBaseReady
+    push hl : pop ix
+    ld b, 4
+.botLoop
+    call .writeOnePair
+    inc de
+    djnz .botLoop
+    ret
+
+; Sub: lee 1 byte del glyph, rota, escribe a 2 scanlines (duplicado)
+.writeOnePair
+    ld a, (de) : ld h, a : ld l, 0
+    ld a, (dcb_rc_top)
+    and a : jr z, .noRot
+.doRot
+    ex af, af
+    ld a, l : rrca : rr h : rr l
+    ex af, af
+    dec a : jr nz, .doRot
+.noRot
+    ; Primera scanline
+    ld a, (ix + 1)
+    push hl : ld l, a : ld a, (dcb_m1) : and l : pop hl
+    or l : ld (ix + 1), a
+    ld a, (ix)
+    push hl : ld l, a : ld a, (dcb_m2) : and l : pop hl
+    or h : ld (ix), a
+    inc ixh
+    ; Segunda scanline (duplicado, H:L intactos)
+    ld a, (ix + 1)
+    push hl : ld l, a : ld a, (dcb_m1) : and l : pop hl
+    or l : ld (ix + 1), a
+    ld a, (ix)
+    push hl : ld l, a : ld a, (dcb_m2) : and l : pop hl
+    or h : ld (ix), a
+    inc ixh
     ret
 
 ; Limpia zona de lista (líneas 2-17)
@@ -365,8 +452,8 @@ clrscr:
     ld bc, 575              ; 18 líneas * 32 - 1 = 575
     ld (hl), a
     ldir
-    
-    ; 3. Colores línea 18: Status Bar (Negro sobre Blanco)
+
+    ; 3. Colores línea 18: Status Bar top (BRIGHT)
     ld a, ATTR_STATUSBAR
     ld hl, #5A40            ; Línea 18
     ld de, #5A41
@@ -374,11 +461,19 @@ clrscr:
     ld (hl), a
     ldir
 
-    ; 4. Colores líneas 19-23: Log (Verde sobre Azul)
-    ld a, ATTR_LOG
+    ; 4. Color línea 19: Status Bar bottom (sin BRIGHT)
+    ld a, ATTR_STATUS_BOT
     ld hl, #5A60            ; Línea 19
     ld de, #5A61
-    ld bc, 159              ; 5 líneas * 32 - 1 = 159
+    ld bc, 31
+    ld (hl), a
+    ldir
+
+    ; 5. Colores líneas 20-23: Log (Verde sobre Azul)
+    ld a, ATTR_LOG
+    ld hl, #5A80            ; Línea 20
+    ld de, #5A81
+    ld bc, 127              ; 4 líneas * 32 - 1 = 127
     ld (hl), a
     ldir
     ret
@@ -405,31 +500,233 @@ findAddr:
 ; ============================================
 calc:
     ld a, b
-    and a
-    jr z, .zero
-    
     ; A = B * 6
     add a, a        ; A = B * 2
-    ld c, a         ; Guardar
+    ld c, a
     add a, a        ; A = B * 4
     add a, c        ; A = B * 6
-    
     ; L = A / 8, A = A % 8
     ld c, a
-    and 7           ; A % 8
+    and 7
     ld l, c
     srl l
     srl l
-    srl l           ; L = Total / 8
-    ret
-
-.zero
-    xor a
-    ld l, a
+    srl l
     ret
 
 coords dw 0
-font incbin "../../assets/font.bin"
+
+; ============================================
+; decompressChar - Descomprime un carácter de la fuente comprimida
+; Entrada: A = código ASCII (32-127, otros → espacio)
+; Salida: DE = glyph_buf (8 bytes de fuente descomprimida)
+; Destruye: AF, BC, DE, HL
+; ============================================
+decompressChar:
+    sub 32
+    cp 96
+    jr c, .valid
+    xor a                   ; fuera de rango → espacio (índice 0)
+.valid:
+    ld c, a                 ; C = índice del carácter (0-95)
+    ; HL = font_packed + índice × 4
+    ld l, a
+    ld h, 0
+    add hl, hl
+    add hl, hl
+    ld de, font_packed
+    add hl, de
+    ; Desempaquetar 4 bytes → 8 scanlines vía LUT
+    ld de, glyph_buf
+    push bc                 ; preservar C (índice char)
+    ld b, 4
+.unpack:
+    ld a, (hl)
+    push hl
+    ld c, a                 ; guardar byte empaquetado
+    ; Nibble alto → scanline par
+    rrca
+    rrca
+    rrca
+    rrca
+    and #0F
+    ld hl, font_lut
+    add a, l
+    ld l, a
+    adc a, h
+    sub l
+    ld h, a
+    ld a, (hl)
+    ld (de), a
+    inc de
+    ; Nibble bajo → scanline impar
+    ld a, c
+    and #0F
+    ld hl, font_lut
+    add a, l
+    ld l, a
+    adc a, h
+    sub l
+    ld h, a
+    ld a, (hl)
+    ld (de), a
+    inc de
+    pop hl
+    inc hl
+    djnz .unpack
+    pop bc                  ; restaurar C = índice char
+    ; Aplicar excepciones (tabla ordenada por índice)
+    ld hl, font_exceptions
+.excScan:
+    ld a, (hl)
+    cp #FF
+    jr z, .excDone
+    cp c
+    jr z, .excMatch
+    jr nc, .excDone         ; tabla ordenada: si entry > c, no hay más
+    inc hl
+    inc hl
+    inc hl
+    jr .excScan
+.excMatch:
+    inc hl
+    ld a, (hl)              ; número de scanline (0-7)
+    inc hl
+    ld b, (hl)              ; valor real
+    inc hl
+    push hl
+    ld hl, glyph_buf
+    ld d, 0
+    ld e, a
+    add hl, de
+    ld (hl), b
+    pop hl
+    jr .excScan
+.excDone:
+    ld de, glyph_buf
+    ret
+
+glyph_buf: ds 8
+
+; ============================================
+; Fuente comprimida 6px - 96 caracteres (ASCII 32-127)
+; Formato: nibble-packed con LUT de 16 valores + tabla de excepciones
+; ============================================
+font_lut:
+    db #00, #0C, #10, #18, #1C, #28, #30, #36, #38, #3C, #4C, #54, #60, #6C, #78, #7C
+
+font_packed:
+    db #00, #00, #00, #00  ; ' '
+    db #33, #33, #30, #30  ; '!'
+    db #DD, #00, #00, #00  ; '"'
+    db #55, #F5, #F5, #50  ; '#'
+    db #39, #C8, #1E, #60  ; '$'
+    db #0D, #13, #36, #70  ; '%'
+    db #8D, #87, #DD, #70  ; '&'
+    db #33, #00, #00, #00  ; '''
+    db #13, #66, #63, #10  ; '('
+    db #C6, #33, #36, #C0  ; ')'
+    db #02, #B8, #B2, #00  ; '*'
+    db #02, #2F, #22, #00  ; '+'
+    db #00, #00, #00, #36  ; ','
+    db #00, #0F, #00, #00  ; '-'
+    db #00, #00, #00, #30  ; '.'
+    db #11, #33, #36, #60  ; '/'
+    db #8D, #DF, #DD, #80  ; '0'
+    db #38, #33, #33, #30  ; '1'
+    db #8D, #13, #6C, #F0  ; '2'
+    db #8D, #13, #1D, #80  ; '3'
+    db #14, #9D, #F1, #10  ; '4'
+    db #FC, #E1, #1D, #80  ; '5'
+    db #8C, #CE, #DD, #80  ; '6'
+    db #F1, #33, #36, #60  ; '7'
+    db #8D, #D8, #DD, #80  ; '8'
+    db #8D, #D9, #13, #60  ; '9'
+    db #00, #30, #00, #30  ; ':'
+    db #00, #30, #00, #36  ; ';'
+    db #01, #36, #63, #10  ; '<'
+    db #00, #F0, #F0, #00  ; '='
+    db #0C, #63, #36, #C0  ; '>'
+    db #8D, #13, #60, #60  ; '?'
+    db #30, #AB, #BA, #03  ; '@'
+    db #28, #DF, #DD, #D0  ; 'A'
+    db #ED, #DE, #DD, #E0  ; 'B'
+    db #8D, #CC, #CD, #80  ; 'C'
+    db #ED, #DD, #DD, #E0  ; 'D'
+    db #FC, #CE, #CC, #F0  ; 'E'
+    db #FC, #CE, #CC, #C0  ; 'F'
+    db #8D, #CD, #DD, #90  ; 'G'
+    db #DD, #DF, #DD, #D0  ; 'H'
+    db #93, #33, #33, #90  ; 'I'
+    db #11, #11, #1D, #80  ; 'J'
+    db #DD, #DE, #DD, #D0  ; 'K'
+    db #CC, #CC, #CC, #F0  ; 'L'
+    db #0D, #FF, #DD, #D0  ; 'M'
+    db #AD, #FF, #FD, #00  ; 'N'
+    db #8D, #DD, #DD, #80  ; 'O'
+    db #ED, #DE, #CC, #C0  ; 'P'
+    db #8D, #DD, #DD, #81  ; 'Q'
+    db #ED, #DE, #DD, #D0  ; 'R'
+    db #8D, #C8, #1D, #80  ; 'S'
+    db #93, #33, #33, #30  ; 'T'
+    db #DD, #DD, #DD, #80  ; 'U'
+    db #DD, #DD, #D8, #20  ; 'V'
+    db #DD, #DF, #FD, #00  ; 'W'
+    db #DD, #D8, #DD, #D0  ; 'X'
+    db #DD, #D8, #66, #60  ; 'Y'
+    db #F1, #36, #CC, #F0  ; 'Z'
+    db #86, #66, #66, #80  ; '['
+    db #66, #33, #31, #10  ; '\'
+    db #83, #33, #33, #80  ; ']'
+    db #28, #D0, #00, #00  ; '^'
+    db #00, #00, #00, #00  ; '_'
+    db #08, #FF, #FF, #80  ; '`' → filled circle (lock indicator)
+    db #00, #81, #9D, #90  ; 'a'
+    db #CC, #ED, #DD, #E0  ; 'b'
+    db #00, #8D, #CD, #80  ; 'c'
+    db #11, #9D, #DD, #90  ; 'd'
+    db #00, #8D, #FC, #80  ; 'e'
+    db #46, #F6, #66, #60  ; 'f'
+    db #00, #9D, #D9, #1E  ; 'g'
+    db #CC, #ED, #DD, #D0  ; 'h'
+    db #30, #83, #33, #30  ; 'i'
+    db #30, #33, #33, #30  ; 'j'
+    db #CC, #DD, #ED, #D0  ; 'k'
+    db #66, #66, #66, #30  ; 'l'
+    db #00, #0F, #FD, #D0  ; 'm'
+    db #00, #ED, #DD, #D0  ; 'n'
+    db #00, #8D, #DD, #80  ; 'o'
+    db #00, #ED, #DD, #EC  ; 'p'
+    db #00, #9D, #DD, #91  ; 'q'
+    db #00, #D0, #CC, #C0  ; 'r'
+    db #00, #9C, #81, #E0  ; 's'
+    db #26, #F6, #66, #40  ; 't'
+    db #00, #DD, #DD, #90  ; 'u'
+    db #00, #DD, #D8, #20  ; 'v'
+    db #00, #DD, #FD, #00  ; 'w'
+    db #00, #DD, #8D, #D0  ; 'x'
+    db #00, #DD, #D8, #6C  ; 'y'
+    db #00, #F3, #6C, #F0  ; 'z'
+    db #36, #6C, #66, #30  ; '{'
+    db #33, #33, #33, #30  ; '|'
+    db #63, #31, #33, #60  ; '}'
+    db #00, #80, #08, #00  ; '~' → hollow circle (open network)
+    db #FF, #FF, #FF, #FF  ; DEL → cursor block (0x7C solid)
+
+font_exceptions:
+    db 32, 1, #24  ; '@' línea 1
+    db 32, 6, #20  ; '@' línea 6
+    db 45, 0, #44  ; 'M' línea 0
+    db 46, 6, #64  ; 'N' línea 6
+    db 55, 6, #44  ; 'W' línea 6
+    db 63, 7, #7E  ; '_' línea 7
+    db 74, 7, #70  ; 'j' línea 7
+    db 77, 2, #68  ; 'm' línea 2
+    db 82, 3, #70  ; 'r' línea 3
+    db 87, 6, #44  ; 'w' línea 6
+    db 94, 3, #44  ; '~' línea 3 (hollow circle)
+    db 94, 4, #44  ; '~' línea 4 (hollow circle)
+    db #FF          ; fin de tabla
 
 ; ============================================
 ; compareStringZ - Compara dos strings Z-terminated
@@ -513,6 +810,70 @@ draw_hline_only:
     ld (hl), a
     inc l
     djnz .fill
+    ret
+
+; ============================================
+; stretchRows01 - Estira row 0 a doble alto en rows 0-1
+; Debe llamarse DESPUÉS de renderizar texto/gráficos en row 0
+; Cada scanline se duplica: top 4 → row 0, bottom 4 → row 1
+; Destruye: AF, BC, DE, HL
+; ============================================
+stretchRows01:
+    ld hl, #4700        ; src: row0 scanline 7
+    ld de, #4720        ; dst: row1 scanline 7
+    call stretchFour
+    ld hl, #4300        ; src: row0 scanline 3
+    ld de, #4700        ; dst: row0 scanline 7
+    jp stretchFour
+
+; Estira row 18 a doble alto en rows 18-19
+stretchRows1819:
+    ld hl, #5740        ; src: row18 scanline 7
+    ld de, #5760        ; dst: row19 scanline 7
+    call stretchFour
+    ld hl, #5340        ; src: row18 scanline 3
+    ld de, #5740        ; dst: row18 scanline 7
+    jp stretchFour
+
+; Estira row 4 a doble alto en rows 4-5
+stretchRows45:
+    ld hl, #4780        ; src: row4 scanline 7
+    ld de, #47A0        ; dst: row5 scanline 7
+    call stretchFour
+    ld hl, #4380        ; src: row4 scanline 3
+    ld de, #4780        ; dst: row4 scanline 7
+    jp stretchFour
+
+; Estira row 3 a doble alto en rows 3-4
+stretchRows34:
+    ld hl, #4760        ; src: row3 scanline 7
+    ld de, #4780        ; dst: row4 scanline 7
+    call stretchFour
+    ld hl, #4360        ; src: row3 scanline 3
+    ld de, #4760        ; dst: row3 scanline 7
+    ; fall through
+
+stretchFour:
+    ld b, 4
+.sloop:
+    push bc
+    push hl
+    push de
+    ld bc, 32
+    ldir                ; copiar src → dst_high
+    pop de
+    pop hl
+    push hl
+    dec d               ; dst_low = dst_high - 256
+    push de
+    ld bc, 32
+    ldir                ; copiar src → dst_low (duplicar)
+    pop de
+    pop hl
+    dec h               ; src -= 256
+    dec d               ; dst_high siguiente = dst_low - 256
+    pop bc
+    djnz .sloop
     ret
 
     endmodule

@@ -140,14 +140,6 @@ transmitNext:
     pop bc, de, hl
     ret
 
-; read: Alias para compatibilidad con uart-common.asm
-read:
-    push bc, de, hl
-    call uartRead
-    pop hl, de, bc
-    ret c
-    jr read
-
 uartRead:
     ld hl, _isSecondByteAvail
     ld a, (hl)
