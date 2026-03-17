@@ -1,18 +1,18 @@
     device ZXSPECTRUM48
 
     IFDEF DOT
-        org #8000               ; DOT también en #8000 (más seguro)
+        org #8000
     ELSE
         org #8000          
     ENDIF
 
-    ; Definición global de versión (fuente única)
-    ; V = Mmp...  (M=major, m=minor, p=patch opcional)
-    ; Ejemplos: V=12  -> 1.2
+    ; Global version definition (single source of truth)
+    ; V = Mmp...  (M=major, m=minor, p=patch)
+    ; Examples: V=12  -> 1.2
     ;           V=121 -> 1.2.1
-    DEFINE V 140
+    DEFINE V 141
 
-; Constantes globales
+; Global constants
 buffer = #C000
 stack_top = #FFF0
 
@@ -34,7 +34,7 @@ text
     
     include "modules/display.asm"
     include "modules/wifi.asm"
-    include "modules/version.asm"    ; genera VERSION_STRING desde V
+    include "modules/version.asm"    ; generates VERSION_STRING from V
 version_string:
     db VERSION_STRING, 0
     include "modules/ui.asm"
@@ -64,51 +64,51 @@ version_string:
 start:
     ld (saved_sp), sp
     ld sp, stack_top
+
+    call UI.init            ; Initialize full screen (IP: Scanning...)
     
-    call UI.init            ; Inicializa pantalla completa (IP: Scanning...)
-    
-    ; Mostrar mensaje en log
+    ; Show log message
     ld hl, .msg_checking
     call Display.putStrLog
     
-    ; Inicializar UART
+    ; Initialize UART
     ld hl, .msg_preparing
     call Display.putStrLog
     call Uart.init
 
     IFDEF NEXT
-    ; Recuperación de baud rate: si NextSync dejó la ESP a 1152000
+    ; Baud rate recovery: if NextSync left the ESP at 1152000
     call Wifi.flushInput
     EspCmd "AT"
     call Wifi.checkOkErr
     jr nc, .baudOk
-    ; Sin respuesta a 115200 - intentar reset a 1152000 (NextSync)
+    ; No response at 115200 - try reset at 1152000 (NextSync)
     ld hl, .msg_baud_fix
     call Display.putStrLog
-    call UartImpl.tryFastBaud   ; UART → ~1152000
+    call UartImpl.tryFastBaud
     call Wifi.flushInput
-    EspCmd "AT+RST"             ; Reset ESP (restaura baud guardado)
-    ld b, 100                   ; Esperar ~2s para reinicio
+    EspCmd "AT+RST"             ; Reset ESP (restores saved baud)
+    ld b, 100                   ; Wait ~2s for reboot
 .recWait:
     halt
     djnz .recWait
-    call Uart.init              ; UART → 115200
+    call Uart.init
     call Wifi.flushInput
 .baudOk:
     ENDIF
 
-    ; Salir de modo transparente (si SpecTalkZX u otro lo dejó activo)
-    ; Requiere 1s de silencio previo (cumplido: acabamos de iniciar)
+    ; Exit transparent mode (if SpecTalkZX or similar left it active)
+    ; Requires 1s of prior silence (satisfied: we just started)
     call Wifi.exitTransparent
 
-    ; Comprobar si ya hay conexión
+    ; Check if already connected
     ld hl, .msg_query_status
     call Display.putStrLog
     call Wifi.checkConnection
-    jr nc, .already_connected  ; Si CF=0 (OK), estamos conectados
+    jr nc, .already_connected  ; CF=0 means connected
 
-    ; Fallback: algunos firmwares no responden a CWJAP? pero sí tienen IP asignada.
-    ; Si hay IP válida, consideramos que ya está conectado.
+    ; Fallback: some firmwares don't respond to CWJAP? but have an IP assigned.
+    ; If a valid IP exists, consider it connected.
     call Wifi.getIP
     jr c, .no_preconn
     ld a, 1
@@ -117,7 +117,7 @@ start:
     ld a, (hl)
     and a
     jr nz, .already_connected
-    ; SSID desconocido -> mostrar marcador
+    ; Unknown SSID -> show placeholder
     ld hl, .ssid_unknown
     ld de, Wifi.connected_ssid
 .copy_ssid_u
@@ -130,49 +130,49 @@ start:
     jr .already_connected
 
 .no_preconn
-    ; --- NO CONECTADO: inicialización completa ---
+    ; --- NOT CONNECTED: full initialization ---
     ld hl, .msg_init_wifi
     call Display.putStrLog
     
     call Wifi.init
     jp c, .init_failed
     
-    ; Espera de calentamiento
+    ; Warm-up delay
     ld b, 125
 .warmup
     halt
     djnz .warmup
 
-    ; Comprobación final
+    ; Final connection check
     call Wifi.checkConnection
     jr c, .not_connected
     
 .already_connected:
-    ; --- CASO: CONECTADO ---
-    call UI.updateWifiStatus_q  ; Cambia de Scanning a Connected (sin render)
-    call UI.ipShowConnected     ; Mostrar IP (render único)
+    ; --- CASE: CONNECTED ---
+    call UI.updateWifiStatus_q  ; Switch from Scanning to Connected (no render)
+    call UI.ipShowConnected     ; Show IP (single render)
     
     call UI.showConnectedDialog 
-    jr nc, .force_scan       ; Usuario eligió 'Y' (Reconfigurar) -> Escanear
-    
-    ; Usuario eligió 'N' (Keep) -> Pantalla de éxito infinita
+    jr nc, .force_scan       ; User chose 'Y' (Reconfigure) -> Scan
+
+    ; User chose 'N' (Keep) -> Exit to BASIC
     jp UI.showConnectedSuccessScreen
 
 .not_connected
-    ; --- MODIFICADO: Actualizar barra superior e inferior explícitamente ---
-    call UI.updateWifiStatus_q  ; Asegura que la barra inferior esté en ROJO (sin render)
-    call UI.ipShowNotConnected  ; Pone "IP: not connected" (render único)
+    ; --- Update top and bottom bars ---
+    call UI.updateWifiStatus_q  ; Ensure bottom bar is RED (no render)
+    call UI.ipShowNotConnected  ; Set "IP: not connected" (single render)
 
 .force_scan
-    ; --- CASO: NO CONFIGURADO / REESCANEAR ---
-    
-    ; CRÍTICO: Resetear variables de UI antes de nueva búsqueda
+    ; --- CASE: NOT CONFIGURED / RESCAN ---
+
+    ; CRITICAL: Reset UI variables before new scan
     xor a
     ld (UI.cursor_position), a
     ld (UI.offset), a
-    ld (.scan_fail_reason), a    ; 0 = sin fallo, 1 = timeout, 2 = 0 redes
-    
-    ld b, 5                 ; 5 intentos
+    ld (.scan_fail_reason), a    ; 0=ok, 1=timeout, 2=no networks
+
+    ld b, 5                 ; 5 attempts
     
 .scan_loop
     push bc
@@ -184,13 +184,13 @@ start:
     
     call Wifi.getList
     
-    jr c, .scan_timeout     ; CF=1 -> Error de comunicación
+    jr c, .scan_timeout     ; CF=1 -> Communication error
     
     ld a, (Wifi.networks_count)
     and a
-    jr nz, .scan_success    ; Encontradas -> Salir
-    
-    ; 0 redes encontradas
+    jr nz, .scan_success    ; Networks found -> proceed
+
+    ; 0 networks found
     ld a, 2
     ld (.scan_fail_reason), a
     jr .retry_wait
@@ -203,7 +203,7 @@ start:
     pop bc
     push bc
     
-    ; Mostrar mensaje de reintento según tipo de fallo
+    ; Show retry message based on failure type
     gotoXY 1, 5
     ld a, (.scan_fail_reason)
     cp 1
@@ -215,7 +215,7 @@ start:
 .show_retry_msg
     call Display.putStr
     
-    ld b, 50                ; Espera más larga para ver mensaje
+    ld b, 50                ; Longer wait so message is visible
 .w  halt
     djnz .w
     
@@ -227,10 +227,10 @@ start:
 .scan_success
     pop bc
     xor a
-    ld (.scan_fail_reason), a    ; Éxito
+    ld (.scan_fail_reason), a    ; Success
 
 .end_scan
-    ; Si no hay redes, mostrar razón en el log
+    ; If no networks found, log the reason
     ld a, (Wifi.networks_count)
     and a
     jr nz, .show_list
@@ -269,7 +269,7 @@ start:
     ei
     ret
 
-; Textos auxiliares
+; String constants
 .msg_checking   db "Checking connection...", 13, 0
 .msg_preparing  db "Preparing UART...", 13, 0
 .msg_baud_fix   db "Baud recovery...", 13, 0
@@ -296,26 +296,26 @@ program_end:
 
     IFDEF TAP
         ; ==========================================
-        ; Formato TAP completo (loader + código)
+        ; Full TAP format (loader + code)
         ; ==========================================
-        
-        ; Definir loader BASIC en zona temporal
+
+        ; Define BASIC loader in temporary area
         ORG #6000
 basic_start:
-        ; Línea 10: CLEAR 32767
-        db #00, #0A                 ; Número de línea (10) big-endian
-        dw line10end - line10start ; Longitud del contenido
+        ; Line 10: CLEAR 32767
+        db #00, #0A                 ; Line number (10) big-endian
+        dw line10end - line10start  ; Content length
 line10start:
         db #FD                      ; CLEAR
-        db '3','2','7','6','7'      ; "32767" como texto
-        db #0E, #00, #00            ; Marcador de número
-        dw 32767                    ; Valor numérico
-        db #00                      ; Exponente
+        db '3','2','7','6','7'      ; "32767" as text
+        db #0E, #00, #00            ; Number marker
+        dw 32767                    ; Numeric value
+        db #00                      ; Exponent
         db #0D                      ; ENTER
 line10end:
 
-        ; Línea 20: LOAD ""CODE
-        db #00, #14                 ; Número de línea (20)
+        ; Line 20: LOAD ""CODE
+        db #00, #14                 ; Line number (20)
         dw line20end - line20start
 line20start:
         db #EF                      ; LOAD
@@ -324,8 +324,8 @@ line20start:
         db #0D
 line20end:
 
-        ; Línea 30: RANDOMIZE USR 32768
-        db #00, #1E                 ; Número de línea (30)
+        ; Line 30: RANDOMIZE USR 32768
+        db #00, #1E                 ; Line number (30)
         dw line30end - line30start
 line30start:
         db #F9                      ; RANDOMIZE
@@ -338,14 +338,14 @@ line30start:
 line30end:
 basic_end:
 
-        ; Generar TAP
+        ; Generate TAP
         emptytap "netmanzx.tap"
         savetap "netmanzx.tap", BASIC, "netmanzx", basic_start, basic_end - basic_start, 10
         savetap "netmanzx.tap", CODE, "netmanzx", text, program_end - text, text
         
     ELSE
         ; ==========================================
-        ; Formato +3DOS estándar
+        ; Standard +3DOS format
         ; ==========================================
         save3dos "netmanzx.cod", text, program_end - text
     ENDIF

@@ -9,7 +9,7 @@ init:
     ld a, (hl) : ld (status_color), a
     inc hl : ld (status_text_ptr), hl
     call ipShowScanning         ; Sets IP text + renders full status bar
-    ; Banner doble alto: rows 0-1
+    ; Double-height banner: rows 0-1
     setLineColor 0, Display.ATTR_BANNER_TOP
     setLineColor 1, Display.ATTR_BANNER_BOT
     gotoXY 0, 0 : printMsg msg_head
@@ -19,25 +19,25 @@ init:
     call clearPassBuffer
     ret
 
-; Badge estilo SpectalkZX: triángulo dither con transiciones de color
-; Row 0 (top): 4 celdas en bytes 28-31 (escalonado, 1 celda menos)
-; Row 1 (bot): 5 celdas en bytes 27-31 (completo)
-; Colores Spectrum: rojo, amarillo, verde, azul
+; SpectalkZX-style badge: dithered triangle with color transitions
+; Row 0 (top): 4 cells at bytes 28-31 (staggered, 1 cell less)
+; Row 1 (bot): 5 cells at bytes 27-31 (full)
+; Spectrum colors: red, yellow, green, blue
 
 badge_pattern:
     db #00, #01, #03, #07, #0F, #1F, #3F, #7F
 
 drawBadge:
-    ; Píxeles: row 0, 4 celdas en bytes 28-31
+    ; Pixels: row 0, 4 cells at bytes 28-31
     ld hl, #401C            ; Row 0, scanline 0, byte 28
     ld c, 4
     call .drawCells
-    ; Píxeles: row 1, 5 celdas en bytes 27-31
+    ; Pixels: row 1, 5 cells at bytes 27-31
     ld hl, #403B            ; Row 1, scanline 0, byte 27
     ld c, 5
     call .drawCells
-    ; Atributos row 0 (top): 4 celdas BRIGHT
-    ld hl, #581C            ; Row 0, celda 28
+    ; Attributes row 0 (top): 4 cells BRIGHT
+    ld hl, #581C            ; Row 0, cell 28
     ld (hl), 01000010b      ; P=black I=red BRIGHT
     inc hl
     ld (hl), 01010110b      ; P=red I=yellow BRIGHT
@@ -45,8 +45,8 @@ drawBadge:
     ld (hl), 01110100b      ; P=yellow I=green BRIGHT
     inc hl
     ld (hl), 01100001b      ; P=green I=blue BRIGHT
-    ; Atributos row 1 (bot): 5 celdas BRIGHT
-    ld hl, #583B            ; Row 1, celda 27
+    ; Attributes row 1 (bot): 5 cells BRIGHT
+    ld hl, #583B            ; Row 1, cell 27
     ld (hl), 01000010b      ; P=black I=red BRIGHT
     inc hl
     ld (hl), 01010110b      ; P=red I=yellow BRIGHT
@@ -55,42 +55,42 @@ drawBadge:
     inc hl
     ld (hl), 01100001b      ; P=green I=blue BRIGHT
     inc hl
-    ld (hl), 01001000b      ; P=blue I=black BRIGHT (transición de vuelta)
+    ld (hl), 01001000b      ; P=blue I=black BRIGHT (transition back)
     ret
 
-; Dibuja patrón dither triangular en C celdas consecutivas
-; HL = dirección pantalla (scanline 0), C = número de celdas
+; Draw triangular dither pattern in C consecutive cells
+; Input: HL = screen address (scanline 0), C = number of cells
 .drawCells:
     ld de, badge_pattern
-    ld b, 8                 ; 8 scanlines
+    ld b, 8
 .scanLoop
     push bc
     push hl
     ld a, (de)
-    ld b, c                 ; B = número de celdas
+    ld b, c                 ; B = number of cells
 .byteLoop
     ld (hl), a
     inc l
     djnz .byteLoop
     pop hl
-    inc h                   ; siguiente scanline
+    inc h                   ; next scanline
     inc de
     pop bc
     djnz .scanLoop
     ret
 
-; Línea separadora blanca 1px debajo del banner (row 2, scanline 0)
+; White 1px separator line below banner (row 2, scanline 0)
 drawSeparator:
     ld a, 2
     ld e, 0
     jp Display.draw_hline_only
 
-; Limpia píxeles de 1 fila de pantalla (8 scanlines × 32 bytes)
-; Entrada: A = número de fila (0-23)
-; Destruye: AF, BC, DE, HL
+; Clear pixels of 1 screen row (8 scanlines x 32 bytes)
+; Input: A = row number (0-23)
+; Destroys: AF, BC, DE, HL
 clearRowPixels:
     ld d, a : ld e, 0
-    call Display.findAddr       ; DE = fila A, scanline 0
+    call Display.findAddr       ; DE = row A, scanline 0
     ld b, 8
 .crpLoop
     push bc : push de
@@ -105,15 +105,15 @@ clearRowPixels:
     ret
 
 ; ============================================
-; statusBarFinalize - Renderiza barra estado doble alto (rows 17-18)
-; Lee de: ip_line_buffer, status_text_ptr, ip_value_color, status_color
+; statusBarFinalize - Render double-height status bar (rows 17-18)
+; Reads: ip_line_buffer, status_text_ptr, ip_value_color, status_color
 ; ============================================
 statusBarFinalize:
-    ; Renderizar texto directamente (sin borrar primero = sin flicker)
+    ; Render text directly (no clear first = no flicker)
     gotoXY 0, 18
     ld hl, ip_line_buffer
     call Display.putStr
-    ; Rellenar con espacios hasta columna 24 (borra residuos de IP anterior)
+    ; Pad with spaces up to column 24 (clear leftover from previous IP)
 .padIP
     ld a, (Display.coords)
     cp 24
@@ -129,7 +129,7 @@ statusBarFinalize:
     ld hl, (status_text_ptr)
     call Display.putStr
     call Display.stretchRows1819
-    ; Bajar texto 1px: limpiar scanline 0 de row 18
+    ; Shift text 1px down: clear scanline 0 of row 18
     ld hl, #5040
     ld de, #5041
     xor a : ld (hl), a
@@ -143,7 +143,7 @@ statusBarFinalize:
     jp colorStatusAreaBothRows
 
 
-; Muestra "IP: Scanning..."
+; Show "IP: Scanning..."
 ipShowScanning:
     ld hl, msg_ip_scanning
     call ipSetFromZ
@@ -151,15 +151,15 @@ ipShowScanning:
     ld (ip_value_color), a
     jp statusBarFinalize
 
-; Muestra "IP:Disconnected" en rojo
+; Show "IP:Disconnected" in red
 ipShowNotConnected:
     ld hl, msg_ip_disconn
     call ipSetFromZ
-    ld a, 172o              ; Rojo sobre blanco brillante
+    ld a, 172o              ; Red on bright white
     ld (ip_value_color), a
     jp statusBarFinalize
 
-; Muestra "IP: x.x.x.x" en azul
+; Show "IP: x.x.x.x" in blue
 ipShowConnected:
     call Wifi.getIP
     jr c, ipShowNotConnected
@@ -167,20 +167,20 @@ ipShowConnected:
     call ipSetPrefix
     ld hl, Wifi.ip_buffer
     call ipAppendZ
-    ld a, 171o              ; Azul sobre blanco brillante
+    ld a, 171o              ; Blue on bright white
     ld (ip_value_color), a
     jp statusBarFinalize
 
-; Colorea zona de valor IP (celdas 3-17) en ambas rows 18-19
+; Color IP value area (cells 3-17) on both rows 18-19
 colorIpValueBothRows:
-    ld hl, #5A40 + 3        ; Línea 18, celda 3
+    ld hl, #5A40 + 3        ; Line 18, cell 3
     ld b, 15
 .loop18
     ld (hl), a
     inc hl
     djnz .loop18
-    res 6, a                ; Quitar BRIGHT para row 19
-    ld hl, #5A60 + 3        ; Línea 19, celda 3
+    res 6, a                ; Remove BRIGHT for row 19
+    ld hl, #5A60 + 3        ; Line 19, cell 3
     ld b, 15
 .loop19
     ld (hl), a
@@ -188,8 +188,8 @@ colorIpValueBothRows:
     djnz .loop19
     ret
 
-; --- helpers para construir línea de IP en ip_line_buffer ---
-; HL -> string Z (0-terminated) a copiar completo a ip_line_buffer
+; --- helpers to build IP line in ip_line_buffer ---
+; HL -> Z-string (0-terminated) to copy into ip_line_buffer
 ipSetFromZ:
     ld de, ip_line_buffer
 .copy
@@ -201,21 +201,21 @@ ipSetFromZ:
     jr nz, .copy
     ret
 
-; Copia prefijo "IP: " a ip_line_buffer (con terminador para ipAppendZ)
+; Copy prefix "IP: " to ip_line_buffer (with null terminator for ipAppendZ)
 ipSetPrefix:
     ld de, ip_line_buffer
 .copyP
     ld a, (hl)
-    ld (de), a              ; Copiar incluyendo el 0
+    ld (de), a              ; Copy including the 0
     and a
-    ret z                   ; Retornar después de copiar el 0
+    ret z                   ; Return after copying the 0
     inc hl
     inc de
     jr .copyP
 
-; Añade string Z (HL) al final de ip_line_buffer
+; Append Z-string (HL) to the end of ip_line_buffer
 ipAppendZ:
-    ; buscar 0 en buffer
+    ; find null terminator in buffer
     ld de, ip_line_buffer
 .find0
     ld a, (de)
@@ -233,22 +233,22 @@ ipAppendZ:
     jr nz, .copyA
     ret
 
-; Buffers/mensajes
+; Buffers/messages
 msg_ip_prefix      db "IP: ", 0
 msg_ip_disconn     db "IP: Disconnected", 0
 msg_ip_scanning    db "IP: Scanning...", 0
     RTVAR ip_line_buffer, 40
 
-; Colorea zona de estado (celdas 22-31) en ambas rows 18-19
+; Color status area (cells 22-31) on both rows 18-19
 colorStatusAreaBothRows:
-    ld hl, #5A40 + 22           ; Línea 18, celda 22
+    ld hl, #5A40 + 22           ; Line 18, cell 22
     ld b, 10
 .loop18
     ld (hl), a
     inc hl
     djnz .loop18
-    res 6, a                    ; Quitar BRIGHT para row 19
-    ld hl, #5A60 + 22           ; Línea 19, celda 22
+    res 6, a                    ; Remove BRIGHT for row 19
+    ld hl, #5A60 + 22           ; Line 19, cell 22
     ld b, 10
 .loop19
     ld (hl), a
@@ -256,22 +256,22 @@ colorStatusAreaBothRows:
     djnz .loop19
     ret
 
-; Pone estado "Scanning"
+; Set status "Scanning"
 setStatusScanning:
     ld hl, status_scanning_data
     jr setStatusCommon
 
-; Pone estado "Connected"
+; Set status "Connected"
 setStatusConnected:
     ld hl, status_connected_data
     jr setStatusCommon
 
-; Pone estado "Disconnected"
+; Set status "Disconnected"
 setStatusDisconnected:
     ld hl, status_disconn_data
     jr setStatusCommon
 
-; Rutina común para mostrar estado (quiet: solo variables, sin render)
+; Common routine for status (quiet: variables only, no render)
 setStatusCommon_q:
     ld a, (hl)
     ld (status_color), a
@@ -279,8 +279,8 @@ setStatusCommon_q:
     ld (status_text_ptr), hl
     ret
 
-; Rutina común para mostrar estado (con render)
-; HL = puntero a datos (color, mensaje)
+; Common routine for status (with render)
+; Input: HL = pointer to data (color, message)
 setStatusCommon:
     call setStatusCommon_q
     jp statusBarFinalize
@@ -289,19 +289,19 @@ status_color db 0
 status_text_ptr dw 0
 ip_value_color db Display.ATTR_STATUSBAR
 
-; Datos de estado: color (1 byte) + mensaje
+; Status data: color (1 byte) + message
 status_scanning_data:
-    db Display.ATTR_STATUSBAR   ; Negro sobre blanco brillante
+    db Display.ATTR_STATUSBAR   ; Black on bright white
     db "Scanning    ", 0
 status_connected_data:
-    db 174o                     ; Verde sobre blanco brillante
+    db 174o                     ; Green on bright white
     db "Connected   ", 0
 status_disconn_data:
-    db 172o                     ; Rojo sobre blanco brillante
+    db 172o                     ; Red on bright white
     db "Disconnected", 0
 msg_conn_lost      db "Connection lost!", 13, 10, 0
 
-; Actualiza estado según Wifi.is_connected (quiet: sin render)
+; Update status from Wifi.is_connected (quiet: no render)
 updateWifiStatus_q:
     ld a, (Wifi.is_connected)
     and a
@@ -310,7 +310,7 @@ updateWifiStatus_q:
     ld hl, status_connected_data
     jr setStatusCommon_q
 
-; Actualiza estado según Wifi.is_connected (con render)
+; Update status from Wifi.is_connected (with render)
 updateWifiStatus:
     ld a, (Wifi.is_connected)
     and a
@@ -322,7 +322,7 @@ clearPassBuffer:
     ld de, pass_buffer + 1
     xor a
     ld (hl), a
-    ld bc, MAX_PASS_LEN - 1   ; -1 porque el primer byte ya está escrito
+    ld bc, MAX_PASS_LEN - 1   ; -1 because the first byte is already written
     ldir
     xor a
     ld (pass_len), a
@@ -330,21 +330,21 @@ clearPassBuffer:
     ret
 
 ; ============================================
-; passwordInput - Entrada de contraseña compartida
-; Usa vars: pass_buffer, pass_len, pass_cursor, show_password
-; Retorna: CF=0 si ENTER, CF=1 si CANCEL (BREAK)
+; passwordInput - Shared password input routine
+; Uses: pass_buffer, pass_len, pass_cursor, show_password
+; Output: CF=0 if ENTER, CF=1 if CANCEL (BREAK)
 ; ============================================
 PASS_LINE_DEFAULT = 7
-pass_line   db PASS_LINE_DEFAULT   ; Línea donde se dibuja el password
+pass_line   db PASS_LINE_DEFAULT   ; Line where password is drawn
 
 passwordInput:
-    ; Debounce: esperar a que se suelte la tecla anterior
+    ; Debounce: wait for previous key release
 .piDebounce
     halt
     call Keyboard.inKeyNoWait
     and a
     jr nz, .piDebounce
-; --- Full redraw (solo para toggle e init) ---
+; --- Full redraw (only for toggle and init) ---
 .piRedraw
     halt
     ld a, (pass_line)
@@ -371,18 +371,18 @@ passwordInput:
     push bc : push hl : ld a, (hl) : call Display.putCBig : pop hl : inc hl : pop bc : djnz .piRealA
 .piClrTail
     ld a, ' ' : call Display.putCBig : ld a, ' ' : call Display.putCBig
-    ; putCBig ya escribe doble alto — NO hacer stretch
+    ; putCBig already writes double-height -- do NOT stretch
     jr .piWait
 
-; --- Helpers para renderizado incremental ---
-; Posiciona cursor de pantalla en columna B+1, fila pass_line
+; --- Helpers for incremental rendering ---
+; Position screen cursor at column B+1, row pass_line
 .piSetPos
     ld a, (pass_line) : ld h, a
     ld l, b
     ld (Display.coords), hl
     ret
 
-; Dibuja char del buffer en posición B (* o real según show_password)
+; Draw char from buffer at position B (* or real depending on show_password)
 .piDrawBufAt
     call .piSetPos
     ld a, (show_password) : and a
@@ -394,13 +394,13 @@ passwordInput:
     ld a, (hl)
     jp Display.putCBig
 
-; Dibuja cursor bloque en posición B
+; Draw block cursor at position B
 .piDrawCurAt
     call .piSetPos
     ld a, 127
     jp Display.putCBig
 
-; Dibuja espacio en posición B
+; Draw space at position B
 .piDrawSpcAt
     call .piSetPos
     ld a, ' '
@@ -411,7 +411,7 @@ passwordInput:
     ei
     jp .piWait
 
-; --- Bucle de espera de tecla ---
+; --- Key wait loop ---
 .piWait
     ld b, 4
 .piWL   halt : djnz .piWL
@@ -425,27 +425,27 @@ passwordInput:
     cp 32 : jp c, .piWait
     cp 127 : jp nc, .piWait
 
-    ; --- Insertar carácter ---
+    ; --- Insert character ---
     ld c, a
     ld a, (pass_len) : cp MAX_PASS_LEN : jp nc, .piWait
     ld a, (pass_cursor) : ld b, a : ld a, (pass_len) : cp b
-    jr nz, .piInsMid                ; Cursor en medio → full redraw
+    jr nz, .piInsMid                ; Cursor in middle -> full redraw
 
-    ; === APPEND AL FINAL (caso común) ===
+    ; === APPEND AT END (common case) ===
     ld a, (pass_cursor) : ld hl, pass_buffer : ld d, 0 : ld e, a : add hl, de
     ld (hl), c : inc hl : ld (hl), 0
     ld a, (pass_len) : inc a : ld (pass_len), a
     ld a, (pass_cursor) : inc a : ld (pass_cursor), a
-    ; Render: recargar B de memoria antes de CADA call (drawCBig destruye regs)
-    ld a, (pass_cursor) : dec a : ld b, a      ; B = pos del char nuevo
+    ; Render: reload B from memory before EACH call (drawCBig destroys regs)
+    ld a, (pass_cursor) : dec a : ld b, a      ; B = pos of new char
     call .piDrawBufAt
-    ld a, (pass_cursor) : ld b, a              ; B = nueva pos cursor
+    ld a, (pass_cursor) : ld b, a              ; B = new cursor pos
     call .piDrawCurAt
-    ld a, (pass_cursor) : inc a : ld b, a      ; B = pos siguiente (limpiar)
+    ld a, (pass_cursor) : inc a : ld b, a      ; B = next pos (clear)
     call .piDrawSpcAt
     jp .piWait
 
-    ; Inserción en medio → shift + full redraw
+    ; Insert in middle -> shift + full redraw
 .piInsMid
     ld a, (pass_len) : ld b, a : ld a, (pass_cursor) : ld e, a
 .piShR  ld a, b : cp e : jr z, .piIns
@@ -457,36 +457,36 @@ passwordInput:
     ld a, (pass_cursor) : inc a : ld (pass_cursor), a
     jp .piRedraw
 
-; --- Cursor izquierda (incremental: 2 celdas) ---
+; --- Cursor left (incremental: 2 cells) ---
 .piLeft ld a, (pass_cursor) : and a : jp z, .piWait
     dec a : ld (pass_cursor), a
-    ; Restaurar char en posición vieja (cursor+1)
+    ; Restore char at old position (cursor+1)
     ld a, (pass_cursor) : inc a : ld b, a
     call .piDrawBufAt
-    ; Cursor en nueva posición
+    ; Cursor at new position
     ld a, (pass_cursor) : ld b, a
     call .piDrawCurAt
     jp .piWait
 
-; --- Cursor derecha (incremental: 2 celdas) ---
+; --- Cursor right (incremental: 2 cells) ---
 .piRight
     ld a, (pass_cursor) : ld b, a : ld a, (pass_len) : cp b : jp z, .piWait
     ld a, (pass_cursor) : inc a : ld (pass_cursor), a
-    ; Restaurar char en posición vieja (cursor-1)
+    ; Restore char at old position (cursor-1)
     ld a, (pass_cursor) : dec a : ld b, a
     call .piDrawBufAt
-    ; Cursor en nueva posición
+    ; Cursor at new position
     ld a, (pass_cursor) : ld b, a
     call .piDrawCurAt
     jp .piWait
 
-; --- Toggle mostrar/ocultar (full redraw, raro) ---
+; --- Toggle show/hide (full redraw, rare) ---
 .piToggle ld a, (show_password) : xor 1 : ld (show_password), a : jp .piRedraw
 
-; --- Borrar carácter ---
+; --- Delete character ---
 .piDel  ld a, (pass_cursor) : and a : jp z, .piWait
     ld b, a : ld a, (pass_len) : cp b : jr z, .piDelEnd
-    ; Borrado en medio → shift + full redraw
+    ; Delete in middle -> shift + full redraw
     ld a, (pass_cursor) : ld b, a : ld a, (pass_len) : ld c, a
 .piShL  ld a, b : cp c : jr z, .piDelEnd
     ld hl, pass_buffer : ld d, 0 : ld e, b : add hl, de
@@ -495,10 +495,10 @@ passwordInput:
     ld a, (pass_len) : dec a : ld (pass_len), a
     ld hl, pass_buffer : ld d, 0 : ld e, a : add hl, de : xor a : ld (hl), a
     ld a, (pass_cursor) : dec a : ld (pass_cursor), a
-    ; === BORRADO AL FINAL (caso común): incremental ===
+    ; === DELETE AT END (common case): incremental ===
     ld b, a : ld a, (pass_len) : cp b
-    jp nz, .piRedraw                ; Si cursor ≠ len → fue delete en medio, full redraw
-    ; Cursor == len: render incremental (recargar B de memoria cada vez)
+    jp nz, .piRedraw                ; If cursor != len -> was delete in middle, full redraw
+    ; Cursor == len: incremental render (reload B from memory each time)
     ld a, (pass_cursor) : ld b, a
     call .piDrawCurAt
     ld a, (pass_cursor) : inc a : ld b, a
@@ -516,23 +516,23 @@ sti_len  db 0
 sti_line db 0
 
 topClean:
-    call Display.clrListOnly    ; Solo limpia líneas 2-14
+    call Display.clrListOnly    ; Only clears lines 2-14
     call clearListAttrs
-    jp drawSeparator            ; Redibujar separador (incluye ret)
+    jp drawSeparator            ; Redraw separator (includes ret)
 
-; Limpia solo el área de redes (líneas 6-14) - para sort/rescan
+; Clear only the networks area (lines 6-14) - for sort/rescan
 clearNetworksArea:
     jp Display.clrNetworksOnly
 
-; renderNetworksOnly - Redibuja SOLO el listado (líneas 6-14).
-; No toca indicadores/menú superior (scroll/page info).
-; Usado para refrescos por desconexión para evitar parpadeo/cambios arriba.
+; renderNetworksOnly - Redraws ONLY the network list (lines 6-14).
+; Does not touch indicators/upper menu (scroll/page info).
+; Used for disconnect refreshes to avoid flicker/changes above.
 renderNetworksOnly:
     call clearNetworksArea
     jr renderNetworksCommon
 
-; renderListOnly - Redibuja solo las redes + indicadores, no la ayuda
-; Usado por sort y rescan para evitar parpadeo
+; renderListOnly - Redraws only networks + indicators, not the help text
+; Used by sort and rescan to avoid flicker
 renderListOnly:
     call clearNetworksArea
     call showScrollIndicators
@@ -540,22 +540,22 @@ renderListOnly:
     call renderNetworksCommon
     ld a, (Wifi.networks_count)
     and a
-    ret z                       ; Sin redes: no pintar cursor
+    ret z                       ; No networks: don't draw cursor
     jp showCursor
 
 ; ============================================
-; renderNetworksCommon - Rutina común para dibujar lista de redes
-; Entrada: área ya limpiada
+; renderNetworksCommon - Common routine to draw network list
+; Input: area already cleared
 ; ============================================
 renderNetworksCommon:
-    ; Posicionar en línea 6 para empezar a listar
+    ; Position at line 6 to start listing
     gotoXY 0, 6
 
-    ; Reiniciar flag de red conectada encontrada
+    ; Reset connected network found flag
     xor a
     ld (conn_row_found), a
 
-    ; Calcular cuántas redes mostrar en esta página
+    ; Calculate how many networks to show on this page
     ld a, (Wifi.networks_count)
     ld hl, offset
     sub (hl)
@@ -565,92 +565,92 @@ renderNetworksCommon:
 .gotCount
     ld b, a
 
-    ; Verificar que hay redes
+    ; Check there are networks
     and a
     jp z, .noNetworks
 
-    ; Inicializar índice de pantalla actual
+    ; Initialize current screen index
     ld a, (offset)
     ld (current_screen_idx), a
 
-    ; Inicializar línea actual (empezar en 6)
+    ; Initialize current line (start at 6)
     ld a, 6
     ld (current_line), a
 
 .showLoop
     push bc
 
-    ; Obtener puntero al SSID usando findRow (respeta display_indices)
+    ; Get SSID pointer using findRow (respects display_indices)
     ld a, (current_screen_idx)
     ld d, a
-    call findRow                ; HL = puntero al SSID
+    call findRow                ; HL = pointer to SSID
 
-    ; Atributo por defecto (solo zona de lista)
+    ; Default attribute (list area only)
     push hl
     ld a, (current_line)
     ld c, Display.ATTR_NORMAL
     call Display.setAttrPartial
     pop hl
 
-    ; Resaltar SSID conectado si corresponde
+    ; Highlight connected SSID if applicable
     ld a, (Wifi.is_connected)
     and a
     jr z, .noConnAttr
     
-    ; Si ya encontramos la red conectada, no buscar más
+    ; If we already found the connected network, don't search further
     ld a, (conn_row_found)
     and a
     jr nz, .noConnAttr
     
     ld a, (hl)
     and a
-    jr z, .noConnAttr           ; SSID vacío -> no resaltar
+    jr z, .noConnAttr           ; Empty SSID -> don't highlight
     push hl
     ld de, Wifi.connected_ssid
     call Display.compareStringZ
     pop hl
     jr nz, .noConnAttr
     
-    ; Marcar que ya encontramos la red conectada
+    ; Mark that we found the connected network
     ld a, 1
     ld (conn_row_found), a
     
     push hl
     ld a, (current_line)
-    ld c, Display.ATTR_CONNECTED  ; Amarillo sobre negro
+    ld c, Display.ATTR_CONNECTED  ; Yellow on black
     call Display.setAttrPartial
     pop hl
 .noConnAttr
-    ; Verificar si SSID está vacío (red oculta)
+    ; Check if SSID is empty (hidden network)
     ld a, (hl)
     and a
     jr nz, .printSSID
-    ld hl, msg_hidden           ; SSID vacío - mostrar "<hidden>"
+    ld hl, msg_hidden           ; Empty SSID - show "<hidden>"
 .printSSID
-    ; Imprimir SSID limitado a 29 caracteres (dejar espacio antes de RSSI)
+    ; Print SSID limited to 29 chars (leave room before RSSI)
     ld b, 29
     call putStrLimited
 
-    ; Mover cursor a columna fija (30) para RSSI
+    ; Move cursor to fixed column (30) for RSSI
     ld a, (current_line)
     ld h, a
     ld l, 30
     ld (Display.coords), hl
 
-    ; Mostrar indicador RSSI (usa current_screen_idx)
+    ; Show RSSI indicator (uses current_screen_idx)
     call printRssi
 
-    ; Incrementar índice de pantalla
+    ; Increment screen index
     ld a, (current_screen_idx)
     inc a
     ld (current_screen_idx), a
 
-    ; Incrementar línea
+    ; Increment line
     ld a, (current_line)
     inc a
     ld (current_line), a
 
-    ; Avanzar coords a la siguiente línea (X=0, Y++)
+    ; Advance coords to next line (X=0, Y++)
     ld hl, Display.coords
     xor a : ld (hl), a
     inc hl : inc (hl)
@@ -668,16 +668,16 @@ renderNetworksCommon:
 msg_hidden db "<hidden>", 0
 
 ; ============================================
-; putStrLimited - Imprime string Z-terminated con límite
-; Entrada: HL = puntero al string, B = máximo caracteres
+; putStrLimited - Print Z-terminated string with limit
+; Input: HL = string pointer, B = max characters
 ; ============================================
 putStrLimited:
     ld a, (hl)
     and a
-    ret z               ; Fin del string
+    ret z               ; End of string
     ld a, b
     and a
-    ret z               ; Límite alcanzado
+    ret z               ; Limit reached
     push hl
     push bc
     ld a, (hl)
@@ -688,21 +688,21 @@ putStrLimited:
     dec b
     jr putStrLimited
 
-; Limpia los atributos de las líneas 2-17 (blanco sobre negro)
-; Optimizado con LDIR
+; Clear attributes for lines 2-17 (white on black)
+; Optimized with LDIR
 clearListAttrs:
-    ld hl, #5800 + 64           ; Línea 2, columna 0
-    ld a, Display.ATTR_NORMAL   ; Blanco sobre negro
-    ld (hl), a                  ; Primer byte
-    ld de, #5800 + 65           ; Destino = origen + 1
-    ld bc, 16 * 32 - 1          ; 16 líneas (2-17) * 32 - 1 = 511 bytes
+    ld hl, #5800 + 64           ; Line 2, column 0
+    ld a, Display.ATTR_NORMAL   ; White on black
+    ld (hl), a                  ; First byte
+    ld de, #5800 + 65           ; Dest = source + 1
+    ld bc, 16 * 32 - 1          ; 16 lines (2-17) * 32 - 1 = 511 bytes
     ldir
     ret
 
 
-; Muestra texto en doble alto en rows 3-4
-; HL = texto, C = color con BRIGHT para row 3
-; Row 4 = mismo color sin BRIGHT
+; Show double-height text on rows 3-4
+; Input: HL = text, C = color with BRIGHT for row 3
+; Row 4 = same color without BRIGHT
 showBigMessage:
     push bc
     push hl
@@ -711,60 +711,55 @@ showBigMessage:
     call Display.putStr
     call Display.stretchRows34
     pop bc
-    push bc                     ; Preservar color (setAttr destruye BC)
+    push bc                     ; Preserve color (setAttr destroys BC)
     ld a, 3
     call Display.setAttr        ; Row 3: BRIGHT
     pop bc
     ld a, c : res 6, a : ld c, a
     ld a, 4
-    jp Display.setAttr          ; Row 4: sin BRIGHT
+    jp Display.setAttr          ; Row 4: without BRIGHT
 
-; Pantalla de éxito de conexión (bucle infinito)
+; Connection success screen
 showConnectedSuccessScreen:
-    call topClean
-    ld hl, msg_connected_title : ld c, 104o : call showBigMessage
-    gotoXY 0, 6 : ld hl, msg_done_body : call Display.putStr
-.deadLoop
-    halt
-    jr .deadLoop
+    jp exitProgram
 
 ; ============================================
-; renderList - Dibuja lista completa con ayuda
+; renderList - Draw full list with help text
 ; ============================================
 renderList:
     call topClean
 
-    ; Mostrar ayuda en línea 3 (según estado de conexión)
+    ; Show help on line 3 (depends on connection state)
     gotoXY 0, 3
     ld a, (Wifi.is_connected)
     and a
     jr z, .showHelpDisconn
-    ld hl, msg_help_conn       ; Conectado: incluye X:Disconnect
+    ld hl, msg_help_conn       ; Connected: includes X:Disconnect
     jr .printHelp
 .showHelpDisconn
-    ld hl, msg_help            ; No conectado
+    ld hl, msg_help            ; Not connected
 .printHelp
     call Display.putStr
 
-    ; Mostrar opción de SSID manual en línea 4
+    ; Show manual SSID option on line 4
     gotoXY 0, 4
     ld hl, msg_help2
     call Display.putStr
 
-    ; Línea separadora debajo del menú
+    ; Separator line below menu
     ld a, 5 : ld e, 3 : ld d, Display.ATTR_NORMAL
     call Display.draw_hline
 
-    ; Mostrar indicadores de scroll
+    ; Show scroll indicators
     call showScrollIndicators
 
     call showPageInfo
 
-    ; Usar rutina común para dibujar redes
+    ; Use common routine to draw networks
     call renderNetworksCommon
     ld a, (Wifi.networks_count)
     and a
-    ret z                       ; Sin redes: no pintar cursor
+    ret z                       ; No networks: don't draw cursor
     jp showCursor
 
 no_net_msg db "No networks found. Press 'R' to rescan.", 0
@@ -773,45 +768,45 @@ msg_help_conn db "Q/A:Nav R:Refresh X:Disconn D:Diag", 0
 msg_help2  db "H:Hidden W:WPS L:Log I:About", 0
 
 ; ============================================
-; Muestra flechas de scroll en línea 16
-; DOWN en Col 0 (izquierda), UP en Col 41 (derecha)
+; Show scroll arrows on line 16
+; DOWN at Col 0 (left), UP at Col 41 (right)
 ; ============================================
 showScrollIndicators:
-    ; 1. Limpiar zona de flechas (izquierda y derecha)
+    ; 1. Clear arrow areas (left and right)
     gotoXY 0, 16
     ld a, ' ' : call Display.putC
     gotoXY 41, 16
     ld a, ' ' : call Display.putC
 
-    ; 2. Verificar Flecha ABAJO (Offset + PER_PAGE < Count) - IZQUIERDA
+    ; 2. Check DOWN arrow (Offset + PER_PAGE < Count) - LEFT
     ld a, (offset)
     add a, PER_PAGE
     ld b, a
     ld a, (Wifi.networks_count)
     cp b
-    jr c, .chkUp            ; No hay más abajo
-    jr z, .chkUp            ; Son iguales
+    jr c, .chkUp            ; No more below
+    jr z, .chkUp            ; Equal
 
     gotoXY 0, 16
-    ld a, 25                ; Char flecha abajo (↓)
+    ld a, 25                ; Down arrow char
     call Display.putC
 
 .chkUp
-    ; 3. Verificar Flecha ARRIBA (Offset > 0) - DERECHA
+    ; 3. Check UP arrow (Offset > 0) - RIGHT
     ld a, (offset)
     and a
-    ret z                   ; No hay más arriba
+    ret z                   ; No more above
 
     gotoXY 41, 16
-    ld a, 24                ; Char flecha arriba (↑)
+    ld a, 24                ; Up arrow char
     call Display.putC
     ret
 
 ; ============================================
 ; clampOffsetToCount
-;   Asegura que 'offset' no apunte fuera del rango tras un rescan.
-;   Si offset >= networks_count, lo ajusta al inicio de la última página.
-;   Si networks_count == 0, offset = 0.
+;   Ensures 'offset' doesn't point beyond range after a rescan.
+;   If offset >= networks_count, adjusts to start of last page.
+;   If networks_count == 0, offset = 0.
 ; ============================================
 clampOffsetToCount:
     ld a, (Wifi.networks_count)
@@ -826,7 +821,7 @@ clampOffsetToCount:
     cp b
     ret c                        ; offset < count -> OK
 
-    ; Calcular last_start = ((count-1)/PER_PAGE)*PER_PAGE
+    ; Calculate last_start = ((count-1)/PER_PAGE)*PER_PAGE
     ld a, b
     dec a                        ; A = count-1
     ld b, 0                      ; B = last_start
@@ -845,42 +840,42 @@ clampOffsetToCount:
     ret
 
 ; ============================================
-; printRssi - Imprime indicador de señal
-; Usa current_screen_idx para obtener el índice real vía display_indices
+; printRssi - Print signal indicator
+; Uses current_screen_idx to get real index via display_indices
 ; ============================================
 printRssi:
-    ; Obtener índice real usando display_indices
+    ; Get real index using display_indices
     ld a, (current_screen_idx)
-    call Wifi.getDisplayIndex   ; A = índice real de la red
+    call Wifi.getDisplayIndex   ; A = real network index
     
-    ; Obtener RSSI de esa red
+    ; Get RSSI for that network
     ld hl, Wifi.rssi_buffer
     ld e, a
     ld d, 0
     add hl, de
     ld a, (hl)
     
-    ; Guardar valor en memoria
+    ; Store value in memory
     ld (rssi_value), a
     
-    ; Indicador red abierta/cerrada
+    ; Open/closed network indicator
     and #80
     jr z, .locked
-    ld a, '~'               ; Abierta (círculo hueco)
+    ld a, '~'               ; Open (hollow circle)
     jr .printLock
 .locked
-    ld a, '`'               ; Cerrada (círculo relleno)
+    ld a, '`'               ; Closed (filled circle)
 .printLock
     call Display.putC
     
-    ; Recuperar RSSI y calcular barras
+    ; Recover RSSI and calculate bars
     ld a, (rssi_value)
     and #7F                 ; A = RSSI (0-127)
     call drawRssiBars
 
 .colorBars
-    ; Colorear la zona de barras en verde
-    ; current_line tiene la línea actual (6-15)
+    ; Color the bars area in green
+    ; current_line has the current line (6-15)
     ld a, (current_line)
     ld l, a
     ld h, 0
@@ -889,11 +884,11 @@ printRssi:
     add hl, hl              ; x8
     add hl, hl              ; x16
     add hl, hl              ; x32
-    ld de, #5800 + 22       ; Base + columna 22 (cubre cols texto 30-40)
-    add hl, de              ; HL = dirección del atributo
+    ld de, #5800 + 22       ; Base + column 22 (covers text cols 30-40)
+    add hl, de              ; HL = attribute address
     
-    ; Colorear 10 celdas en verde (columnas 22-31)
-    ld a, Display.ATTR_RSSI ; Verde sobre negro
+    ; Color 10 cells in green (columns 22-31)
+    ld a, Display.ATTR_RSSI ; Green on black
     ld b, 10
 .colorLoop
     ld (hl), a
@@ -906,7 +901,7 @@ rssi_value db 0
 
 current_line db 0
 current_screen_idx db 0
-conn_row_found db 0             ; Flag: 1 si ya se encontró la red conectada
+conn_row_found db 0             ; Flag: 1 if connected network already found
 
 ; ============================================
 ; showConnectedDialog
@@ -914,15 +909,23 @@ conn_row_found db 0             ; Flag: 1 si ya se encontró la red conectada
 showConnectedDialog:
     call topClean
     gotoXY 0, 3 : ld hl, .msg_network : call Display.putStr
-    ; SSID en doble alto verde (rows 4-5)
+    ; SSID in green double-height (rows 4-5)
     gotoXY 0, 4
     ld hl, Wifi.connected_ssid
     call Display.putStrBig
     setLineColor 4, Display.ATTR_SSID_INPUT
     setLineColor 5, Display.ATTR_SSID_INPUT
-    ; Preguntas
+    ; Questions
     gotoXY 0, 7 : ld hl, .msg_question : call Display.putStr
     gotoXY 0, 9 : ld hl, .msg_options : call Display.putStr
+
+    ; Debounce: drain stale keys for 15 frames (~300ms)
+    ; Needed because ROM key repeat can leave residual values in BASIC_KEY
+    ld b, 15
+.drainKeys
+    halt
+    call Keyboard.inKeyNoWait
+    djnz .drainKeys
 
 .waitKey
     halt
@@ -945,7 +948,7 @@ showConnectedDialog:
 .msg_options   db "(Y)es reconfigure / (N)o exit", 0
 
 ; ============================================
-; Cursor y navegación
+; Cursor and navigation
 ; ============================================
 hideCursor:
     call cursorIsConnectedRow
@@ -989,17 +992,17 @@ cursorIsConnectedRow:
     ; Compare selected SSID with connected_ssid
     ld de, Wifi.connected_ssid
     call Display.compareStringZ
-    ret nz              ; No coincide -> CF=0
-    scf                 ; Coincide -> CF=1
+    ret nz              ; No match -> CF=0
+    scf                 ; Match -> CF=1
     ret
 
 ; ============================================
 ; invalidateConnectedIfMissing
-; Si estamos marcados como conectados pero el SSID conectado no aparece en el último scan,
-; invalida estado y actualiza UI (solo invalidar, no reconstruir)
+; If we are marked as connected but the connected SSID is not in the last scan,
+; invalidate state and update UI (only invalidate, don't rebuild)
 ; ============================================
 invalidateConnectedIfMissing:
-    ; Solo si is_connected=1 y connected_ssid no vacío
+    ; Only if is_connected=1 and connected_ssid not empty
     ld a, (Wifi.is_connected)
     and a
     ret z
@@ -1008,15 +1011,15 @@ invalidateConnectedIfMissing:
     ret z
 
     call connectedSSIDPresentInList
-    ret c                       ; presente -> mantener
-    ; No aparece en lista -> invalidar
+    ret c                       ; present -> keep
+    ; Not in list -> invalidate
     call doMarkDisconnected
     ret
 
 ; ============================================
 ; connectedSSIDPresentInList
-; CF=1 si Wifi.connected_ssid aparece en la lista (buffer), CF=0 si no
-; Si CF=1, A = índice real de la red (0-based)
+; Output: CF=1 if Wifi.connected_ssid is in the list (buffer), CF=0 if not
+; If CF=1, A = real network index (0-based)
 ; ============================================
 connectedSSIDPresentInList:
     ld a, (Wifi.networks_count)
@@ -1024,7 +1027,7 @@ connectedSSIDPresentInList:
     jr z, .notFound
 
     ld b, a
-    ld c, 0             ; C = índice actual
+    ld c, 0             ; C = current index
     ld hl, buffer
 .loopNet
     ld a, (hl)
@@ -1037,15 +1040,15 @@ connectedSSIDPresentInList:
     call Display.compareStringZ
     pop bc
     pop hl
-    jr z, .found        ; Z=1 significa iguales
+    jr z, .found        ; Z=1 means equal
 
-    ; Avanzar al siguiente SSID (buscar el 0 terminador)
-    inc c               ; Siguiente índice
-    push bc             ; Preservar B y C
+    ; Advance to next SSID (find null terminator)
+    inc c               ; Next index
+    push bc             ; Preserve B and C
     xor a
     ld bc, #ffff
-    cpir                ; HL apunta después del 0
-    pop bc              ; Restaurar B y C
+    cpir                ; HL points past the 0
+    pop bc              ; Restore B and C
     djnz .loopNet
 
 .notFound
@@ -1053,48 +1056,48 @@ connectedSSIDPresentInList:
     ret
 
 .found
-    ld a, c             ; A = índice real
+    ld a, c             ; A = real index
     scf
     ret
 
 
 uiLoop:
-    ; Limpiar buffer de teclado al inicio (evita auto-selección por basura)
+    ; Clear keyboard buffer at start (prevents auto-selection from garbage)
     xor a
     ld (Keyboard.BASIC_KEY), a
     
 uiLoopMain:
     halt
     
-    ; Incrementar contador de auto-rescan
+    ; Increment auto-rescan counter
     ld hl, (autoscan_counter)
     inc hl
     ld (autoscan_counter), hl
     
-    ; Verificar si llegó a 15000 (5 min × 50 fps)
+    ; Check if reached 15000 (5 min x 50 fps)
     ld de, 15000
     or a
     sbc hl, de
     jr nz, .noAutoRescan
     
-    ; Auto-rescan: resetear contador y hacer rescan silencioso
+    ; Auto-rescan: reset counter and do silent rescan
     ld hl, 0
     ld (autoscan_counter), hl
     call doAutoRescan
     
 .noAutoRescan
-    ; Health-check periódico (solo para invalidar estado si se pierde conexión)
+    ; Periodic health-check (only to invalidate state if connection lost)
     ld hl, (health_counter)
     inc hl
     ld (health_counter), hl
-    ld de, 500                   ; ~10s @50fps (menos agresivo)
+    ld de, 500                   ; ~10s @50fps (less aggressive)
     or a
     sbc hl, de
     jr nz, .noHealthCheck
     ld hl, 0
     ld (health_counter), hl
 
-    ; Solo si estamos marcados como conectados y UART libre
+    ; Only if marked as connected and UART free
     ld a, (Wifi.is_connected)
     and a
     jr z, .noHealthCheck
@@ -1102,7 +1105,7 @@ uiLoopMain:
     and a
     jr nz, .noHealthCheck
 
-    ; Silenciar log UART durante el health-check (evita spam de CWJAP?)
+    ; Mute UART log during health-check (avoids CWJAP? spam)
     call Uart.logReset
     ld a, (Uart.log_enabled)
     push af
@@ -1120,7 +1123,7 @@ uiLoopMain:
 .noHealthCheck
 
 
-    ; Rescan pendiente tras pérdida de conexión (solo si UART libre)
+    ; Pending rescan after connection loss (only if UART free)
     ld a, (force_rescan)
     and a
     jr z, .noForceRescan
@@ -1134,7 +1137,7 @@ uiLoopMain:
     call Wifi.getList
     call clampOffsetToCount
 
-    ; Ajustar cursor_position a la página actual (offset) y tamaño real
+    ; Adjust cursor_position to current page (offset) and actual size
     ld a, (Wifi.networks_count)
     and a
     jr z, .forceCursorZero
@@ -1146,12 +1149,12 @@ uiLoopMain:
     ld c, a
     ld a, b
     sub c
-    ; limitar remaining a PER_PAGE
+    ; limit remaining to PER_PAGE
     cp PER_PAGE
     jr c, .forceRemOk
     ld a, PER_PAGE
 .forceRemOk
-    ld b, a                  ; B = elementos visibles en página (1..PER_PAGE)
+    ld b, a                  ; B = visible items on page (1..PER_PAGE)
 
     ld a, (cursor_position)
     cp b
@@ -1175,7 +1178,7 @@ uiLoopMain:
     and a
     jp z, .noKey
     
-    ; Resetear contador cuando hay actividad del usuario
+    ; Reset counter on user activity
     ld hl, 0
     ld (autoscan_counter), hl
     ld (health_counter), hl
@@ -1221,9 +1224,9 @@ uiLoopMain:
     xor a
     ld (ui_async_div), a
     call checkAsyncWifi
-    ; A = código de evento
+    ; A = event code
     and a
-    jp z, uiLoopMain               ; Sin evento
+    jp z, uiLoopMain               ; No event
     cp ASYNC_EVENT_DISCONNECT
     jr z, handleDisconnect
     cp ASYNC_EVENT_GOTIP
@@ -1232,8 +1235,8 @@ uiLoopMain:
 
 ; ============================================
 ; doMarkDisconnected
-;   Invalida estado WiFi, limpia SSID, actualiza estado/IP y avisa en log.
-;   NO toca cursor ni repinta lista (lo decide el caller).
+;   Invalidates WiFi state, clears SSID, updates status/IP and warns in log.
+;   Does NOT touch cursor or repaint list (caller decides).
 ; ============================================
 doMarkDisconnected:
     xor a
@@ -1255,11 +1258,11 @@ handleDisconnect
 handleGotIP
     ld a, 1
     ld (Wifi.is_connected), a
-    ; Obtener el SSID de la conexión actual
+    ; Get the SSID of current connection
     call Wifi.checkConnection
     call updateWifiStatus_q
-    call ipShowConnected         ; Actualizar IP en barra superior
-    ; Redibujar lista para aplicar atributo de red conectada
+    call ipShowConnected         ; Update IP in status bar
+    ; Redraw list to apply connected network attribute
     call renderNetworksOnly
     call showCursor
     jp uiLoopMain
@@ -1268,74 +1271,79 @@ rescan:
     call hideCursor
     xor a : ld (cursor_position), a : ld (offset), a
     
-    ; Mostrar "Scanning..." en línea 17, col 0
+    ; Show "Scanning..." on line 17, col 0
     gotoXY 0, 17
     ld hl, .scanning_msg
     call Display.putStr
     
-    ; Limpiar área de redes mientras escanea
+    ; Clear networks area while scanning
     call clearNetworksArea
     
     call Wifi.getList
     call invalidateConnectedIfMissing
-    call renderListOnly         ; Solo redibuja la lista, no la ayuda
+    call renderListOnly         ; Only redraws the list, not the help
     jp uiLoop
 .scanning_msg db "Scanning...", 0
 
 ; ============================================
-; doAutoRescan - Rescan automático silencioso
-; No mueve cursor ni muestra mensajes
+; doAutoRescan - Silent automatic rescan
+; Does not move cursor or show messages
 ; ============================================
 doAutoRescan:
     push bc
     push de
     push hl
-    
-    ; Guardar posición actual
+
+    ; Show hourglass on row 17, col 0
+    gotoXY 0, 17
+    ld a, '^'
+    call Display.putC
+
+    ; Save current position
     ld a, (cursor_position)
     ld b, a
     ld a, (offset)
     ld c, a
     push bc
-    
+
     call hideCursor
     call Wifi.getList
     
-    ; Restaurar posición (ajustando si es necesario)
+    ; Restore position (adjusting if needed)
     pop bc
     ld a, (Wifi.networks_count)
     and a
-    jr z, .autoResetPos         ; Sin redes, resetear
+    jr z, .autoResetPos         ; No networks, reset
     
-    ; Verificar que offset sigue siendo válido (offset debe ser < count)
-    ld a, c                     ; offset guardado
+    ; Check offset is still valid (offset must be < count)
+    ld a, c                     ; saved offset
     ld d, a
     ld a, (Wifi.networks_count)
     cp d
-    jr z, .autoResetPos         ; offset == count → inválido
-    jr nc, .autoOffsetOK        ; offset < count → OK
-    jr .autoResetPos            ; offset > count → resetear
+    jr z, .autoResetPos         ; offset == count -> invalid
+    jr nc, .autoOffsetOK        ; offset < count -> OK
+    jr .autoResetPos            ; offset > count -> reset
     
 .autoOffsetOK
     ld a, c
     ld (offset), a
     
-    ; Verificar que cursor sigue siendo válido
+    ; Check cursor is still valid
     ld a, (Wifi.networks_count)
     ld e, a
     ld a, c                     ; offset
     ld d, a
     ld a, e
-    sub d                       ; count - offset = disponibles
+    sub d                       ; count - offset = available
     cp PER_PAGE
     jr c, .autoLimitCursor
     ld a, PER_PAGE
 .autoLimitCursor
-    ; A = máximo cursor permitido
+    ; A = max allowed cursor
     dec a                       ; 0-indexed
-    cp b                        ; comparar con cursor guardado
+    cp b                        ; compare with saved cursor
     jr nc, .autoCursorOK
-    ; cursor > max, ajustar
+    ; cursor > max, adjust
     ld b, a
 .autoCursorOK
     ld a, b
@@ -1358,15 +1366,15 @@ doAutoRescan:
 
 ; ============================================
 ; ============================================
-; doDisconnect - Desconectar de la red actual
+; doDisconnect - Disconnect from current network
 ; ============================================
 doDisconnect:
-    ; Verificar si está conectado
+    ; Check if connected
     ld a, (Wifi.is_connected)
     and a
     jp z, uiLoop
 
-    ; Confirmación
+    ; Confirmation
     call hideCursor : call topClean
     gotoXY 1, 3
     ld hl, .msg_disc_confirm
@@ -1380,28 +1388,28 @@ doDisconnect:
     and a : jr z, .waitDiscConfirm
     cp 'y' : jr z, .doDiscNow
     cp 'Y' : jr z, .doDiscNow
-    ; Cualquier otra tecla cancela
+    ; Any other key cancels
     call renderList : jp uiLoop
 
 .doDiscNow
-    ; Enviar comando de desconexión
+    ; Send disconnect command
     ld hl, cmd_disconnect
     call Wifi.espSendZ
 
-    ; Esperar respuesta
+    ; Wait for response
     ld b, 100
 .waitDisconnect
     halt
     djnz .waitDisconnect
     call Wifi.flushInput
 
-    ; Actualizar estado
+    ; Update state
     xor a
     ld (Wifi.is_connected), a
     call updateWifiStatus_q
     call ipShowNotConnected
 
-    ; Mostrar confirmación en doble alto
+    ; Show confirmation in double-height
     call topClean
     ld hl, .msg_disconnected : ld c, 102o : call showBigMessage
     call showPressKey
@@ -1420,13 +1428,13 @@ doDisconnect:
 .msg_disconnected  db "Disconnected.", 0
 
 ; ============================================
-; manualSSID - Introducir SSID manualmente
+; manualSSID - Enter SSID manually
 ; ============================================
 manualSSID:
     call hideCursor
     call topClean
     
-    ; Limpiar buffer de SSID manual
+    ; Clear manual SSID buffer
     ld hl, manual_ssid_buffer
     ld b, 33
     xor a
@@ -1438,7 +1446,7 @@ manualSSID:
     ld (manual_ssid_len), a
     ld (manual_ssid_cursor), a
     
-    ; Mostrar título
+    ; Show title
     gotoXY 0, 4
     ld hl, .msg_manual_title
     call Display.putStr
@@ -1447,7 +1455,7 @@ manualSSID:
     ld hl, .msg_enter_ssid
     call Display.putStr
 
-    ; Mostrar mensaje de cancelación
+    ; Show cancel message
     gotoXY 0, 11
     ld hl, .msg_ssid_help
     call Display.putStr
@@ -1455,11 +1463,11 @@ manualSSID:
     setLineColor 8, Display.ATTR_PASS_INPUT
     setLineColor 9, Display.ATTR_PASS_INPUT
 
-; Repintado completo de SSID (para cursor left)
+; Full SSID redraw (for cursor left)
 .drawSSIDFull
     halt
     gotoXY 0, 8
-    ; Limpiar línea completa (doble alto)
+    ; Clear full line (double-height)
     ld b, 34
 .clearSSIDFull
     ld a, ' '
@@ -1470,7 +1478,7 @@ manualSSID:
 
     gotoXY 0, 8
 
-    ; Chars antes del cursor
+    ; Chars before cursor
     ld a, (manual_ssid_cursor)
     and a
     jr z, .ssidFullCursor
@@ -1487,7 +1495,7 @@ manualSSID:
     ld a, 127
     call Display.putCBig
 
-    ; Chars después del cursor
+    ; Chars after cursor
     ld a, (manual_ssid_len)
     ld b, a
     ld a, (manual_ssid_cursor)
@@ -1513,13 +1521,13 @@ manualSSID:
     djnz .ssidFullAfter
     jr .ssidFinishDraw
 
-; Repintado parcial de SSID (desde cursor, para insertar/borrar)
+; Partial SSID redraw (from cursor, for insert/delete)
 .drawSSID
     halt
-    ; Posicionar al inicio de la línea
+    ; Position at start of line
     gotoXY 0, 8
 
-    ; Dibujar caracteres antes del cursor
+    ; Draw characters before cursor
     ld a, (manual_ssid_cursor)
     and a
     jr z, .ssidDrawCursor
@@ -1536,14 +1544,14 @@ manualSSID:
     ld a, 127
     call Display.putCBig
     
-    ; Chars después del cursor
+    ; Chars after cursor
     ld a, (manual_ssid_len)
     ld b, a
     ld a, (manual_ssid_cursor)
     cp b
     jr nc, .ssidClearRest
     
-    ; Cantidad = len - cursor
+    ; Count = len - cursor
     ld c, a
     ld a, b
     sub c
@@ -1579,36 +1587,36 @@ manualSSID:
     and a
     jr z, .waitSSIDKey
     
-    ; Cursor izquierda
+    ; Cursor left
     cp 8 : jp z, .ssidCursorLeft
-    
-    ; Cursor derecha
+
+    ; Cursor right
     cp 9 : jp z, .ssidCursorRight
-    
-    ; Borrar
+
+    ; Delete
     cp Keyboard.KEY_BS : jp z, .removeSSIDChar
-    
-    ; Enter = continuar a contraseña
+
+    ; Enter = proceed to password
     cp 13 : jp z, .ssidEntered
     
-    ; Filtrar caracteres válidos (32-126)
+    ; Filter valid characters (32-126)
     cp 32 : jp c, .waitSSIDKey
     cp 127 : jp nc, .waitSSIDKey
     
-    ; === Insertar carácter ===
-    ld c, a                         ; Guardar char
+    ; === Insert character ===
+    ld c, a                         ; Save char
     ld a, (manual_ssid_len)
     cp 32                           ; Max 32 chars
     jp nc, .waitSSIDKey
     
-    ; Verificar si insertamos al final o en medio
+    ; Check if inserting at end or in the middle
     ld a, (manual_ssid_cursor)
     ld b, a
     ld a, (manual_ssid_len)
     cp b
     jr z, .ssidInsertAtEnd
     
-    ; Insertar en medio: desplazar caracteres a la derecha
+    ; Insert in middle: shift characters right
     ld a, (manual_ssid_len)
     ld b, a
     ld a, (manual_ssid_cursor)
@@ -1631,7 +1639,7 @@ manualSSID:
 
 .ssidInsertAtEnd
 .ssidDoInsert
-    ; Insertar carácter
+    ; Insert character
     ld a, (manual_ssid_cursor)
     ld hl, manual_ssid_buffer
     ld d, 0
@@ -1639,12 +1647,12 @@ manualSSID:
     add hl, de
     ld (hl), c
     
-    ; Incrementar longitud
+    ; Increment length
     ld a, (manual_ssid_len)
     inc a
     ld (manual_ssid_len), a
     
-    ; Poner null terminator
+    ; Set null terminator
     ld hl, manual_ssid_buffer
     ld d, 0
     ld e, a
@@ -1652,7 +1660,7 @@ manualSSID:
     xor a
     ld (hl), a
     
-    ; Incrementar cursor
+    ; Increment cursor
     ld a, (manual_ssid_cursor)
     inc a
     ld (manual_ssid_cursor), a
@@ -1664,7 +1672,7 @@ manualSSID:
     jp z, .waitSSIDKey
     dec a
     ld (manual_ssid_cursor), a
-    jp .drawSSID                ; Usar repintado parcial (no Full)
+    jp .drawSSID                ; Use partial redraw (not Full)
 
 .ssidCursorRight
     ld a, (manual_ssid_cursor)
@@ -1682,14 +1690,14 @@ manualSSID:
     and a
     jp z, .waitSSIDKey
     
-    ; Verificar si borramos al final o en medio
+    ; Check if deleting at end or in the middle
     ld a, (manual_ssid_cursor)
     ld b, a
     ld a, (manual_ssid_len)
     cp b
     jr z, .ssidDeleteAtEnd
     
-    ; Borrar en medio: desplazar caracteres a la izquierda
+    ; Delete in middle: shift characters left
     ld a, (manual_ssid_cursor)
     ld b, a
     ld a, (manual_ssid_len)
@@ -1710,12 +1718,12 @@ manualSSID:
 
 .ssidDeleteAtEnd
 .ssidFinishDelete
-    ; Decrementar longitud
+    ; Decrement length
     ld a, (manual_ssid_len)
     dec a
     ld (manual_ssid_len), a
     
-    ; Poner null terminator
+    ; Set null terminator
     ld hl, manual_ssid_buffer
     ld d, 0
     ld e, a
@@ -1723,7 +1731,7 @@ manualSSID:
     xor a
     ld (hl), a
     
-    ; Decrementar cursor
+    ; Decrement cursor
     ld a, (manual_ssid_cursor)
     dec a
     ld (manual_ssid_cursor), a
@@ -1737,16 +1745,16 @@ manualSSID:
 .msg_ssid_help db "BREAK=cancel, L/R=move cursor", 0
 
 .ssidEntered
-    ; Verificar que hay SSID
+    ; Check there is an SSID
     ld a, (manual_ssid_len)
     and a
-    jp z, .waitSSIDKey              ; SSID vacío, seguir esperando
+    jp z, .waitSSIDKey              ; Empty SSID, keep waiting
     
-    ; Ahora pedir contraseña
+    ; Now request password
     setLineColor 6, 107o
     call topClean
     
-    ; Mostrar SSID seleccionado
+    ; Show selected SSID
     gotoXY 0, 3
     ld hl, msg_ssid
     call Display.putStr
@@ -1754,9 +1762,9 @@ manualSSID:
     ld hl, manual_ssid_buffer
     call Display.putStr
 
-    ; Preparar entrada de contraseña
+    ; Prepare password input
     xor a
-    ld (is_open_network), a         ; Asumir red cerrada
+    ld (is_open_network), a         ; Assume closed network
     call clearPassBuffer
 
     gotoXY 0, 6
@@ -1770,12 +1778,12 @@ manualSSID:
     ld (show_password), a
     ld (pass_cursor), a
 
-    ; Entrada de contraseña usando rutina compartida (pass_line=7 = default)
+    ; Password input using shared routine (pass_line=7 = default)
     call passwordInput
     jp c, .cancelManual
 
 .connectManual
-    ; Mostrar asteriscos finales
+    ; Show final asterisks
     gotoXY 1, 7
     ld a, (pass_len)
     and a
@@ -1790,15 +1798,15 @@ manualSSID:
 .noAsterManual
     ld a, ' ' : call Display.putC
     
-    ; Inicializar reintentos
+    ; Initialize retries
     ld a, 3
     ld (conn_retries), a
-; Verificar estado previo
+; Check previous state
     ld a, (Wifi.is_connected)
     and a
     jr z, .skipUiUpdate
 
-    ; Actualizar UI solo si estaba conectado
+    ; Update UI only if was connected
     xor a
     ld (Wifi.is_connected), a
     call updateWifiStatus_q
@@ -1829,18 +1837,18 @@ manualSSID:
     ld hl, msg_break_cancel
     call Display.putStr
     
-    ; AT+CWJAP se envia en varias partes. Para evitar mezclar log y ocultar password,
-    ; se mutea el log durante todo el envio.
+    ; AT+CWJAP is sent in multiple parts. To avoid mixing log and hide password,
+    ; the log is muted during the entire send.
     ld hl, selectItem.log_cwjap_masked
     call Display.putStrLog
     call Uart.logReset
     xor a : ld (Uart.log_enabled), a
 
-    ; Enviar comando de conexión con SSID manual
+    ; Send connect command with manual SSID
     ld a, (Wifi.old_fw) : ld hl, at_start : or a : jr z, .sendCmdManual : ld hl, at_start_old
 .sendCmdManual
     call Wifi.espSendZ
-    ld hl, manual_ssid_buffer       ; Usar SSID manual
+    ld hl, manual_ssid_buffer       ; Use manual SSID
     call Wifi.espSendZ
     ld hl, at_middle
     call Wifi.espSendZ
@@ -1854,19 +1862,19 @@ manualSSID:
     
     push af
     ld a, 1 : ld (Uart.log_enabled), a
-    ; Añadir salto de línea al log para separar del comando anterior
+    ; Add newline to log to separate from previous command
     ld hl, selectItem.log_newline
     call Display.putStrLog
     pop af
     
     jr nc, .connSuccessManual
     
-    ; Fallo - mostrar "Retry" junto al mensaje actual (línea 10, después de "Connecting (x/3)...")
+    ; Fail - show "Retry" next to current message
     gotoXY 20, 10
     ld hl, msg_retry_suffix
     call Display.putStr
     
-    ; Verificar si quedan reintentos
+    ; Check if retries remain
     ld a, (conn_retries)
     dec a
     ld (conn_retries), a
@@ -1891,10 +1899,10 @@ manualSSID:
 .connSuccessManual
     ld a, 1 : ld (Wifi.is_connected), a
 
-    ; Copiar SSID manual a connected_ssid
+    ; Copy manual SSID to connected_ssid
     ld hl, manual_ssid_buffer
     ld de, Wifi.connected_ssid
-    ld bc, 33                       ; MAX_SSID_LEN + 1 (incluye null terminator)
+    ld bc, 33                       ; MAX_SSID_LEN + 1 (includes null terminator)
     ldir
     
     call updateWifiStatus_q
@@ -1965,22 +1973,84 @@ toggleDebugLog:
     ld a, (Wifi.debug_log)
     xor 1
     ld (Wifi.debug_log), a
-    ; Mostrar estado en log
+    ld (Uart.log_enabled), a
+    ; Show state in log
     ld hl, .msg_log_on
     and a
     jr nz, .tShow
     ld hl, .msg_log_off
 .tShow
     call Display.putStrLog
+    call updateLogIndicator
     jp uiLoopMain
 .msg_log_on  db "UART log: ON", 13, 0
 .msg_log_off db "UART log: OFF", 13, 0
+
+; Quiet toggle - for use in wait loops (no jp uiLoopMain)
+; Returns with A=0 so caller can treat it as "no key"
+toggleLogQuiet:
+    ld a, (Wifi.debug_log)
+    xor 1
+    ld (Wifi.debug_log), a
+    ld (Uart.log_enabled), a
+    call updateLogIndicator
+    xor a
+    ret
+
+; ============================================
+
+; Update log indicator: small red filled circle at row 23 byte 31.
+; Updates both the scroll data table (for flicker-free scroll) and
+; the actual screen pixels (for immediate toggle feedback).
+; Uses bottom 4 bits only (safe: drawC at col 41 only touches top 4 bits).
+LOG_IND_ATTR_ON  = 012o     ; Red ink on blue paper
+LOG_IND_ATTR_OFF = 014o     ; Green ink on blue paper (normal ATTR_LOG)
+updateLogIndicator:
+    ld a, (Wifi.debug_log)
+    and a
+    jr z, .off
+    ; ON: copy circle data to scroll table + paint pixels + set attr
+    ld hl, .circleData
+    ld de, Display.log_ind_data
+    ld bc, 8
+    ldir
+    ld a, LOG_IND_ATTR_ON
+    jr .apply
+.off
+    ; OFF: zero scroll table + clear pixels + restore attr
+    ld hl, Display.log_ind_data
+    xor a
+    ld b, 8
+.clrTable
+    ld (hl), a
+    inc hl
+    djnz .clrTable
+    ld a, LOG_IND_ATTR_OFF
+.apply
+    ld (#5AFF), a            ; Row 23, cell 31 attr
+    ; Paint/clear pixels on screen (immediate feedback)
+    ld hl, #50FF             ; Row 23, byte 31, scanline 0
+    ld de, Display.log_ind_data
+    ld b, 8
+.paintLoop
+    ld a, (hl)
+    and #F0                  ; Preserve top 4 bits (log text)
+    ld c, a
+    ld a, (de)
+    or c
+    ld (hl), a
+    inc h
+    inc de
+    djnz .paintLoop
+    ret
+.circleData
+    db #00, #06, #0F, #0F, #0F, #0F, #06, #00
 
 ; ============================================
 ; doWPS - WPS push-button connect (W key)
 ; ============================================
 doWPS:
-    ; Si está conectado, pedir confirmación antes de desconectar
+    ; If connected, ask confirmation before disconnecting
     ld a, (Wifi.is_connected)
     and a
     jr z, .wps_start
@@ -1998,11 +2068,11 @@ doWPS:
     and a : jr z, .wps_confirm
     cp 'y' : jr z, .wps_do_disc
     cp 'Y' : jr z, .wps_do_disc
-    ; Cancelar
+    ; Cancel
     call renderList : jp uiLoop
 
 .wps_do_disc
-    ; Desconectar primero
+    ; Disconnect first
     ld hl, cmd_disconnect
     call Wifi.espSendZ
     call Wifi.checkOkErr
@@ -2024,19 +2094,19 @@ doWPS:
     call Display.putStr
 
 .wps_send
-    ; Enviar AT+WPS=1
+    ; Send AT+WPS=1
     call flushUartBuffer
     ld hl, .cmd_wps
     call Wifi.espSendZ
-    ; Esperar respuesta larga (WPS puede tardar ~120s)
+    ; Wait for long response (WPS can take ~120s)
     call Wifi.checkOkErrLong
     jr c, .wps_fail
-    ; Flush post-WPS (mensajes asíncronos residuales)
+    ; Flush post-WPS (residual async messages)
     call flushUartBuffer
-    ; Verificar conexión
+    ; Check connection
     call Wifi.checkConnection
     jr c, .wps_fail
-    ; Éxito
+    ; Success
     call updateWifiStatus_q
     call ipShowConnected
     gotoXY 1, 8
@@ -2044,10 +2114,10 @@ doWPS:
     call Display.putStr
     jr .wps_exit
 .wps_fail
-    ; WPS fallo deja el ESP en mal estado: resetear para recuperarlo
+    ; WPS failure leaves the ESP in bad state: reset to recover
     call flushUartBuffer
     call Wifi.reset
-    ; Esperar a que el ESP se estabilice tras reset
+    ; Wait for ESP to stabilize after reset
     ld b, 125
 .wps_reset_wait
     halt
@@ -2057,21 +2127,24 @@ doWPS:
     ld hl, .msg_wps_fail
     call Display.putStr
 .wps_exit
-    gotoXY 1, 10
-    ld hl, .msg_wps_key
-    call Display.putStr
+    call showPressKey
 .wps_waitkey
     halt
     call Keyboard.inKeyNoWait
     and a
     jr z, .wps_waitkey
-    ; Esperar antes de escanear (ESP puede necesitar tiempo tras WPS)
+    cp 'l' : jr z, .wpsLog : cp 'L' : jr z, .wpsLog
+    jr .wps_keyOk
+.wpsLog
+    call toggleLogQuiet : jr .wps_waitkey
+.wps_keyOk
+    ; Wait before scanning (ESP may need time after WPS)
     ld b, 100
 .wps_scanwait
     halt
     djnz .wps_scanwait
     call flushUartBuffer
-    ; Rescan para recuperar la lista de redes
+    ; Rescan to recover network list
     call Wifi.getList
     call renderList
     jp uiLoop
@@ -2081,31 +2154,30 @@ doWPS:
 .msg_wps_wait   db "Waiting for WPS...", 0
 .msg_wps_ok     db "WPS connected!", 0
 .msg_wps_fail   db "WPS failed", 0
-.msg_wps_key    db "Press any key", 0
 .cmd_wps        db "AT+WPS=1", 13, 10, 0
 
 cursorDown:
     call hideCursor
-    ; Verificar si hay más redes debajo
+    ; Check if there are more networks below
     ld a, (cursor_position)
     ld hl, offset
     add a, (hl)
-    inc a                       ; Siguiente posición absoluta
+    inc a                       ; Next absolute position
     ld hl, Wifi.networks_count
-    cp (hl)                     ; ¿Hay más redes?
-    jp nc, .atEnd               ; No hay más, no mover
+    cp (hl)                     ; More networks?
+    jp nc, .atEnd               ; No more, don't move
     
     ld a, (cursor_position)
     inc a
     cp PER_PAGE
-    jr c, .store                ; Dentro de la página
+    jr c, .store                ; Within the page
     
-    ; Scroll down: verificar que hay más redes
+    ; Scroll down: check there are more networks
     ld a, (offset)
     add a, PER_PAGE
     ld hl, Wifi.networks_count
     cp (hl)
-    jr nc, .atEnd               ; No hay más páginas
+    jr nc, .atEnd               ; No more pages
     
     ld (offset), a
     xor a : ld (cursor_position), a
@@ -2129,55 +2201,55 @@ cursorUp:
     ld a, (offset) : and a : jr z, .back
     sub PER_PAGE
     jr nc, .store_offset        ; No underflow
-    xor a                       ; Clamp a 0
+    xor a                       ; Clamp to 0
 .store_offset
     ld (offset), a
     ld a, PER_PAGE - 1 : ld (cursor_position), a
     call renderList
     jr .back
 
-; Page Down - salta una página entera
+; Page Down - jump one full page
 pageDown:
     call hideCursor
     ld a, (offset)
     add a, PER_PAGE
     ld hl, Wifi.networks_count
     cp (hl)
-    jr nc, .lastPage            ; No hay página completa, ir a última
+    jr nc, .lastPage            ; No full page, go to last
     ld (offset), a
     xor a : ld (cursor_position), a
     call renderList
     jp uiLoop
 .lastPage
-    ; Ir a la última red.
-    ; Si la última ya es visible en la página actual, solo mover el cursor (sin repintar).
+    ; Go to last network.
+    ; If already visible on current page, just move cursor (no repaint).
     ld a, (Wifi.networks_count)
     and a
-    jp z, uiLoop                ; No hay redes
-    dec a                       ; Última red (índice)
+    jp z, uiLoop                ; No networks
+    dec a                       ; Last network (index)
     ld b, a                     ; B = last_index
 
     ld a, (offset)
-    ld c, a                     ; C = offset actual
+    ld c, a                     ; C = current offset
     ld a, b
     sub c                       ; A = last_index - offset
-    jr c, .needRepaint          ; (seguridad) last_index < offset
+    jr c, .needRepaint          ; (safety) last_index < offset
     cp PER_PAGE
-    jr nc, .needRepaint         ; last_index fuera de la página actual -> repintar
+    jr nc, .needRepaint         ; last_index outside current page -> repaint
 
     ld (cursor_position), a     ; cursor_position = last_index - offset
     call showCursor
     jp uiLoop
 
 .needRepaint
-    ; Calcular offset para que la última red esté visible
+    ; Calculate offset so last network is visible
     ld a, b
     sub PER_PAGE - 1
     jr nc, .setOffset
-    xor a                       ; Si hay menos de PER_PAGE redes, offset=0
+    xor a                       ; If fewer than PER_PAGE networks, offset=0
 .setOffset
     ld (offset), a
-    ; cursor_position = índice - offset
+    ; cursor_position = index - offset
     ld a, b
     ld hl, offset
     sub (hl)
@@ -2185,15 +2257,15 @@ pageDown:
     call renderList
     jp uiLoop
 
-; Page Up - salta una página entera
+; Page Up - jump one full page
 pageUp:
     call hideCursor
     ld a, (offset)
     and a
-    jp z, .firstItem            ; Ya en primera página
+    jp z, .firstItem            ; Already on first page
     sub PER_PAGE
     jr nc, .setOffset
-    xor a                       ; Clamp a 0
+    xor a                       ; Clamp to 0
 .setOffset
     ld (offset), a
     xor a : ld (cursor_position), a
@@ -2205,16 +2277,16 @@ pageUp:
     jp uiLoop
 
 findRow:
-    ; d = posición en pantalla
-    ; Primero obtener el índice real desde display_indices
+    ; d = screen position
+    ; First get real index from display_indices
     ld hl, Wifi.display_indices
     ld e, d
     ld d, 0
     add hl, de
     ld a, (hl)
-    ld d, a                     ; D = índice real de la red
+    ld d, a                     ; D = real network index
     
-    ; Ahora buscar el SSID[d] en el buffer
+    ; Now find SSID[d] in the buffer
     ld hl, buffer : ld a, d : and a : ret z
     xor a
 .loop    
@@ -2223,9 +2295,9 @@ findRow:
 
 ; ============================================
 ; ============================================
-; drawSignalLine - Dibuja "Signal:   ||||||||.." en la línea indicada
-; Entrada: A = número de línea
-; Usa: selected_real_idx para obtener RSSI
+; drawSignalLine - Draw "Signal:   ||||||||.." on the specified line
+; Input: A = line number
+; Uses: selected_real_idx to get RSSI
 ; ============================================
 drawSignalLine:
     ld h, a : ld l, 0
@@ -2233,7 +2305,7 @@ drawSignalLine:
     push af
     ld hl, showNetDetail.nd_sig
     call Display.putStr
-    ; Colorear celdas 7-16 de la línea en amarillo
+    ; Color cells 7-16 of the line in yellow
     pop af
     ld l, a : ld h, 0
     add hl, hl : add hl, hl : add hl, hl : add hl, hl : add hl, hl
@@ -2243,15 +2315,15 @@ drawSignalLine:
     ld b, 10
 .clr
     ld (hl), a : inc hl : djnz .clr
-    ; Obtener RSSI y dibujar barras
+    ; Get RSSI and draw bars
     ld a, (selected_real_idx)
     ld hl, Wifi.rssi_buffer
     ld d, 0 : ld e, a : add hl, de
     ld a, (hl) : and #7F
     jp drawRssiBars
 
-; Rutina compartida: calcula y dibuja barras RSSI
-; Entrada: A = RSSI (0-127). Coords ya posicionadas.
+; Shared routine: calculate and draw RSSI bars
+; Input: A = RSSI (0-127). Coords already positioned.
 drawRssiBars:
     ld b, a : ld a, 93 : sub b
     jr nc, .calc
@@ -2280,13 +2352,13 @@ drawRssiBars:
     ret
 
 ; ============================================
-; showNetDetail - Muestra información detallada de la red seleccionada
-; Usa: selected_ssid_ptr, selected_real_idx
-; Muestra en líneas 3-8
+; showNetDetail - Show detailed info for selected network
+; Uses: selected_ssid_ptr, selected_real_idx
+; Displays on lines 3-8
 ; ============================================
 showNetDetail:
-    ; Líneas 4-5: "Selected SSID:  NombreRed" doble alto
-    ; 14 chars + 2 espacios = 16 x 6px = 96px = 12 celdas exactas (sin clash)
+    ; Lines 4-5: "Selected SSID:  NetworkName" double-height
+    ; 14 chars + 2 spaces = 16 x 6px = 96px = 12 cells exactly (no clash)
     gotoXY 0, 4
     ld hl, msg_ssid
     call Display.putStr
@@ -2299,7 +2371,7 @@ showNetDetail:
     ld b, 24
     call putStrLimited
     call Display.stretchRows45
-    ; Row 4: celdas 0-11 blanco BRIGHT, 12-31 verde BRIGHT
+    ; Row 4: cells 0-11 white BRIGHT, 12-31 green BRIGHT
     ld hl, #5880
     ld a, Display.ATTR_NORMAL
     ld b, 12
@@ -2309,7 +2381,7 @@ showNetDetail:
     ld b, 20
 .nd_attr_g4
     ld (hl), a : inc hl : djnz .nd_attr_g4
-    ; Row 5: mismos colores sin BRIGHT
+    ; Row 5: same colors without BRIGHT
     ld hl, #58A0
     ld a, 007o
     ld b, 12
@@ -2320,7 +2392,7 @@ showNetDetail:
 .nd_attr_g5
     ld (hl), a : inc hl : djnz .nd_attr_g5
 
-    ; Línea 7: Security
+    ; Line 7: Security
     gotoXY 0, 7
     ld hl, .nd_sec
     call Display.putStr
@@ -2330,15 +2402,15 @@ showNetDetail:
     ld a, (hl)
     ; ECN: 0=OPEN, 1=WEP, 2=WPA-PSK, 3=WPA2-PSK, 4=WPA/WPA2, 5=Enterprise
     cp 6 : jr c, .nd_ecn_ok
-    xor a                   ; Valor desconocido -> tratar como Open
+    xor a                   ; Unknown value -> treat as Open
 .nd_ecn_ok
     ld hl, .ecn_table
-    add a, a               ; x2 (cada puntero = 2 bytes)
+    add a, a               ; x2 (each pointer = 2 bytes)
     ld e, a : ld d, 0 : add hl, de
     ld a, (hl) : inc hl : ld h, (hl) : ld l, a
     call Display.putStr
 
-    ; Línea 8: Channel
+    ; Line 8: Channel
     gotoXY 0, 8
     ld hl, .nd_chan
     call Display.putStr
@@ -2353,16 +2425,16 @@ showNetDetail:
 .nd_chan_unk
     ld a, '-' : call Display.putC
 
-    ; Línea 9: Signal - etiqueta en blanco, barras en amarillo
+    ; Line 9: Signal - label in white, bars in yellow
 .nd_signal
     ld a, 9
-    jp drawSignalLine              ; Tail call (dibuja "Signal: ||||..." en línea A)
+    jp drawSignalLine              ; Tail call (draws "Signal: ||||..." on line A)
 
 .nd_sec         db "Security: ", 0
 .nd_chan        db "Channel:  ", 0
 .nd_sig         db "Signal:   ", 0
 
-; Tabla de punteros a nombres de encriptación
+; Table of pointers to encryption names
 .ecn_table
     dw .ecn_open, .ecn_wep, .ecn_wpa, .ecn_wpa2, .ecn_wpa12, .ecn_ent
 .ecn_open       db "Open", 0
@@ -2373,29 +2445,29 @@ showNetDetail:
 .ecn_ent        db "WPA2-Ent", 0
 
 ; ============================================
-; selectItem y conexión
+; selectItem and connection
 ; ============================================
 selectItem:
     ld a, (Wifi.networks_count) : and a : jp z, uiLoop
     
-    ; Obtener posición en pantalla
+    ; Get screen position
     ld a, (cursor_position) : ld hl, offset : add a, (hl)
-    ; Convertir a índice real usando display_indices
-    call Wifi.getDisplayIndex   ; A = índice real de la red
+    ; Convert to real index using display_indices
+    call Wifi.getDisplayIndex   ; A = real network index
     ld (selected_real_idx), a
     ld hl, Wifi.rssi_buffer : ld d, 0 : ld e, a : add hl, de
     ld a, (hl) : and #80 : ld (is_open_network), a
     
-    ; Obtener puntero a SSID seleccionado (findRow ya usa display_indices)
+    ; Get pointer to selected SSID (findRow already uses display_indices)
     ld a, (cursor_position) : ld hl, offset : add (hl) : ld d, a : call findRow
     ld (selected_ssid_ptr), hl
     
-    ; Verificar si ya estamos conectados a esta red
+    ; Check if already connected to this network
     ld a, (Wifi.is_connected)
     and a
     jr z, .notConnectedYet
     
-    ; Comparar SSID seleccionado con connected_ssid
+    ; Compare selected SSID with connected_ssid
     ld hl, (selected_ssid_ptr)
     ld de, Wifi.connected_ssid
 .compareLoop
@@ -2403,9 +2475,9 @@ selectItem:
     ld b, a
     ld a, (hl)
     cp b
-    jr nz, .notConnectedYet      ; Diferentes, continuar
+    jr nz, .notConnectedYet      ; Different, continue
     and a
-    jr z, .alreadyConnected      ; Ambos terminaron en 0, son iguales
+    jr z, .alreadyConnected      ; Both ended at 0, they are equal
     inc hl
     inc de
     jr .compareLoop
@@ -2416,9 +2488,7 @@ selectItem:
     gotoXY 0, 11
     ld hl, .msg_already_conn
     call Display.putStr
-    gotoXY 0, 13
-    ld hl, msg_press_key
-    call Display.putStr
+    call showPressKey
 .waitAlready
     halt
     call Keyboard.inKey
@@ -2428,12 +2498,13 @@ selectItem:
     jp uiLoop
 
 .msg_already_conn db "Already connected to this network", 0
+.msg_connect_yn   db "(Y)es connect / (N)o cancel", 0
 
 .notConnectedYet
     call hideCursor : call topClean
     call showNetDetail
 
-    ld a, (is_open_network) : and a : jp nz, .connectDirect
+    ld a, (is_open_network) : and a : jp nz, .openConfirm
     call clearPassBuffer
     gotoXY 0, 11 : ld hl, msg_pass : call Display.putStr
     setLineColor 12, Display.ATTR_PASS_INPUT
@@ -2444,7 +2515,7 @@ selectItem:
     ld (pass_cursor), a
 
     call passwordInput
-    ; Restaurar pass_line por defecto
+    ; Restore pass_line to default
     ld a, PASS_LINE_DEFAULT : ld (pass_line), a
     jr nc, .connect
     ; Fall through to cancel
@@ -2454,12 +2525,26 @@ selectItem:
     setLineColor 13, Display.ATTR_NORMAL
     call renderList : jp uiLoop
 
+.openConfirm
+    ; Open network: show confirmation before connecting
+    gotoXY 0, 11 : ld hl, msg_open_net : call Display.putStr
+    gotoXY 0, 13 : ld hl, .msg_connect_yn : call Display.putStr
+.openWait
+    halt
+    call Keyboard.inKey
+    and a : jr z, .openWait
+    cp 'y' : jr z, .connectDirect
+    cp 'Y' : jr z, .connectDirect
+    cp 'n' : jp z, .cancel
+    cp 'N' : jp z, .cancel
+    cp 15  : jp z, .cancel             ; ESC
+    jr .openWait
+
 .connectDirect
     call clearPassBuffer
-    gotoXY 0, 11 : ld hl, msg_open_net : call Display.putStr
 
 .connect
-    ; Limpiar zona de password (filas 10-13) — rápido via LDIR
+    ; Clear password area (rows 10-13) -- fast via LDIR
     setLineColor 10, Display.ATTR_NORMAL
     setLineColor 11, Display.ATTR_NORMAL
     setLineColor 12, Display.ATTR_NORMAL
@@ -2471,22 +2556,22 @@ selectItem:
     ld h, d : ld l, e
     ld (hl), 0
     ld d, h : ld e, l : inc de
-    ld bc, 127          ; 4 filas × 32 bytes - 1
+    ld bc, 127          ; 4 rows × 32 bytes - 1
     ldir
     pop de : pop bc
     inc d
     djnz .clrPwSl
 
-    ; Inicializar contador de reintentos
+    ; Initialize retry counter
     ld a, 3
     ld (conn_retries), a
 
-;    Verificar estado previo
+;    Check previous state
     ld a, (Wifi.is_connected)
     and a
     jr z, .skipUiUpdate
 
-    ; Actualizar UI solo si estaba conectado
+    ; Update UI only if was connected
     xor a
     ld (Wifi.is_connected), a
     call updateWifiStatus_q
@@ -2501,12 +2586,11 @@ selectItem:
     call Wifi.flushInput
 
 .connectRetry
-    ; Limpiar zona de password/input (filas 11-13) — rápido via LDIR
+    ; Clear password/input area (rows 11-13) -- fast via LDIR
     setLineColor 11, Display.ATTR_NORMAL
     setLineColor 12, Display.ATTR_NORMAL
     setLineColor 13, Display.ATTR_NORMAL
-    ; Limpiar píxeles de filas 11-13 (tercio 1: rows 8-15)
-    ; Row 11 sl0 = $48+3*$20 = $4860... usar findAddr
+    ; Clear pixels of rows 11-13 (third 1: rows 8-15)
     ld d, 11 : ld e, 0 : call Display.findAddr  ; DE = row 11 sl0
     ld b, 8             ; 8 scanlines
 .clrRows
@@ -2514,30 +2598,30 @@ selectItem:
     ld h, d : ld l, e
     ld (hl), 0
     ld d, h : ld e, l : inc de
-    ld bc, 95           ; 3 filas × 32 bytes - 1
+    ld bc, 95           ; 3 rows × 32 bytes - 1
     ldir
     pop de : pop bc
-    inc d               ; siguiente scanline
+    inc d               ; next scanline
     djnz .clrRows
 
     gotoXY 0, 11
-    ; Mostrar intento actual
+    ; Show current attempt
     ld a, (conn_retries)
     ld b, a
     ld a, 4
-    sub b                       ; 4 - retries = intento (1, 2, 3)
+    sub b                       ; 4 - retries = attempt (1, 2, 3)
     add a, '0'
     ld (msg_conn_attempt + 12), a
     ld hl, msg_conn_attempt
     call Display.putStr
 
-    ; Mostrar opción de cancelar
+    ; Show cancel option
     gotoXY 0, 13
     ld hl, msg_break_cancel
     call Display.putStr
 
-    ; AT+CWJAP se envia en varias partes. Para evitar mezclar log y ocultar password,
-    ; se mutea el log durante todo el envio.
+    ; AT+CWJAP is sent in multiple parts. To avoid mixing log and hide password,
+    ; the log is muted during the entire send.
     ld hl, .log_cwjap_masked
     call Display.putStrLog
     call Uart.logReset
@@ -2554,50 +2638,50 @@ selectItem:
     ld hl, pass_buffer : call Wifi.espSendZ
     
     ; Send closing quote + CR LF manually (muted)
-    ; Esto evita que se loguee la contraseña o el eco antes de tiempo
+    ; This prevents logging the password or echo prematurely
     ld a, '"' : call Uart.write
     ld a, 13  : call Uart.write
     ld a, 10  : call Uart.write
     
-    ; Usar timeout largo para conexión WiFi (puede tardar 5-15 segundos)
-    ; LOG SIGUE MUTEADO para evitar eco de contraseña
+    ; Use long timeout for WiFi connection (can take 5-15 seconds)
+    ; LOG STILL MUTED to avoid password echo
     call Wifi.checkOkErrLong
     
     ; --- UNMUTE UART LOG ---
-    push af                     ; Preservar resultado
+    push af                     ; Preserve result
     ld a, 1 : ld (Uart.log_enabled), a
-    ; Añadir salto de línea al log para separar del comando anterior
+    ; Add newline to log to separate from previous command
     ld hl, .log_newline
     call Display.putStrLog
     pop af
     
     jr nc, .connSuccess         ; CF=0 -> OK
 
-    ; Fallo - mostrar "Retry" al lado de "Connecting..."
+    ; Fail - show "Retry" next to "Connecting..."
     gotoXY 20, 11
     ld hl, msg_retry_suffix
     call Display.putStr
     
-    ; Verificar si quedan reintentos
+    ; Check if retries remain
     ld a, (conn_retries)
     dec a
     ld (conn_retries), a
-    jp z, .connFailedFinal      ; No más reintentos
+    jp z, .connFailedFinal      ; No more retries
     
-    ; Esperar antes de reintentar, verificando BREAK
+    ; Wait before retrying, checking BREAK
     ld b, 100
 .retryWait
     halt
     push bc
     call Keyboard.checkBreak
     pop bc
-    jr z, .breakPressed         ; Z=1 si BREAK pulsado
+    jr z, .breakPressed         ; Z=1 if BREAK pressed
     djnz .retryWait
     
     jp .connectRetry
 
 .breakPressed
-    ; Usuario canceló con BREAK
+    ; User cancelled with BREAK
     call Wifi.flushInput
     call renderList
     jp uiLoop
@@ -2605,7 +2689,7 @@ selectItem:
 .connSuccess
     ld a, 1 : ld (Wifi.is_connected), a
     
-    ; Copiar SSID seleccionado a connected_ssid
+    ; Copy selected SSID to connected_ssid
     ld hl, (selected_ssid_ptr)
     ld de, Wifi.connected_ssid
     ld bc, MAX_SSID_LEN + 1
@@ -2618,26 +2702,31 @@ selectItem:
     gotoXY 0, 6 : ld hl, msg_done_body : call Display.putStr
     gotoXY 0, 8 : ld hl, msg_press_key : call Display.putStr
 
-    ; Delay para que el ESP tenga la IP lista, reintentar si falla
-    ld c, 3                 ; 3 intentos de obtener IP
+    ; Delay for ESP to have IP ready, retry if fails
+    ld c, 3                 ; 3 attempts to get IP
 .ipRetry
-    ld b, 50                ; ~1s de espera
+    ld b, 50                ; ~1s delay
 .ipDelay
     halt
     djnz .ipDelay
     call Wifi.getIP
-    jr nc, .ipGot           ; CF=0 → IP obtenida
+    jr nc, .ipGot           ; CF=0 → IP obtained
     dec c
-    jr nz, .ipRetry         ; Reintentar
+    jr nz, .ipRetry         ; Retry
 .ipGot
     call ipShowConnected
 .waitSuccess
     halt : call Keyboard.inKey : and a : jr z, .waitSuccess
+    cp 'l' : jr z, .wsLog : cp 'L' : jr z, .wsLog
     cp 15 : jp z, exitProgram
+    jr .wsEnd
+.wsLog
+    call toggleLogQuiet : jr .waitSuccess
+.wsEnd
     call renderList : jp uiLoop
 
 .connFailedFinal
-    ; Intentar recuperar ESP si está colgado
+    ; Try to recover ESP if hung
     call tryRecoverESP
     
 .connFailed
@@ -2647,14 +2736,14 @@ selectItem:
     call topClean
     setLineColor 4, 107o : setLineColor 7, 107o
     
-    ; Mostrar mensaje según código de error
+    ; Show message based on error code
     gotoXY 0, 3
     ld a, (Wifi.last_error)
     cp 1 : jr z, .errTimeout
     cp 2 : jr z, .errPassword
     cp 3 : jr z, .errNotFound
     cp 4 : jr z, .errConnFail
-    ; Error genérico (0 o desconocido)
+    ; Generic error (0 or unknown)
     ld hl, msg_fail_generic
     jr .showFailMsg
     
@@ -2675,49 +2764,52 @@ selectItem:
     gotoXY 0, 7 : ld hl, msg_press_key : call Display.putStr
 .waitFail
     halt : call Keyboard.inKey : and a : jr z, .waitFail
+    cp 'l' : jr z, .wfLog : cp 'L' : jr z, .wfLog
     call renderList : jp uiLoop
+.wfLog
+    call toggleLogQuiet : jr .waitFail
 
 .log_cwjap_masked db ">> AT+CWJAP (password hidden)", 13, 0
 
 .log_newline db 13, 0
 
-; Intenta recuperar un ESP que no responde
+; Try to recover an unresponsive ESP
 tryRecoverESP:
     jp Wifi.ensureCommandMode
 
 ; ============================================
-; Diagnósticos
+; Diagnostics
 ; ============================================
 DIAG_ITEMS = 7
 DIAG_FIRST_LINE = 6
-ATTR_DIAG_TITLE = 00000100b  ; Verde sobre negro (BRIGHT 0)
+ATTR_DIAG_TITLE = 00000100b  ; Green on black (BRIGHT 0)
 
-; "Press any key..." en línea 17, col 0, amarillo
-ATTR_PRESS_KEY = 01000110b  ; Amarillo brillante sobre negro
+; "Press any key..." on line 17, col 0, yellow
+ATTR_PRESS_KEY = 01000110b  ; Bright yellow on black
 showPressKey:
     setLineColor 17, ATTR_PRESS_KEY
     gotoXY 0, 17
     ld hl, msg_press_key
     jp Display.putStr
 
-; Cabecera estándar para pantallas de diagnóstico
-; HL = puntero a título. Limpia pantalla, título doble alto verde.
+; Standard header for diagnostic screens
+; Input: HL = title pointer. Clears screen, green double-height title.
 diagHeader:
     push hl
     call topClean
     pop hl
-    ld c, 104o              ; Verde BRIGHT sobre negro
+    ld c, 104o              ; Green BRIGHT on black
     jp showBigMessage
 
 showDiagnostics:
     call topClean
 
-    ; Verificar si está conectado
+    ; Check if connected
     ld a, (Wifi.is_connected)
     and a
     jr nz, .showMenu
 
-    ; No conectado - mostrar error
+    ; Not connected - show error
     gotoXY 0, 3
     ld hl, .msg_not_conn
     call Display.putStr
@@ -2727,13 +2819,16 @@ showDiagnostics:
     call Keyboard.inKey
     and a
     jr z, .waitNotConn
+    cp 'l' : jr z, .wncLog : cp 'L' : jr z, .wncLog
     call renderList
     jp uiLoop
+.wncLog
+    call toggleLogQuiet : jr .waitNotConn
 
 .showMenu
     ld hl, .msg_diag_title
     call diagHeader
-    ; Opciones (sin números)
+    ; Options (without numbers)
     gotoXY 0, 6
     ld hl, .msg_diag_opt1
     call Display.putStr
@@ -2755,13 +2850,13 @@ showDiagnostics:
     gotoXY 0, 12
     ld hl, .msg_diag_opt7
     call Display.putStr
-    ; Línea separadora debajo de los items
+    ; Separator line below items
     ld a, 13 : ld e, 3 : ld d, Display.ATTR_NORMAL
     call Display.draw_hline
     gotoXY 0, 14
     ld hl, .msg_diag_exit
     call Display.putStr
-    ; Cursor inicial
+    ; Initial cursor
     xor a : ld (.diag_cursor), a
     call .showDiagCursor
 
@@ -2769,7 +2864,7 @@ showDiagnostics:
     ld b, 3
 .diagWait
     halt : djnz .diagWait
-    call Keyboard.checkBreak : jr z, .exitDiag
+    call Keyboard.checkBreak : jp z, .exitDiag
     call Keyboard.inKeyNoWait
     and a : jr z, .diagLoop
     cp Keyboard.KEY_UP : jr z, .diagUp
@@ -2778,8 +2873,11 @@ showDiagnostics:
     cp Keyboard.KEY_DN : jr z, .diagDown
     cp 'a' : jr z, .diagDown
     cp 'A' : jr z, .diagDown
+    cp 'l' : jr z, .diagLog : cp 'L' : jr z, .diagLog
     cp 13 : jr z, .diagSelect
     jr .diagLoop
+.diagLog
+    call toggleLogQuiet : jr .diagLoop
 
 .diagUp
     ld a, (.diag_cursor)
@@ -2808,7 +2906,7 @@ showDiagnostics:
     cp 4 : jp z, doStaticIP
     cp 5 : jp z, doHostname
     cp 6 : jp z, doConfigSummary
-    jr .diagLoop
+    jp .diagLoop
 
 .showDiagCursor:
     ld c, Display.ATTR_HIGHLIGHT
@@ -2821,7 +2919,7 @@ showDiagnostics:
     jp Display.setAttrPartial
 
 .exitDiag
-    ; Reactivar log UART al salir
+    ; Reactivate UART log on exit
     ld a, 1
     ld (Uart.log_enabled), a
     call renderList
@@ -2839,16 +2937,16 @@ showDiagnostics:
 .msg_diag_opt7  db "Config summary", 0
 .msg_diag_exit  db "Q/A:Move ENTER:Select BREAK:Exit", 0
 
-; Buffer para respuestas de diagnóstico
+; Buffer for diagnostic responses
     RTVAR diag_buffer, 64
-diag_line       db 0            ; Línea actual en pantalla
+diag_line       db 0            ; Current line on screen
 
-; Drena el buffer UART (rápido, sin HALT: evita perder bytes a 115200)
+; Drain UART buffer (fast, no HALT: avoids losing bytes at 115200)
 flushUartBuffer:
-    ; Leer hasta que no haya tráfico durante un margen corto
-    ld de, #4000                ; ~0.2-0.3 s de "silencio" según CPU
+    ; Read until no traffic for a short period
+    ld de, #4000                ; ~0.2-0.3 s of "silence" depending on CPU
 .flushWait
-    call UartImpl.uartRead      ; Leer todo lo disponible
+    call UartImpl.uartRead      ; Read all available
     jr c, .gotByte
     dec de
     ld a, d
@@ -2859,12 +2957,12 @@ flushUartBuffer:
     ld de, #4000
     jr .flushWait
 
-; Lee una línea del ESP hasta CR/LF o timeout (sin HALT)
-; CF=1 si hay datos, CF=0 si timeout sin datos
+; Read a line from ESP until CR/LF or timeout (no HALT)
+; Output: CF=1 if data, CF=0 if timeout with no data
 readDiagLine:
     ld hl, diag_buffer
-    ld c, 60                    ; Max 60 caracteres
-    ld de, #FFFF                ; Timeout inicial (~1 s aprox)
+    ld c, 60                    ; Max 60 characters
+    ld de, #FFFF                ; Initial timeout (~1 s approx)
 
 .readLoop
     call UartImpl.uartRead
@@ -2875,22 +2973,22 @@ readDiagLine:
     or e
     jr nz, .readLoop
 
-    ; Timeout sin datos
+    ; Timeout with no data
     xor a
     ld (hl), a
     ret                         ; CF=0
 
 .gotByte
-    ; Al recibir datos, reducir timeout para cerrar la línea si falta terminador
+    ; On receiving data, reduce timeout to close line if missing terminator
     ld de, #2000
 
-    ; CR o LF = fin de línea
+    ; CR or LF = end of line
     cp 13
     jr z, .endLine
     cp 10
     jr z, .endLine
 
-    ; Guardar carácter
+    ; Store character
     ld (hl), a
     inc hl
     dec c
@@ -2898,34 +2996,34 @@ readDiagLine:
 
 .endLine
     xor a
-    ld (hl), a                  ; Terminar string
-    scf                         ; CF=1, hay datos
+    ld (hl), a                  ; Terminate string
+    scf                         ; CF=1, data available
     ret
 
-; Lee una linea con espera inicial larga (para consultas que a veces tardan)
-; CF=1 si hay datos, CF=0 si timeout sin datos
+; Read a line with long initial wait (for queries that sometimes take time)
+; Output: CF=1 if data, CF=0 if timeout with no data
 readDiagLineLong:
     ld hl, diag_buffer
     ld c, 60
 
-    ; Espera el primer byte con timeout largo
+    ; Wait for first byte with long timeout
     call Uart.readTimeoutLong
     jr nc, .timeout
 
 .readLoop
-    ; CR o LF = fin de linea
+    ; CR or LF = end of line
     cp 13
     jr z, .endLine
     cp 10
     jr z, .endLine
 
-    ; Guardar caracter
+    ; Store character
     ld (hl), a
     inc hl
     dec c
     jr z, .endLine
 
-    ; Leer siguiente byte con timeout medio (más tiempo para Next)
+    ; Read next byte with medium timeout (more time for Next)
     call Uart.readTimeoutMedium
     jr nc, .endLine
     jr .readLoop
@@ -2942,7 +3040,7 @@ readDiagLineLong:
     scf
     ret
 
-; Muestra diag_buffer en la línea actual y avanza
+; Show diag_buffer on current line and advance
 showDiagLine:
     ld a, (diag_line)
     ld h, a
@@ -2960,11 +3058,11 @@ showDiagLine:
 ; ------------------------------
 MAX_IP_LEN = 15                 ; xxx.xxx.xxx.xxx
 
-; Buffer para IP (persistente entre llamadas)
+; IP buffer (persistent between calls)
     RTVAR ping_ip_buffer, MAX_IP_LEN + 1
-ping_ip_len     db 0                ; Longitud actual
+ping_ip_len     db 0                ; Current length
 
-; Inicializar IP por defecto (se llama una vez)
+; Initialize default IP (called once)
 initPingIP:
     ld hl, .default_ip
     ld de, ping_ip_buffer
@@ -2976,14 +3074,14 @@ initPingIP:
 .default_ip db "8.8.8.8", 0
 
 doPing:
-    ; Inicializar IP por defecto si está vacía
+    ; Initialize default IP if empty
     ld a, (ping_ip_len)
     and a
     jr nz, .skipInit
     call initPingIP
 .skipInit
     
-    ; Deshabilitar log UART durante diagnóstico
+    ; Disable UART log during diagnostics
     xor a
     ld (Uart.log_enabled), a
     
@@ -3001,14 +3099,14 @@ doPing:
     call Display.putStr
 
 .drawIP
-    ; Dibujar IP actual directamente en doble alto
+    ; Draw current IP directly in double-height
     halt
     di
     gotoXY 0, 8
     ld hl, ping_ip_buffer
     call Display.putStrBig
 
-    ; Borrar resto de línea (MAX_IP_LEN - len espacios)
+    ; Clear rest of line (MAX_IP_LEN - len spaces)
     ld a, MAX_IP_LEN
     ld hl, ping_ip_len
     sub (hl)
@@ -3022,7 +3120,7 @@ doPing:
     djnz .clearSpaces
 .noSpaces
 
-    ; Mostrar cursor
+    ; Show cursor
     ld a, (ping_ip_len)
     ld l, a
     ld h, 8
@@ -3042,94 +3140,94 @@ doPing:
     and a
     jr z, .waitIPKey
 
-    ; ENTER = ejecutar ping
+    ; ENTER = execute ping
     cp 13 : jp z, .doPingNow
     
-    ; Backspace = borrar
+    ; Backspace = delete
     cp Keyboard.KEY_BS : jp z, .ipBackspace
     
-    ; Punto manual
+    ; Manual dot
     cp '.'
     jp z, .ipTryAddDot
     
-    ; Solo permitir dígitos (0-9)
+    ; Only allow digits (0-9)
     cp '0'
     jr c, .waitIPKey            ; < '0'
     cp '9' + 1
     jr nc, .waitIPKey           ; > '9'
     
-    ; Es un dígito - verificar si cabe
-    ld b, a                     ; Guardar dígito
+    ; It's a digit - check if it fits
+    ld b, a                     ; Save digit
     ld a, (ping_ip_len)
     cp MAX_IP_LEN
-    jp nc, .waitIPKey           ; Buffer lleno
+    jp nc, .waitIPKey           ; Buffer full
     
-    ; Contar dígitos en octeto actual
+    ; Count digits in current octet
     push bc
     call .countOctetDigits
     pop bc
     cp 3
-    jr c, .ipAddDigit           ; < 3 dígitos, añadir normal
+    jr c, .ipAddDigit           ; < 3 digits, add normally
     
-    ; Ya hay 3 dígitos - necesitamos punto primero
-    ; Verificar si podemos añadir punto (max 3 puntos)
+    ; Already 3 digits - need dot first
+    ; Check if we can add a dot (max 3 dots)
     push bc
     call .countDots
     pop bc
     cp 3
-    jp nc, .waitIPKey           ; Ya hay 3 puntos, no más dígitos
+    jp nc, .waitIPKey           ; Already 3 dots, no more digits
     
-    ; Verificar espacio para 2 caracteres (punto + dígito)
+    ; Check room for 2 characters (dot + digit)
     ld a, (ping_ip_len)
     cp MAX_IP_LEN - 1
-    jp nc, .waitIPKey           ; No hay espacio para 2 chars
+    jp nc, .waitIPKey           ; No room for 2 chars
     
-    ; Añadir punto automático
+    ; Add automatic dot
     push bc
     ld a, '.'
     call .addCharToIP
     pop bc
     
 .ipAddDigit
-    ; Añadir el dígito
+    ; Add the digit
     ld a, b
     call .addCharToIP
     jp .drawIP
 
 .ipTryAddDot
-    ; No permitir punto al inicio
+    ; Don't allow dot at start
     ld a, (ping_ip_len)
     and a
     jp z, .waitIPKey
     
-    ; No permitir dos puntos seguidos
+    ; Don't allow consecutive dots
     ld hl, ping_ip_buffer
     ld d, 0
     ld e, a
     add hl, de
-    dec hl                      ; Último carácter
+    dec hl                      ; Last character
     ld a, (hl)
     cp '.'
-    jp z, .waitIPKey            ; Último es punto, no añadir otro
+    jp z, .waitIPKey            ; Last is dot, don't add another
     
-    ; Verificar máximo 3 puntos
+    ; Check max 3 dots
     push bc
     call .countDots
     pop bc
     cp 3
-    jp nc, .waitIPKey           ; Ya hay 3 puntos
+    jp nc, .waitIPKey           ; Already 3 dots
     
-    ; Verificar espacio
+    ; Check room
     ld a, (ping_ip_len)
     cp MAX_IP_LEN
     jp nc, .waitIPKey
     
-    ; Añadir punto
+    ; Add dot
     ld a, '.'
     call .addCharToIP
     jp .drawIP
 
-; Añade un carácter al buffer IP
+; Add a character to the IP buffer
 .addCharToIP
     push af
     ld a, (ping_ip_len)
@@ -3147,29 +3245,29 @@ doPing:
     ld (ping_ip_len), a
     ret
 
-; Cuenta dígitos en el octeto actual (desde último punto)
-; Devuelve A = número de dígitos
+; Count digits in current octet (from last dot)
+; Output: A = number of digits
 .countOctetDigits
     ld a, (ping_ip_len)
     and a
-    ret z                       ; Vacío, 0 dígitos
+    ret z                       ; Empty, 0 digits
     
-    ; Recorrer desde el final hacia atrás
-    ld b, a                     ; B = longitud
+    ; Walk backwards from end
+    ld b, a                     ; B = length
     ld hl, ping_ip_buffer
     ld d, 0
     ld e, a
     add hl, de
-    dec hl                      ; HL apunta al último carácter
-    ld c, 0                     ; Contador de dígitos
+    dec hl                      ; HL points to last character
+    ld c, 0                     ; Digit counter
     
 .countLoop
     ld a, (hl)
     cp '.'
-    jr z, .countDone            ; Encontrado punto, terminar
-    inc c                       ; Contar dígito
+    jr z, .countDone            ; Found dot, done
+    inc c                       ; Count digit
     dec b
-    jr z, .countDone            ; Llegamos al inicio
+    jr z, .countDone            ; Reached start
     dec hl
     jr .countLoop
     
@@ -3177,15 +3275,15 @@ doPing:
     ld a, c
     ret
 
-; Cuenta puntos en el buffer
-; Devuelve A = número de puntos
+; Count dots in the buffer
+; Output: A = number of dots
 .countDots
     ld hl, ping_ip_buffer
-    ld c, 0                     ; Contador de puntos
+    ld c, 0                     ; Dot counter
 .dotsLoop
     ld a, (hl)
     and a
-    jr z, .dotsDone             ; Fin de string
+    jr z, .dotsDone             ; End of string
     cp '.'
     jr nz, .dotsNext
     inc c
@@ -3199,7 +3297,7 @@ doPing:
 .ipBackspace
     ld a, (ping_ip_len)
     and a
-    jp z, .waitIPKey            ; Ya vacío
+    jp z, .waitIPKey            ; Already empty
     dec a
     ld (ping_ip_len), a
     ld hl, ping_ip_buffer
@@ -3214,30 +3312,50 @@ doPing:
     jp showDiagnostics
 
 .doPingNow
-    ; Verificar que hay algo escrito
+    ; Check there is something typed
     ld a, (ping_ip_len)
     and a
-    jp z, .waitIPKey            ; No permitir IP vacía
+    jp z, .waitIPKey            ; Don't allow empty IP
     
     call topClean
-    gotoXY 0, 3
+    ; "Pinging IP..." double-height on rows 4-5
+    gotoXY 0, 4
     ld hl, .msg_pinging
     call Display.putStr
-    
-    ; Mostrar IP que se va a hacer ping
     ld hl, ping_ip_buffer
     call Display.putStr
     ld hl, .msg_dots
     call Display.putStr
-    
-    ; Inicializar línea de salida
-    ld a, 5
+    call Display.stretchRows45
+    ; Row 4: "Pinging " white BRIGHT (cells 0-5), IP green BRIGHT (cells 6-31)
+    ld hl, #5880            ; Row 4 attr
+    ld a, Display.ATTR_NORMAL
+    ld b, 6
+.pa4w
+    ld (hl), a : inc hl : djnz .pa4w
+    ld a, Display.ATTR_SSID_INPUT   ; Bright green on black
+    ld b, 26
+.pa4g
+    ld (hl), a : inc hl : djnz .pa4g
+    ; Row 5: same but without BRIGHT
+    ld hl, #58A0            ; Row 5 attr
+    ld a, 007o              ; White on black, no bright
+    ld b, 6
+.pa5w
+    ld (hl), a : inc hl : djnz .pa5w
+    ld a, 004o              ; Green on black, no bright
+    ld b, 26
+.pa5g
+    ld (hl), a : inc hl : djnz .pa5g
+
+    ; Initialize output line
+    ld a, 7
     ld (diag_line), a
     
-    ; Drenar buffer antes de enviar comando
+    ; Drain buffer before sending command
     call flushUartBuffer
     
-    ; Construir y enviar comando: AT+PING="ip"
+    ; Build and send command: AT+PING="ip"
     ld hl, .cmd_ping_start
     call Wifi.espSendZ
     ld hl, ping_ip_buffer
@@ -3245,54 +3363,54 @@ doPing:
     ld hl, .cmd_ping_end
     call Wifi.espSendZ
     
-    ; Leer respuestas
+    ; Read responses
     ld c, 20                    ; Max 20 timeouts
-    ld b, 100                   ; Límite absoluto: 100 líneas
+    ld b, 100                   ; Absolute limit: 100 lines
 .pingLoop
     push bc
     call readDiagLine
     pop bc
     jr nc, .pingTimeout         ; CF=0 = timeout real
     
-    ; Decrementar límite absoluto
+    ; Decrement absolute limit
     dec b
-    jr z, .pingDone             ; Límite alcanzado
+    jr z, .pingDone             ; Limit reached
     
-    ; CF=1 = hay línea
+    ; CF=1 = got line
     ld a, (diag_buffer)
     and a
-    jr z, .pingLoop             ; Línea vacía
+    jr z, .pingLoop             ; Empty line
     
-    ; Verificar si es "OK" o "ERROR" -> fin
+    ; Check if it is "OK" or "ERROR" -> end
     cp 'O'
     jr z, .pingDone
     cp 'E'
-    jr z, .pingDone             ; ERROR también termina
+    jr z, .pingDone             ; ERROR also terminates
     
-    ; Filtrar ruido y eco
-    cp 'A' : jr z, .pingLoop    ; Eco AT...
+    ; Filter noise and echo
+    cp 'A' : jr z, .pingLoop    ; Echo AT...
     cp '0' : jr z, .pingLoop
     cp '1' : jr z, .pingLoop
     cp 'C' : jr z, .pingLoop    ; CONNECT, CLOSED
     cp 'L' : jr z, .pingLoop    ; LAIN
     cp 'S' : jr z, .pingLoop    ; SEND OK
     
-    ; Si empieza con +, verificar si es +IPD
+    ; If starts with +, check if it is +IPD
     cp '+'
     jr nz, .pingShow
     ld a, (diag_buffer + 1)
-    cp 'I'                      ; +IPD -> ignorar
+    cp 'I'                      ; +IPD -> ignore
     jr z, .pingLoop
     
-    ; Verificar si es +timeout (error) o +numero (éxito)
+    ; Check if +timeout (error) or +number (success)
     cp 't'                      ; +timeout
     jr z, .pingShowTimeout
     
-    ; Formateo ping exitoso: Response time: XX ms
+    ; Format successful ping: Response time: XX ms
     ld a, (diag_line) : ld h, a : ld l, 0 : ld (Display.coords), hl
     ld hl, .msg_time_lbl
     call Display.putStr
-    ld hl, diag_buffer + 1      ; Saltarse el '+'
+    ld hl, diag_buffer + 1      ; Skip the '+'
     call Display.putStr
     ld hl, .msg_time_ms
     call Display.putStr
@@ -3300,7 +3418,7 @@ doPing:
     jr .pingLoop
 
 .pingShowTimeout
-    ; Mostrar "Request timed out"
+    ; Show "Request timed out"
     ld a, (diag_line) : ld h, a : ld l, 0 : ld (Display.coords), hl
     ld hl, .msg_timeout
     call Display.putStr
@@ -3339,57 +3457,57 @@ doPing:
 ; Module info (firmware version)
 ; ------------------------------
 doModuleInfo:
-    ; Deshabilitar log UART
+    ; Disable UART log
     xor a
     ld (Uart.log_enabled), a
 
     ld hl, .msg_module_title
     call diagHeader
 
-    ; Inicializar línea de salida
+    ; Initialize output line
     ld a, 6
     ld (diag_line), a
 
-    ; Drenar buffer antes de enviar comando
+    ; Drain buffer before sending command
     call flushUartBuffer
 
-    ; Enviar AT+GMR
+    ; Send AT+GMR
     ld hl, .cmd_gmr
     call Wifi.espSendZ
     
-    ; Leer y mostrar respuestas
+    ; Read and show responses
     ld c, 20                    ; Max 20 timeouts
-    ld b, 100                   ; Límite absoluto: 100 líneas
+    ld b, 100                   ; Absolute limit: 100 lines
 .gmrLoop
     push bc
     call readDiagLine
     pop bc
     jr nc, .gmrTimeout          ; CF=0 = timeout real
     
-    ; Decrementar límite absoluto
+    ; Decrement absolute limit
     dec b
-    jr z, .gmrDone              ; Límite alcanzado
+    jr z, .gmrDone              ; Limit reached
     
-    ; CF=1 = hay línea
+    ; CF=1 = got line
     ld a, (diag_buffer)
     and a
-    jr z, .gmrLoop              ; Línea vacía, no cuenta como timeout
+    jr z, .gmrLoop              ; Empty line, doesn't count as timeout
     
-    ; Verificar si es "OK" -> fin
+    ; Check if it is "OK" -> end
     cp 'O'
     jr z, .gmrDone
     
-    ; Filtrar ruido de red y ECO (AT+GMR vs AT version...)
+    ; Filter network noise and echo (AT+GMR vs AT version...)
     cp 'A' 
     jr nz, .checkOther
-    ; Empieza por A. Ver si es "AT+" (Eco) o "AT v..." (Info)
+    ; Starts with A. Check if it is "AT+" (Echo) or "AT v..." (Info)
     ld a, (diag_buffer + 1)
     cp 'T'
-    jr nz, .showInfo      ; No es AT...
+    jr nz, .showInfo      ; Not AT...
     ld a, (diag_buffer + 2)
     cp '+'
-    jr z, .gmrLoop        ; Es AT+... (Eco) -> Ignorar
-    jr .showInfo          ; Es AT ... (Info) -> Mostrar
+    jr z, .gmrLoop        ; Is AT+... (Echo) -> Ignore
+    jr .showInfo          ; Is AT ... (Info) -> Show
 
 .checkOther
     cp '+' : jr z, .gmrLoop     ; +IPD, etc
@@ -3400,9 +3518,9 @@ doModuleInfo:
     cp 'S' : jr z, .gmrLoop     ; SEND OK
 
 .showInfo
-    ; Línea válida - mostrar
+    ; Valid line - show
     call showDiagLine
-    jr .gmrLoop                 ; Seguir sin decrementar
+    jr .gmrLoop                 ; Continue without decrementing
     
 .gmrTimeout
     dec c
@@ -3428,16 +3546,16 @@ doNetworkInfo:
     ld (Uart.log_enabled), a
     call topClean
 
-    ; Mostrar detalle de la red conectada
+    ; Show connected network details
     call connectedSSIDPresentInList
     jr nc, .ni_no_idx
-    ld (selected_real_idx), a       ; Índice para ECN/Channel/Signal
+    ld (selected_real_idx), a       ; Index for ECN/Channel/Signal
     ld hl, Wifi.connected_ssid
     ld (selected_ssid_ptr), hl
     call showNetDetail
     jr .ni_detail_done
 .ni_no_idx
-    ; SSID no en la lista: mostrar solo nombre, sin Security/Channel/Signal falsos
+    ; SSID not in list: show only name, without fake Security/Channel/Signal
     gotoXY 0, 4
     ld hl, .ni_ssid_lbl : call Display.putStr
     ld hl, Wifi.connected_ssid : call Display.putStr
@@ -3534,7 +3652,7 @@ doBaudRate:
     ld hl, msg_baud_title
     call diagHeader
 
-    ; Inicializar línea de salida
+    ; Initialize output line
     ld a, 6
     ld (diag_line), a
     xor a
@@ -3545,7 +3663,7 @@ doBaudRate:
     ld (baud_recover_tried), a
 
     
-    ; Drenar buffer antes de enviar comando
+    ; Drain buffer before sending command
     call flushUartBuffer
 	
 	; Ensure the ESP is in AT command mode (not in pass-through/data mode)
@@ -3559,34 +3677,34 @@ doBaudRate:
 
 doBaudRate_cmode_ok:
     
-    ; Enviar AT+UART_CUR?
+    ; Send AT+UART_CUR?
     ld hl, cmd_uart_cur
     call Wifi.espSendZ
     
-    ; Leer respuestas
-    ld c, 4                     ; Max 4 timeouts (cada uno es largo)
-    ld b, 100                   ; Límite absoluto: 100 líneas
+    ; Read responses
+    ld c, 4                     ; Max 4 timeouts (each one is long)
+    ld b, 100                   ; Absolute limit: 100 lines
 .baudLoop
     push bc
     call readDiagLineLong
     pop bc
     jp nc, .baudTimeout         ; CF=0 = timeout real
     
-    ; Decrementar límite absoluto
+    ; Decrement absolute limit
     dec b
-    jp z, .baudDone             ; Límite alcanzado
+    jp z, .baudDone             ; Limit reached
     
-    ; CF=1 = hay línea
+    ; CF=1 = got line
     ld a, (diag_buffer)
     and a
-    jp z, .baudLoop             ; Línea vacía, no cuenta
+    jp z, .baudLoop             ; Empty line, doesn't count
     
-    ; Verificar si es "OK" -> fin
+    ; Check if it is "OK" -> end
     cp 'O'
     jp z, .baudDone
-    cp 'E'                      ; ERROR -> probar comandos alternativos
+    cp 'E'                      ; ERROR -> try alternative commands
     jp nz, .noErrLine
-    ; Registrar que vimos ERROR (si no se obtiene nada, lo mostraremos)
+    ; Record that we saw ERROR (if nothing obtained, we'll show it)
     ld a, 1
     ld (baud_saw_error), a
 
@@ -3608,7 +3726,7 @@ doBaudRate_cmode_ok:
     jp .baudLoop
 .skipRecover
 
-    ; 1) Probar AT+UART_DEF? (algunos firmwares no soportan CUR)
+    ; 1) Try AT+UART_DEF? (some firmwares don't support CUR)
     ld a, (baud_tried_def)
     and a
     jp nz, .tryPlain
@@ -3622,7 +3740,7 @@ doBaudRate_cmode_ok:
     jp .baudLoop
 
 .tryPlain
-    ; 2) Probar AT+UART? (firmwares antiguos)
+    ; 2) Try AT+UART? (old firmwares)
     ld a, (baud_tried_plain)
     and a
     jp nz, .baudDone
@@ -3636,23 +3754,23 @@ doBaudRate_cmode_ok:
     jp .baudLoop
 .noErrLine
     
-    ; Filtrar ruido y ECO
-    cp 'A' : jp z, .baudLoop    ; Ignorar eco AT...
+    ; Filter noise and echo
+    cp 'A' : jp z, .baudLoop    ; Ignore echo AT...
     cp '0' : jp z, .baudLoop
     cp 'C' : jp z, .baudLoop
     
-    ; Si empieza con +, verificar que no sea +IPD
+    ; If starts with +, check it is not +IPD
     cp '+'
-    jp nz, .baudLoop            ; No empieza con +, ignorar
+    jp nz, .baudLoop            ; Does not start with +, ignore
     ld a, (diag_buffer + 1)
-    cp 'I'                      ; +IPD -> ignorar
+    cp 'I'                      ; +IPD -> ignore
     jp z, .baudLoop
     cp 'U'                      ; Check +UART
     jp nz, .baudLoop
 
-    ; --- FORMATEO BAUDRATE ---
-    ; Cadena: +UART_CUR:9600,8,1,0,0
-    ; Longitud header (+UART_CUR:) es 10 chars, no 11
+    ; --- BAUD RATE FORMATTING ---
+    ; String: +UART_CUR:9600,8,1,0,0
+    ; Header length (+UART_CUR:) is 10 chars, not 11
     
     ld a, (diag_line) : ld h, a : ld l, 0 : ld (Display.coords), hl
     
@@ -3660,21 +3778,21 @@ doBaudRate_cmode_ok:
     call Display.putStr
     
     ld hl, diag_buffer
-    call .skipToColon           ; Saltar hasta ':' (soporta +UART y +UART_CUR)
-    call .printUntilComma       ; Imprimir solo el número
+    call .skipToColon           ; Skip to ':' (supports +UART and +UART_CUR)
+    call .printUntilComma       ; Print only the number
 
     ld a, 1
     ld (baud_have_value), a
 
     ld a, (diag_line) : inc a : ld (diag_line), a
-    jp .baudLoop                ; Seguir sin decrementar
+    jp .baudLoop                ; Continue without decrementing
 
 .baudTimeout
     dec c
     jp nz, .baudLoop
 
 .baudDone
-    ; Si no se pudo obtener ninguna linea +UART, avisar
+    ; If no +UART line could be obtained, warn
     ld a, (baud_have_value)
     and a
     jp nz, .baudDoneHasValue
@@ -3748,19 +3866,19 @@ doStaticIP:
     gotoXY 0, 11
     ld hl, .sip_help : call Display.putStr
 
-    ; Entrada de IP (solo dígitos y puntos)
+    ; IP input (digits and dots only)
     ld hl, sip_buf
     ld b, 15                    ; Max IP length (xxx.xxx.xxx.xxx)
     ld a, 8 : ld (sti_line), a
     xor a : ld (sti_len), a
     ld (sip_buf), a
     call ipTextInput
-    jp c, showDiagnostics       ; Cancelado
+    jp c, showDiagnostics       ; Cancelled
 
-    ; Verificar que hay algo
+    ; Check there is something
     ld a, (sti_len) : and a : jp z, showDiagnostics
 
-    ; Validar formato IP
+    ; Validate IP format
     call validateIP
     jr nc, .sip_valid
     gotoXY 0, 9
@@ -3769,14 +3887,14 @@ doStaticIP:
     jp showDiagnostics
 
 .sip_valid
-    ; Enviar AT+CIPSTA_CUR="ip"
+    ; Send AT+CIPSTA_CUR="ip"
     call flushUartBuffer
     ld hl, .sip_cmd : call Wifi.espSendZ
     ld hl, sip_buf : call Wifi.espSendZ
     ld hl, .sip_end : call Wifi.espSendZ
     call Wifi.checkOkErr
     jr c, .sip_fail
-    ; Actualizar IP en pantalla
+    ; Update IP on screen
     call Wifi.getIP
     call ipShowConnected
     gotoXY 0, 9
@@ -3800,10 +3918,10 @@ doStaticIP:
     RTVAR sip_buf, 16
 
 ; ============================================
-; ipTextInput - Entrada de texto para IPs (solo dígitos y puntos)
-; HL = buffer, B = max_len, A = línea pantalla
-; Usa: (sti_len) para longitud actual
-; Retorna: CF=0 si ENTER, CF=1 si CANCEL
+; ipTextInput - Text input for IPs (digits and dots only)
+; Input: HL = buffer, B = max_len, A = screen line
+; Uses: (sti_len) for current length
+; Output: CF=0 if ENTER, CF=1 if CANCEL
 ; ============================================
 ipTextInput:
     ld (sti_buf), hl
@@ -3915,7 +4033,7 @@ doHostname:
     ld hl, .hn_help : call Display.putStr
 
     call clearPassBuffer
-    ld a, 1 : ld (show_password), a     ; Mostrar texto (no asteriscos)
+    ld a, 1 : ld (show_password), a     ; Show text (not asterisks)
     ld a, 8 : ld (pass_line), a
     call passwordInput
     ld a, PASS_LINE_DEFAULT : ld (pass_line), a
@@ -3923,7 +4041,7 @@ doHostname:
 
     ld a, (pass_len) : and a : jp z, showDiagnostics
 
-    ; Copiar pass_buffer a hn_buf
+    ; Copy pass_buffer to hn_buf
     ld hl, pass_buffer
     ld de, hn_buf
     ld a, (pass_len) : ld b, a
@@ -3965,7 +4083,7 @@ doConfigSummary:
     ld hl, .cs_title
     call diagHeader
 
-    ; SSID conectado
+    ; Connected SSID
     gotoXY 0, 6
     ld hl, .cs_ssid : call Display.putStr
     ld a, (Wifi.is_connected) : and a : jr z, .cs_no_ssid
@@ -3975,7 +4093,7 @@ doConfigSummary:
     ld hl, .cs_none : call Display.putStr
 
 .cs_ip
-    ; IP - usar readDiagLine para consumir respuesta AT+CIFSR completa
+    ; IP - use readDiagLine to consume full AT+CIFSR response
     gotoXY 0, 7
     ld hl, .cs_ip_lbl : call Display.putStr
     call .cs_flush
@@ -3988,19 +4106,19 @@ doConfigSummary:
     jr nc, .cs_ip_done
     ld a, (diag_buffer) : cp 'O' : jr z, .cs_ip_done
     cp '+' : jr nz, .cs_ip_next
-    ; Buscar STAIP (no STAMAC): buscar "," seguido de '"' y un dígito
+    ; Find STAIP (not STAMAC): look for "," followed by '"' and a digit
     ld hl, diag_buffer
     call .cs_find_colon
     jr nc, .cs_ip_next
     inc hl                          ; skip ':'
-    ; Buscar primera '"'
+    ; Find first '"'
 .cs_ip_fq
     ld a, (hl) : and a : jr z, .cs_ip_next
     cp '"' : jr z, .cs_ip_gq
     inc hl : jr .cs_ip_fq
 .cs_ip_gq
     inc hl
-    ; Comprobar si el contenido tiene '.' (IP) o ':' (MAC)
+    ; Check if content has '.' (IP) or ':' (MAC)
     push hl
 .cs_ip_chk
     ld a, (hl) : and a : jr z, .cs_ip_notip
@@ -4018,7 +4136,7 @@ doConfigSummary:
 .cs_ip_done
 
 .cs_mac
-    ; MAC - enviar AT+CIPSTAMAC?
+    ; MAC - send AT+CIPSTAMAC?
     gotoXY 0, 8
     ld hl, .cs_mac_lbl : call Display.putStr
     call .cs_flush
@@ -4031,13 +4149,13 @@ doConfigSummary:
     jr nc, .cs_mac_done
     ld a, (diag_buffer) : cp 'O' : jr z, .cs_mac_done
     cp '+' : jr nz, .cs_mac_next
-    ; Buscar línea con ':' (la MAC tiene ':')
+    ; Find line with ':' (MAC has ':')
     ld hl, diag_buffer
     call .cs_find_colon
     jr nc, .cs_mac_next
-    ; Encontrado, buscar el contenido después del ':'
+    ; Found, look for content after ':'
     inc hl
-    ; Si el primer char es '"', saltar
+    ; If first char is '"', skip
     ld a, (hl) : cp '"' : jr nz, .cs_mac_pr
     inc hl
 .cs_mac_pr
@@ -4085,13 +4203,13 @@ doConfigSummary:
     jr nc, .cs_fw_done
     ld a, (diag_buffer) : cp 'O' : jr z, .cs_fw_done
     cp 'E' : jr z, .cs_fw_done
-    ; Filtrar eco "AT+GMR": comprobar si 4º carácter es 'G'
+    ; Filter echo "AT+GMR": check if 4th char is 'G'
     ld a, (diag_buffer + 3) : cp 'G' : jr z, .cs_fw_next
-    ; Saltar prefijo "AT version:" si existe
+    ; Skip "AT version:" prefix if present
     ld hl, diag_buffer
     ld a, (hl) : cp 'A' : jr nz, .cs_fw_print
     ld a, (diag_buffer + 2) : cp ' ' : jr nz, .cs_fw_print
-    ; Avanzar HL pasando "AT version:"
+    ; Advance HL past "AT version:"
     ld de, 11 : add hl, de
 .cs_fw_print
     ld b, 30 : call putStrLimited
@@ -4100,7 +4218,7 @@ doConfigSummary:
     djnz .cs_fw_loop
 .cs_fw_done
 
-    ; Version del programa
+    ; Application version
     gotoXY 0, 11
     ld hl, .cs_ver_lbl : call Display.putStr
     ld hl, version_string : call Display.putStr
@@ -4109,7 +4227,7 @@ doConfigSummary:
     call waitAnyKey
     jp showDiagnostics
 
-; Espera y flush - asegura que la respuesta AT anterior se ha consumido
+; Wait and flush - ensures previous AT response has been consumed
 .cs_flush
     ld b, 10
 .cs_flush_w
@@ -4117,7 +4235,7 @@ doConfigSummary:
     djnz .cs_flush_w
     jp flushUartBuffer
 
-; Helper: busca ':' en string HL. CF=1 si encontrado (HL apunta al ':')
+; Helper: find ':' in string HL. CF=1 if found (HL points to ':')
 .cs_find_colon
     ld a, (hl) : and a : ret z  ; CF=0
     cp ':' : jr z, .cs_fc_found
@@ -4125,7 +4243,7 @@ doConfigSummary:
 .cs_fc_found
     scf : ret
 
-; Helper: imprime string hasta 0, '"', CR o LF
+; Helper: print string until 0, '"', CR or LF
 .cs_printClean
     ld a, (hl) : and a : ret z
     cp '"' : ret z
@@ -4151,19 +4269,19 @@ conn_retries db 0
 cmd_disconnect db "AT+CWQAP", 13, 10, 0
 
 ; ============================================
-; checkAsyncWifi - Detecta eventos WiFi asíncronos
-; Busca "DISCONNECT" y "GOT IP" en el stream UART
-; Retorna: A = código de evento
-;   ASYNC_EVENT_NONE (0) = sin evento
-;   ASYNC_EVENT_DISCONNECT (1) = desconexión detectada
-;   ASYNC_EVENT_GOTIP (2) = conexión detectada
+; checkAsyncWifi - Detect async WiFi events
+; Looks for "DISCONNECT" and "GOT IP" in the UART stream
+; Output: A = event code
+;   ASYNC_EVENT_NONE (0) = no event
+;   ASYNC_EVENT_DISCONNECT (1) = disconnect detected
+;   ASYNC_EVENT_GOTIP (2) = connection detected
 ; ============================================
 ASYNC_EVENT_NONE       = 0
 ASYNC_EVENT_DISCONNECT = 1
 ASYNC_EVENT_GOTIP      = 2
 
 checkAsyncWifi:
-    ; NO leer UART si hay operación crítica en curso
+    ; Do NOT read UART if critical operation in progress
     ld a, (Wifi.uart_busy)
     and a
     jr z, .canRead
@@ -4171,31 +4289,31 @@ checkAsyncWifi:
     ret
     
 .canRead
-    ; Intentar leer un byte del UART (no bloqueante)
+    ; Try to read a byte from UART (non-blocking)
     call UartImpl.uartRead
     jr c, .gotByte
     xor a                       ; A = ASYNC_EVENT_NONE
     ret
     
 .gotByte
-    ; A = byte leído
-    ; Ignorar caracteres de control (CR, LF, etc)
+    ; A = byte read
+    ; Ignore control characters (CR, LF, etc)
     cp 32
     jr nc, .validChar
     xor a                       ; A = ASYNC_EVENT_NONE
     ret
     
 .validChar
-    ; Añadir al buffer circular
-    ld c, a                     ; Guardar byte en C
+    ; Add to circular buffer
+    ld c, a                     ; Save byte in C
     ld hl, async_buf_idx
     ld e, (hl)
     ld d, 0
     ld hl, async_buffer
     add hl, de
-    ld (hl), c                  ; Guardar byte
+    ld (hl), c                  ; Store byte
     
-    ; Incrementar índice circular
+    ; Increment circular index
     ld a, e
     inc a
     cp ASYNC_BUF_SIZE
@@ -4204,54 +4322,54 @@ checkAsyncWifi:
 .storeIdx
     ld (async_buf_idx), a
     
-    ; Incrementar contador de bytes recibidos (hasta ASYNC_BUF_SIZE)
+    ; Increment received bytes counter (up to ASYNC_BUF_SIZE)
     ld a, (async_buf_count)
     cp ASYNC_BUF_SIZE
-    jr nc, .checkPatterns       ; Ya lleno, no incrementar más
+    jr nc, .checkPatterns       ; Already full, don't increment more
     inc a
     ld (async_buf_count), a
     
 .checkPatterns
-    ; Verificar si tenemos suficientes caracteres
+    ; Check if we have enough characters
     ld a, (async_buf_count)
-    cp 6                        ; Mínimo para "GOT IP" o "DISCON"
+    cp 6                        ; Minimum for "GOT IP" or "DISCON"
     jr nc, .enoughChars
     xor a                       ; A = ASYNC_EVENT_NONE
     ret
     
 .enoughChars
-    ; Buscar patrones
+    ; Search for patterns
     call .checkDisconnect
-    ret nz                      ; Si NZ, A ya tiene ASYNC_EVENT_DISCONNECT
+    ret nz                      ; If NZ, A already has ASYNC_EVENT_DISCONNECT
     call .checkGotIP
-    ret                         ; A tiene el resultado (0 o 2)
+    ret                         ; A has the result (0 or 2)
 
 .checkDisconnect:
-    ; Buscar "DISCON" (6 chars)
-    ; Calcular posición de inicio considerando wrap-around
+    ; Search for "DISCON" (6 chars)
+    ; Calculate start position considering wrap-around
     ld a, (async_buf_idx)
     sub 6
     jr nc, .discNoWrap
     add a, ASYNC_BUF_SIZE       ; Wrap: idx + (SIZE - 6)
 .discNoWrap
-    ; A = posición de inicio del patrón
+    ; A = pattern start position
     ld de, .pat_discon
     call .comparePattern
     jr nz, .notFoundDisc
     
-    ; ¡Encontrado DISCONNECT!
+    ; Found DISCONNECT!
     xor a
-    ld (async_buf_idx), a       ; Resetear buffer
+    ld (async_buf_idx), a       ; Reset buffer
     ld (async_buf_count), a
     ld a, ASYNC_EVENT_DISCONNECT
-    ret                         ; NZ porque A != 0
+    ret                         ; NZ because A != 0
     
 .notFoundDisc
     xor a                       ; Z, A = 0
     ret
 
 .checkGotIP:
-    ; Buscar "GOT IP" (6 chars)
+    ; Search "GOT IP" (6 chars)
     ld a, (async_buf_idx)
     sub 6
     jr nc, .gotNoWrap
@@ -4261,7 +4379,7 @@ checkAsyncWifi:
     call .comparePattern
     jr nz, .notFoundGot
     
-    ; ¡Encontrado GOT IP!
+    ; Found GOT IP!
     xor a
     ld (async_buf_idx), a
     ld (async_buf_count), a
@@ -4272,30 +4390,30 @@ checkAsyncWifi:
     xor a                       ; A = ASYNC_EVENT_NONE
     ret
 
-; Compara 6 bytes del buffer circular con patrón
-; A = posición inicial en buffer, DE = patrón
-; Retorna Z si coincide, NZ si no
+; Compare 6 bytes from circular buffer with pattern
+; Input: A = start position in buffer, DE = pattern
+; Output: Z if match, NZ if not
 .comparePattern
     ld b, 6
 .cmpLoop
     push bc
     push de
     
-    ; Calcular dirección en buffer (con wrap)
-    ld c, a                     ; Guardar índice
+    ; Calculate address in buffer (with wrap)
+    ld c, a                     ; Save index
     ld hl, async_buffer
     ld d, 0
     ld e, a
     add hl, de
     
-    ; Comparar byte
+    ; Compare byte
     pop de
     ld a, (de)
     cp (hl)
     pop bc
-    ret nz                      ; No coincide
+    ret nz                      ; No match
     
-    ; Siguiente byte
+    ; Next byte
     inc de
     ld a, c
     inc a
@@ -4305,7 +4423,7 @@ checkAsyncWifi:
 .noWrap
     djnz .cmpLoop
     
-    xor a                       ; Z = coincide
+    xor a                       ; Z = match
     ret
 
 .pat_discon db "DISCON"
@@ -4314,12 +4432,12 @@ checkAsyncWifi:
 ASYNC_BUF_SIZE = 16
     RTVAR async_buffer, ASYNC_BUF_SIZE
 async_buf_idx   db 0
-async_buf_count db 0                ; Contador de bytes en buffer (para wrap correcto)
+async_buf_count db 0                ; Byte count in buffer (for correct wrap)
 
 ; --------------------------------------------
 ; waitAnyKey
-;   Bloquea hasta que se pulse cualquier tecla.
-;   Uso UI (no debe usarse durante parsers de alta velocidad).
+;   Blocks until any key is pressed.
+;   For UI use (should not be used during high-speed parsers).
 ; --------------------------------------------
 waitAnyKey:
 waitAnyKey_loop:
@@ -4330,24 +4448,24 @@ waitAnyKey_loop:
     ret
 
 ; ============================================
-; Muestra info de redes alineada a la DERECHA en línea 17
-; Texto termina en columna 41 (límite seguro de pantalla).
+; Show network info right-aligned on line 17
+; Text ends at column 41 (safe screen limit).
 ; ============================================
 showPageInfo:
-    ; --- 1. Calcular datos de paginación ---
+    ; --- 1. Calculate pagination data ---
     ld a, (Wifi.networks_count)
     and a
     jr nz, .haveNetworks
 
-    ; 0 redes: limpiar línea 17 completa (evita contador obsoleto)
+    ; 0 networks: clear line 17 completely (avoids stale counter)
     ld a, 17
     call clearRowPixels
     ret
 
 .haveNetworks
     
-    ; Calcular Total pages = ceil(count / PER_PAGE)
-    ; = (count - 1) / PER_PAGE + 1 (usando resta repetida)
+    ; Calculate Total pages = ceil(count / PER_PAGE)
+    ; = (count - 1) / PER_PAGE + 1 (using repeated subtraction)
     dec a                   ; A = count - 1
     ld b, 0
 .divTotal
@@ -4357,7 +4475,7 @@ showPageInfo:
     ld a, b
     ld (page_total), a
 
-    ; Calcular Current page = offset / PER_PAGE + 1
+    ; Calculate Current page = offset / PER_PAGE + 1
     ld a, (offset)
     ld b, 0
 .divCurrent
@@ -4367,21 +4485,21 @@ showPageInfo:
     ld a, b
     ld (page_current), a
 
-    ; --- 2. Calcular longitud del texto para alinear ---
+    ; --- 2. Calculate text length for alignment ---
     ; Base: "X networks detected"
     ; " networks detected" = 18 chars
     ld c, 18
     
-    ; Sumar dígitos de networks_count
+    ; Add digits of networks_count
     ld a, (Wifi.networks_count)
-    call getDigitCount      ; Devuelve 1 o 2 en A
+    call getDigitCount      ; Returns 1 or 2 in A
     add a, c
-    ld c, a                 ; C tiene longitud parcial
+    ld c, a                 ; C has partial length
 
-    ; Si hay paginación, sumar " (A/B pages)"
+    ; If paginated, add " (A/B pages)"
     ld a, (page_total)
     cp 2
-    jr c, .calcFinish       ; Solo 1 página, terminamos cálculo
+    jr c, .calcFinish       ; Only 1 page, done calculating
 
     ; " (" + digit + "/" + digit + " pages)"
     ; 1 space + 1 "(" + page_curr + 1 "/" + page_total + 7 " pages)" = 11 + digits
@@ -4397,35 +4515,35 @@ showPageInfo:
     ld a, (page_total)
     call getDigitCount
     add a, c
-    ld c, a                 ; C = Longitud TOTAL del string
+    ld c, a                 ; C = TOTAL string length
 
 .calcFinish
-    ; --- 3. Calcular posición X inicial ---
-    ; Queremos terminar en columna 41 (límite derecho)
+    ; --- 3. Calculate initial X position ---
+    ; We want to end at column 41 (right limit)
     ; StartX = 42 - C.
     ld a, 42
     sub c
     ld b, a                 ; B = StartX
     
-    ; --- 4. Limpiar línea 17 completa ---
+    ; --- 4. Clear full line 17 ---
     push bc
     ld a, 17
     call clearRowPixels
     pop bc
 
 .printInfo
-    ; --- 5. Imprimir texto en su posición ---
+    ; --- 5. Print text at position ---
     ld l, b                 ; L = StartX
     ld h, 17
     ld (Display.coords), hl
 
-    ; Imprimir "Num networks detected"
+    ; Print "Num networks detected"
     ld a, (Wifi.networks_count)
     call printNumber
     ld hl, .msg_net_det
     call Display.putStr
 
-    ; Imprimir paginación si corresponde
+    ; Print pagination if applicable
     ld a, (page_total)
     cp 2
     ret c
@@ -4442,8 +4560,8 @@ showPageInfo:
 .msg_net_det    db " networks detected", 0
 .msg_pages_suff db " pages)", 0
 
-; Devuelve en A cuántos dígitos tiene el número en A (0-99)
-; 1 si < 10, 2 si >= 10
+; Returns in A how many digits the number in A has (0-99)
+; 1 if < 10, 2 if >= 10
 getDigitCount:
     cp 10
     ld a, 1
@@ -4451,7 +4569,7 @@ getDigitCount:
     inc a
     ret
 
-; Imprime A (0-99) en decimal
+; Print A (0-99) in decimal
 printNumber:
     ld c, a
     ld b, 0
@@ -4528,7 +4646,7 @@ showAbout:
 .msg_about_license db "License: MIT", 0
 
 ; ============================================
-; Mensajes y datos
+; Messages and data
 ; ============================================
 msg_connected_title db "Connected!", 0
 msg_done_body       db "Now you can use network apps!", 0
@@ -4550,16 +4668,16 @@ msg_pass        db "Password (BREAK=cancel, UP=show):", 0
 
     RTVAR pass_buffer, MAX_PASS_LEN + 2
 pass_len        db 0
-pass_cursor     db 0                ; Posición del cursor en el password
+pass_cursor     db 0                ; Cursor position in the password
 cursor_position db 0
 offset          db 0
 is_open_network db 0
-show_password   db 0                ; Flag para mostrar contraseña
-selected_ssid_ptr dw 0              ; Puntero al SSID seleccionado
-selected_real_idx db 0              ; Índice real de la red seleccionada
-ui_async_div    db 0                ; Divisor para checkAsyncWifi
-autoscan_counter dw 0              ; Contador para auto-rescan (15000 = 5 min)
-health_counter  dw 0              ; Contador para health-check periódico (solo invalidar)
+show_password   db 0                ; Flag to show password
+selected_ssid_ptr dw 0              ; Pointer to the selected SSID
+selected_real_idx db 0              ; Real index of the selected network
+ui_async_div    db 0                ; Divider for checkAsyncWifi
+autoscan_counter dw 0              ; Counter for auto-rescan (15000 = 5 min)
+health_counter  dw 0              ; Counter for periodic health-check (invalidate only)
 force_rescan   db 0              ; 1 => rescan pending after disconnect
 
 msg_head

@@ -57,7 +57,7 @@ NetManZX esta basado en el proyecto original [netman-zx](https://github.com/nihi
 
 ### Otros
 - **Pantalla Acerca de** (tecla I): Muestra version, fecha de compilacion, autor, URL de GitHub y licencia
-- **Log de Depuracion UART**: Muestra/oculta el log UART en tiempo real con la tecla L
+- **Log de Depuracion UART**: Muestra/oculta el log UART en tiempo real con la tecla L (funciona globalmente). Indicador rojo en el area de log cuando esta activo
 - **Fuente comprimida**: Sistema de fuente comprimida por nibbles integrado (sin dependencia de archivo font.bin externo)
 - **Tres backends UART**: Soporta hardware ZX-Uno, AY-UART (ZX-Badaloc) y ZX Spectrum Next
 - **Recuperacion de baudios NextSync** (solo build Next): Detecta y recupera automaticamente si el ESP fue dejado a velocidad incorrecta por NextSync

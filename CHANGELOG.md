@@ -4,6 +4,30 @@ All notable changes to NetManZX are documented in this file.
 
 ---
 
+## [1.4.1] - "Sharp Eye" - 2026-03-17
+
+### Bug Fixes
+- **Open network connects without confirmation**: Selecting an open network jumped straight to connection. Now shows network detail + confirmation dialog (Y/N)
+- **UART log enabled by default**: Log was active on startup, flooding the log window. Now disabled by default (toggle with L)
+- **L key only toggled debug messages, not UART log**: Two separate variables controlled logging. Now L toggles both in sync
+- **"Press a key" inconsistent**: Already Connected and WPS screens used custom positioning instead of the standard `showPressKey` (row 17, yellow)
+- **"Keep connection" was a dead loop**: Choosing "No" at the startup connected dialog entered an infinite `halt` loop with no exit. Now exits cleanly to BASIC
+- **Ghost keypress on startup (128K / +3 / Next)**: ROM key repeat left residual values in BASIC_KEY, causing the connected dialog to immediately select "No" and exit. Added 300ms debounce drain before the dialog
+- **Next driver missing `tryFastBaud`**: Baud recovery routine was accidentally removed. Re-added for NextSync compatibility
+
+### Enhancements
+- **Autoscan indicator**: Hourglass glyph (custom `^` character) shown at row 17 during background rescan
+- **Log status indicator**: Small red filled circle at bottom-right of log area when UART log is active. Flicker-free: pixel data integrated into scroll loop per-scanline
+- **L key works globally**: Log toggle now works in main menu, diagnostics, connection screens, WPS wait, and error dialogs
+- **Ping display**: "Pinging IP..." now rendered in double-height with color (white label, bright green IP address, no color clash)
+
+### Code Quality
+- **All comments translated to English**: Complete audit across all 10 source files
+- **Comment quality improved**: Removed redundant comments, fixed `;;` → `;`, improved function documentation
+- **Dead code removed**: Old dead-loop screen, duplicate toggle handler, unused WPS string
+
+---
+
 ## [1.4.0] - "Double Vision" - 2026-03-17
 
 ### New Features

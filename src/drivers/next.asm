@@ -1,23 +1,23 @@
     module UartImpl
-; Definiciones de puertos del ZX Spectrum Next
+; ZX Spectrum Next port definitions
 UART_TX = #133B
 UART_RX = #143B
 UART_Sel  equ #153B       ; Selects between ESP and Pi
 UART_SetBaud equ #143B    ; Sets baudrate (when writing)
 UART_GetStatus equ #133B  ; Reads status
 
-; Bits de estado
+; Status bits
 UART_TX_BUSY       equ %00000010
 UART_RX_DATA_READY equ %00000001
 UART_FIFO_FULL     equ %00000100
 
 init:
-    ; Seleccionar UART
+    ; Select UART
     ld bc, UART_Sel
     ld a, %00100000      ; Select UART (bit 5=1)
     out (c), a
     
-    ; Cálculo de timing para Next
+    ; Timing calculation for Next
     ld hl, .table
     ld bc, 9275
     ld a, 17
@@ -56,36 +56,37 @@ write:
 .wait
     in a, (c)
     and UART_TX_BUSY
-    jr nz, .wait         ; Esperar si TX está ocupado
+    jr nz, .wait         ; Wait if TX is busy
     out (c), d
     ret
 
 ; -----------------------------------------------------------------
 ; uartRead / read
-; Lee un byte del UART de forma NO BLOQUEANTE.
-; Salida:
-;   CF = 1 : Byte leído en A
-;   CF = 0 : No hay datos disponibles (retorno inmediato)
+; Reads a byte from UART in NON-BLOCKING mode.
+; Output:
+;   CF = 1 : Byte read in A
+;   CF = 0 : No data available (immediate return)
 ; -----------------------------------------------------------------
+read:                        ; Alias for compatibility
 uartRead:
     ld bc, UART_GetStatus
     in a, (c)
-    rrca                 ; Bit 0 (Data Ready) al Carry
-    ret nc               ; No hay datos -> Retorno inmediato con CF=0
+    rrca                 ; Bit 0 (Data Ready) to Carry
+    ret nc               ; No data -> Immediate return with CF=0
 
-    ; Si hay datos:
+    ; Data available:
     ld bc, UART_RX
-    in a, (c)            ; Leer el byte
-    scf                  ; Marcar éxito (CF=1)
+    in a, (c)            ; Read the byte
+    scf                  ; Mark success (CF=1)
     ret
 
 ; -----------------------------------------------------------------
-; tryFastBaud - Cambia UART a ~1152000 baud temporalmente
-; Para recuperación si NextSync dejó la ESP a velocidad alta.
-; Después de usar, llamar a init para restaurar 115200.
+; tryFastBaud - Temporarily switches UART to ~1152000 baud
+; For recovery if NextSync left the ESP at high speed.
+; After use, call init to restore 115200.
 ; -----------------------------------------------------------------
 tryFastBaud:
-    ; Detectar tipo de core (igual que init)
+    ; Detect core type (same as init)
     ld hl, .tableFast
     ld bc, 9275
     ld a, 17
@@ -100,7 +101,7 @@ tryFastBaud:
     inc hl
     ld d, (hl)
     ex de, hl
-    ; Set baud rate (misma secuencia que init)
+    ; Set baud rate (same sequence as init)
     ld bc, UART_SetBaud
     ld a, l
     and %01111111
@@ -112,7 +113,7 @@ tryFastBaud:
     out (c), a
     ret
 
-; Prescalar para ~1152000 baud (tabla 115200 / 10)
+; Prescaler for ~1152000 baud (115200 table / 10)
 .tableFast
     dw 24,25,26,26,27,28,29,23
 

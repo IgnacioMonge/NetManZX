@@ -30,7 +30,7 @@ init:
     ret
 
 dataSequence:
-    ; (Sin cambios en la secuencia de datos)
+    ; (Data sequence unchanged)
     db  #f6,  #fe,  #f6,  #fe,  #fe,  #f6,  #f6,  #f6,  #f6,  #fe
     db  #f6,  #f6,  #fe,  #f6,  #fe,  #f6,  #f6,  #f6,  #f6,  #fe
     db  #f6,  #fe,  #f6,  #f6,  #f6,  #f6,  #f6,  #fe,  #f6,  #fe
@@ -152,12 +152,11 @@ uartRead:
     ret
 startReadByte:
     di
-    ; --- UX MEJORADA: Pulso sutil ROJO (Esperando) ---
+    ; Brief red border pulse (waiting)
     ld a, 2
-    out (#fe), a    ; Borde ROJO
+    out (#fe), a    ; Red border
     xor a
-    out (#fe), a    ; Borde NEGRO inmediatamente
-    ; -----------------------------------------------
+    out (#fe), a    ; Black border immediately
 
     xor a
     exx
@@ -199,17 +198,16 @@ startBitFound:
     and #80
     jr nz, readTimeOut
 
-    ; --- UX MEJORADA: Pulso sutil CYAN (Leyendo) ---
+    ; Brief cyan border pulse (reading)
     ld a, 5
-    out (#fe), a    ; Borde CYAN
-    xor a 
-    out (#fe), a    ; Borde NEGRO inmediatamente
-    ; ----------------------------------------------
+    out (#fe), a    ; Cyan border
+    xor a
+    out (#fe), a    ; Black border immediately
 
     in a, (c)
     and #80
     jr nz, readTimeOut
-    ;; Start bit found!
+    ; Start bit found!
     
     exx
     ld bc, #fffd
@@ -284,7 +282,7 @@ waitStartBitSecondByte:
     jr nz, waitStartBitSecondByte
     
     ; No second byte
-    ; No hace falta restaurar borde aquí, ya es negro.
+    ; No need to restore border here, it's already black.
     pop af
     ei
     ret
@@ -338,9 +336,9 @@ secondByteFinished:
     ld hl, _isSecondByteAvail
     ld (hl), 1
     inc hl 
-    ld (hl), a              ; Guardar en _secondByte
-    
-    ; No hace falta restaurar borde aquí, ya es negro.
+    ld (hl), a              ; Store in _secondByte
+
+    ; No need to restore border here, it's already black.
     pop af 
     ei 
     ret

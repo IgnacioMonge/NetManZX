@@ -2,28 +2,27 @@
 scr_addr = #4000
 
 ; ============================================
-; Constantes de atributos de color
-; Formato: FBPPPIII (Flash, Bright, Paper, Ink)
+; Color attribute constants
+; Format: FBPPPIII (Flash, Bright, Paper, Ink)
 ; ============================================
-ATTR_NORMAL      = 107o   ; Blanco sobre negro (lista)
-ATTR_HIGHLIGHT   = 160o   ; Negro sobre blanco brillante (cursor)
-ATTR_CONNECTED   = 106o   ; Amarillo brillante sobre negro (red conectada)
-ATTR_CONN_CURSOR = 061o   ; Azul sobre amarillo (cursor en red conectada)
-ATTR_STATUSBAR   = 170o   ; Negro sobre blanco brillante (barra estado)
-ATTR_LOG         = 014o   ; Verde sobre azul (ventana log)
-ATTR_HEADER      = 117o   ; Blanco brillante sobre azul (cabecera)
-ATTR_TITLE       = 116o   ; Amarillo brillante sobre azul (título)
-ATTR_BANNER_TOP  = 01000111b  ; Blanco sobre negro, BRIGHT (row 0 banner)
-ATTR_BANNER_BOT  = 00000111b  ; Blanco sobre negro, sin BRIGHT (row 1 banner)
-ATTR_RSSI        = 004o   ; Verde sobre negro (barras señal)
-ATTR_SSID_INPUT  = 104o   ; Verde brillante sobre negro (SSID seleccionado)
-ATTR_PASS_LINE   = 071o   ; Blanco sobre azul
-ATTR_PASS_INPUT  = 171o   ; Blanco brillante sobre azul
-ATTR_STATUS_BOT  = 00111000b  ; Negro ink, blanco paper, sin BRIGHT (doble alto bot)
+ATTR_NORMAL      = 107o   ; White on black (list)
+ATTR_HIGHLIGHT   = 160o   ; Black on bright white (cursor)
+ATTR_CONNECTED   = 106o   ; Bright yellow on black (connected network)
+ATTR_CONN_CURSOR = 061o   ; Blue on yellow (cursor on connected network)
+ATTR_STATUSBAR   = 170o   ; Black on bright white (status bar)
+ATTR_LOG         = 014o   ; Green on blue (log window)
+ATTR_HEADER      = 117o   ; Bright white on blue (header)
+ATTR_TITLE       = 116o   ; Bright yellow on blue (title)
+ATTR_BANNER_TOP  = 01000111b  ; White on black, BRIGHT (row 0 banner)
+ATTR_BANNER_BOT  = 00000111b  ; White on black, no BRIGHT (row 1 banner)
+ATTR_RSSI        = 004o   ; Green on black (signal bars)
+ATTR_SSID_INPUT  = 104o   ; Bright green on black (selected SSID)
+ATTR_PASS_LINE   = 071o   ; White on blue
+ATTR_PASS_INPUT  = 171o   ; Bright white on blue
+ATTR_STATUS_BOT  = 00111000b  ; Black ink, white paper, no BRIGHT (double-height bot)
 
-; a - line number
-; c - color
-; Pinta toda la línea (32 columnas)
+; Input: A = line number, C = color
+; Sets color for entire line (32 columns)
 setAttr:
 	rrca
 	rrca
@@ -43,9 +42,8 @@ setAttr:
     ldir
     ret
 
-; a - line number
-; c - color
-; Pinta solo las primeras 22 celdas
+; Input: A = line number, C = color
+; Sets color for first 22 cells only
 setAttrPartial:
 	rrca
 	rrca
@@ -119,78 +117,102 @@ putCBig:
     ret
 
 ; ============================================
-; putLogC - Escribe en la ventana de log (Líneas 20-23)
+; putLogC - Write to the log window (lines 20-23)
 ; ============================================
 putLogC:
     cp 13 : jr z, .cr
     cp ' ' : ret c
     ld c,a
     
-    ; Escribir siempre en línea 23
+    ; Always write to line 23
     ld h, 23
-    ld a, (.coord)
+    ld a, (putLogC_coord)
     ld l, a
     ld (drawC.coords), hl
     
     ld a,c
     call drawC
     
-    ; Avanzar cursor X
-    ld hl, .coord : inc (hl) : ld a,(hl)
+    ; Advance X cursor
+    ld hl, putLogC_coord : inc (hl) : ld a,(hl)
     cp 42 : ret c
 
 .cr
-    xor a : ld (.coord), a
-    ; Caer en .scrollLog
+    xor a : ld (putLogC_coord), a
+    ; Fall through to .scrollLog
 
 .scrollLog
-    ; --- SCROLL LOG: Líneas 20-23 (4 líneas) ---
-    ; Método: Para cada scanline, copiar líneas 21-23 a 20-22 y limpiar línea 23
-    ; Tercio 2: línea 20=#5080, línea 21=#50A0, línea 23=#50E0
+    ; Scroll log: lines 20-23
+    ; Per scanline: copy 21-23 → 20-22, clear ghost indicator from row 22,
+    ; clear row 23, paint indicator on row 23 byte 31. Indicator data is
+    ; never absent from the screen, so no flicker.
 
     di
 
-    ld b, 8             ; 8 scanlines por fila de texto
-    ld hl, #50A0        ; Origen: Línea 21, scanline 0
-    ld de, #5080        ; Destino: Línea 20, scanline 0
+    ld hl, log_ind_data
+    ld (.indPtr), hl     ; Self-mod: init indicator pointer
+    ld b, 8              ; 8 scanlines per text row
+    ld hl, #50A0         ; Source: line 21, scanline 0
+    ld de, #5080         ; Dest: line 20, scanline 0
 
 .scrollLoop
     push bc
     push hl
     push de
-    
-    ; Copiar 3 líneas de texto (96 bytes): líneas 21-23 → 20-22
+
+    ; Copy 3 text lines (96 bytes): lines 21-23 to 20-22
     ld bc, 96
     ldir
-    ; Ahora DE apunta a #5060+128=#50E0 (línea 23) - exactamente donde limpiar
-    
-    ; Limpiar línea 23 (32 bytes)
-    ; DE ya apunta al inicio de línea 23 en este scanline
-    ex de, hl           ; HL = dirección a limpiar
-    ld b, 32
+
+    ; Clear ghost indicator from row 22 byte 31 (just copied from row 23)
+    dec de
+    ld a, (de)
+    and #F0              ; Clear bottom 4 bits only
+    ld (de), a
+    inc de
+
+    ; Clear row 23 bytes 0-30 (31 bytes)
+    ex de, hl            ; HL = start of row 23 this scanline
+    ld b, 31
     xor a
 .clrLine
     ld (hl), a
     inc hl
     djnz .clrLine
-    
+
+    ; HL = byte 31 of row 23 — write indicator data
+    push hl
+    ld hl, 0
+.indPtr = $ - 2
+    ld a, (hl)
+    inc hl
+    ld (.indPtr), hl     ; Advance pointer
+    pop hl
+    ld (hl), a
+
     pop de
     pop hl
     pop bc
-    
-    ; Avanzar al siguiente scanline (+256 bytes)
+
+    ; Next scanline (+256 bytes)
     inc h
     inc d
     djnz .scrollLoop
-    
+
     ei
     ret
-.coord db 0
+
+; Log indicator pixel data — 8 bytes, one per scanline.
+; Populated by UI.updateLogIndicator when log state changes.
+; All zeros = no indicator visible.
+log_ind_data:
+    db 0,0,0,0,0,0,0,0
+putLogC_coord db 0
 
 
 drawC:
-    call decompressChar     ; A = char, devuelve DE = glyph_buf
-    push de                 ; guardar ptr datos fuente
+    call decompressChar     ; A = char, returns DE = glyph_buf
+    push de                 ; save font data ptr
     ld hl, 0
 .coords = $ - 2
     ld b, l
@@ -199,8 +221,8 @@ drawC:
     ld e, l
     ld (.rot_tmp), a
     call findAddr
-    push de                 ; guardar dir pantalla
-;; Mask rotation
+    push de                 ; save screen address
+; Mask rotation
     ld a, (.rot_tmp)
     ld hl, #03ff
     and a : jr z, .drawIt
@@ -219,7 +241,7 @@ drawC:
     ld a, h
     ld (.mask2), a
     pop ix, de 
-;; Basic draw
+; Basic draw
     ld a, 0
 .rot_tmp = $ - 1
     ld (.rot_cnt), a
@@ -256,7 +278,7 @@ drawC:
     djnz .printIt
     ret
 
-; Variables SMC para drawCBig (nivel de módulo, fuera del flujo)
+; SMC variables for drawCBig (module level, outside code flow)
 dcb_rot     db 0
 dcb_rc_top  db 0
 dcb_m1      db 0
@@ -294,7 +316,7 @@ drawCBig:
     call .writeOnePair
     inc de
     djnz .topLoop
-    ; Calcular base de row Y+1
+    ; Calculate base address of row Y+1
     pop hl
     ld a, l : add a, 32 : ld l, a
     jr nc, .botBaseReady
@@ -308,7 +330,7 @@ drawCBig:
     djnz .botLoop
     ret
 
-; Sub: lee 1 byte del glyph, rota, escribe a 2 scanlines (duplicado)
+; Sub: read 1 glyph byte, rotate, write to 2 scanlines (duplicated)
 .writeOnePair
     ld a, (de) : ld h, a : ld l, 0
     ld a, (dcb_rc_top)
@@ -319,7 +341,7 @@ drawCBig:
     ex af, af
     dec a : jr nz, .doRot
 .noRot
-    ; Primera scanline
+    ; First scanline
     ld a, (ix + 1)
     push hl : ld l, a : ld a, (dcb_m1) : and l : pop hl
     or l : ld (ix + 1), a
@@ -327,7 +349,7 @@ drawCBig:
     push hl : ld l, a : ld a, (dcb_m2) : and l : pop hl
     or h : ld (ix), a
     inc ixh
-    ; Segunda scanline (duplicado, H:L intactos)
+    ; Second scanline (duplicate, H:L intact)
     ld a, (ix + 1)
     push hl : ld l, a : ld a, (dcb_m1) : and l : pop hl
     or l : ld (ix + 1), a
@@ -337,33 +359,33 @@ drawCBig:
     inc ixh
     ret
 
-; Limpia zona de lista (líneas 2-17)
-; Usa el mismo método que el código original: para cada scanline, limpiar todas las líneas de golpe
+; Clear list area (lines 2-17)
+; For each scanline, clear all lines at once
 clrListOnly:
-    ; Tercio 0: líneas 2-7 (6 líneas)
-    ld hl, #4040            ; Scanline 0, línea 2
-    ld b, 8                 ; 8 scanlines
+    ; Third 0: lines 2-7 (6 lines)
+    ld hl, #4040            ; Scanline 0, line 2
+    ld b, 8
 .loopT0
     push bc
     push hl
     ld d, h : ld e, l : inc de
-    ld bc, 191              ; 192 bytes (6 líneas * 32)
+    ld bc, 191              ; 192 bytes (6 lines * 32)
     xor a : ld (hl), a
     ldir
     pop hl
-    ld bc, #100             ; Siguiente scanline (+256)
+    ld bc, #100             ; Next scanline (+256)
     add hl, bc
     pop bc
     djnz .loopT0
-    
-    ; Tercio 1: líneas 8-15 (8 líneas)
-    ld hl, #4800            ; Scanline 0, línea 8
+
+    ; Third 1: lines 8-15 (8 lines)
+    ld hl, #4800            ; Scanline 0, line 8
     ld b, 8
 .loopT1
     push bc
     push hl
     ld d, h : ld e, l : inc de
-    ld bc, 255              ; 256 bytes (8 líneas * 32)
+    ld bc, 255              ; 256 bytes (8 lines * 32)
     xor a : ld (hl), a
     ldir
     pop hl
@@ -372,14 +394,14 @@ clrListOnly:
     pop bc
     djnz .loopT1
     
-    ; Tercio 2: líneas 16-17 (2 líneas)
-    ld hl, #5000            ; Scanline 0, línea 16
+    ; Third 2: lines 16-17 (2 lines)
+    ld hl, #5000            ; Scanline 0, line 16
     ld b, 8
 .loopT2
     push bc
     push hl
     ld d, h : ld e, l : inc de
-    ld bc, 63               ; 64 bytes (2 líneas * 32)
+    ld bc, 63               ; 64 bytes (2 lines * 32)
     xor a : ld (hl), a
     ldir
     pop hl
@@ -389,17 +411,16 @@ clrListOnly:
     djnz .loopT2
     ret
 
-; Limpia solo el área de redes (líneas 6-14) - muy rápido con LDIR
+; Clear network area only (lines 6-14)
 clrNetworksOnly:
-    ; Tercio 0: líneas 6-7 (2 líneas)
-    ; Línea 6 empieza en $40C0 (scanline 0) 
+    ; Third 0: lines 6-7 (2 lines)
     ld hl, #40C0
     ld b, 8                 ; 8 scanlines
 .loopN0
     push bc
     push hl
     ld d, h : ld e, l : inc de
-    ld bc, 63               ; 64 bytes (2 líneas * 32)
+    ld bc, 63               ; 64 bytes (2 lines * 32)
     xor a : ld (hl), a
     ldir
     pop hl
@@ -408,14 +429,14 @@ clrNetworksOnly:
     pop bc
     djnz .loopN0
     
-    ; Tercio 1: líneas 8-14 (7 líneas)
+    ; Third 1: lines 8-14 (7 lines)
     ld hl, #4800
     ld b, 8
 .loopN1
     push bc
     push hl
     ld d, h : ld e, l : inc de
-    ld bc, 223              ; 224 bytes (7 líneas * 32)
+    ld bc, 223              ; 224 bytes (7 lines * 32)
     xor a : ld (hl), a
     ldir
     pop hl
@@ -424,12 +445,11 @@ clrNetworksOnly:
     pop bc
     djnz .loopN1
 
-    ; Limpiar atributos del área de redes (líneas 6-14)
-    ; Evita que queden colores residuales (p.ej. red conectada) tras un rescan.
+    ; Clear network area attrs (lines 6-14) to avoid residual colors after rescan
     ld a, ATTR_NORMAL
     ld hl, #58C0             ; 0x5800 + (6 * 32)
     ld de, #58C1
-    ld bc, 287               ; 9 líneas * 32 - 1
+    ld bc, 287               ; 9 lines * 32 - 1
     ld (hl), a
     ldir
     ret
@@ -438,42 +458,42 @@ clrscr:
     xor a
     out (#fe), a
 
-    ; 1. Limpiar píxeles
+    ; 1. Clear pixels
     ld hl, #4000
     ld de, #4001
     ld bc, #17ff
     ld (hl),a
     ldir
 
-    ; 2. Colores líneas 0-17: Blanco sobre Negro (lista + info)
+    ; 2. Lines 0-17: white on black (list + info)
     ld a, ATTR_NORMAL
     ld hl, #5800
     ld de, #5801
-    ld bc, 575              ; 18 líneas * 32 - 1 = 575
+    ld bc, 575              ; 18 lines * 32 - 1 = 575
     ld (hl), a
     ldir
 
-    ; 3. Colores línea 18: Status Bar top (BRIGHT)
+    ; 3. Line 18: status bar top (BRIGHT)
     ld a, ATTR_STATUSBAR
-    ld hl, #5A40            ; Línea 18
+    ld hl, #5A40            ; Line 18
     ld de, #5A41
     ld bc, 31
     ld (hl), a
     ldir
 
-    ; 4. Color línea 19: Status Bar bottom (sin BRIGHT)
+    ; 4. Line 19: status bar bottom (no BRIGHT)
     ld a, ATTR_STATUS_BOT
-    ld hl, #5A60            ; Línea 19
+    ld hl, #5A60            ; Line 19
     ld de, #5A61
     ld bc, 31
     ld (hl), a
     ldir
 
-    ; 5. Colores líneas 20-23: Log (Verde sobre Azul)
+    ; 5. Lines 20-23: log (green on blue)
     ld a, ATTR_LOG
-    ld hl, #5A80            ; Línea 20
+    ld hl, #5A80            ; Line 20
     ld de, #5A81
-    ld bc, 127              ; 4 líneas * 32 - 1 = 127
+    ld bc, 127              ; 4 lines * 32 - 1 = 127
     ld (hl), a
     ldir
     ret
@@ -493,10 +513,9 @@ findAddr:
     ret
 
 ; ============================================
-; calc - Calcula offset X en pixels
-; in:   b - x column (0-41)
-; out:  l - byte column (0-31)
-;       a - pixel offset (0-7)
+; calc - Calculate X offset in pixels
+; Input:  B = x column (0-41)
+; Output: L = byte column (0-31), A = pixel offset (0-7)
 ; ============================================
 calc:
     ld a, b
@@ -517,34 +536,34 @@ calc:
 coords dw 0
 
 ; ============================================
-; decompressChar - Descomprime un carácter de la fuente comprimida
-; Entrada: A = código ASCII (32-127, otros → espacio)
-; Salida: DE = glyph_buf (8 bytes de fuente descomprimida)
-; Destruye: AF, BC, DE, HL
+; decompressChar - Decompress a character from the packed font
+; Input: A = ASCII code (32-127, others mapped to space)
+; Output: DE = glyph_buf (8 bytes of decompressed font data)
+; Destroys: AF, BC, DE, HL
 ; ============================================
 decompressChar:
     sub 32
     cp 96
     jr c, .valid
-    xor a                   ; fuera de rango → espacio (índice 0)
+    xor a                   ; out of range -> space (index 0)
 .valid:
-    ld c, a                 ; C = índice del carácter (0-95)
-    ; HL = font_packed + índice × 4
+    ld c, a                 ; C = character index (0-95)
+    ; HL = font_packed + index * 4
     ld l, a
     ld h, 0
     add hl, hl
     add hl, hl
     ld de, font_packed
     add hl, de
-    ; Desempaquetar 4 bytes → 8 scanlines vía LUT
+    ; Unpack 4 bytes -> 8 scanlines via LUT
     ld de, glyph_buf
-    push bc                 ; preservar C (índice char)
+    push bc                 ; preserve C (char index)
     ld b, 4
 .unpack:
     ld a, (hl)
     push hl
-    ld c, a                 ; guardar byte empaquetado
-    ; Nibble alto → scanline par
+    ld c, a                 ; save packed byte
+    ; High nibble -> even scanline
     rrca
     rrca
     rrca
@@ -559,7 +578,7 @@ decompressChar:
     ld a, (hl)
     ld (de), a
     inc de
-    ; Nibble bajo → scanline impar
+    ; Low nibble -> odd scanline
     ld a, c
     and #0F
     ld hl, font_lut
@@ -574,8 +593,8 @@ decompressChar:
     pop hl
     inc hl
     djnz .unpack
-    pop bc                  ; restaurar C = índice char
-    ; Aplicar excepciones (tabla ordenada por índice)
+    pop bc                  ; restore C = char index
+    ; Apply exceptions (table sorted by index)
     ld hl, font_exceptions
 .excScan:
     ld a, (hl)
@@ -583,16 +602,16 @@ decompressChar:
     jr z, .excDone
     cp c
     jr z, .excMatch
-    jr nc, .excDone         ; tabla ordenada: si entry > c, no hay más
+    jr nc, .excDone         ; sorted table: if entry > c, done
     inc hl
     inc hl
     inc hl
     jr .excScan
 .excMatch:
     inc hl
-    ld a, (hl)              ; número de scanline (0-7)
+    ld a, (hl)              ; scanline number (0-7)
     inc hl
-    ld b, (hl)              ; valor real
+    ld b, (hl)              ; actual value
     inc hl
     push hl
     ld hl, glyph_buf
@@ -609,8 +628,8 @@ decompressChar:
 glyph_buf: ds 8
 
 ; ============================================
-; Fuente comprimida 6px - 96 caracteres (ASCII 32-127)
-; Formato: nibble-packed con LUT de 16 valores + tabla de excepciones
+; Compressed 6px font - 96 characters (ASCII 32-127)
+; Format: nibble-packed with 16-value LUT + exception table
 ; ============================================
 font_lut:
     db #00, #0C, #10, #18, #1C, #28, #30, #36, #38, #3C, #4C, #54, #60, #6C, #78, #7C
@@ -678,7 +697,7 @@ font_packed:
     db #86, #66, #66, #80  ; '['
     db #66, #33, #31, #10  ; '\'
     db #83, #33, #33, #80  ; ']'
-    db #28, #D0, #00, #00  ; '^'
+    db #F0, #52, #28, #FF  ; '^' → hourglass (scanning indicator)
     db #00, #00, #00, #00  ; '_'
     db #08, #FF, #FF, #80  ; '`' → filled circle (lock indicator)
     db #00, #81, #9D, #90  ; 'a'
@@ -714,25 +733,26 @@ font_packed:
     db #FF, #FF, #FF, #FF  ; DEL → cursor block (0x7C solid)
 
 font_exceptions:
-    db 32, 1, #24  ; '@' línea 1
-    db 32, 6, #20  ; '@' línea 6
-    db 45, 0, #44  ; 'M' línea 0
-    db 46, 6, #64  ; 'N' línea 6
-    db 55, 6, #44  ; 'W' línea 6
-    db 63, 7, #7E  ; '_' línea 7
-    db 74, 7, #70  ; 'j' línea 7
-    db 77, 2, #68  ; 'm' línea 2
-    db 82, 3, #70  ; 'r' línea 3
-    db 87, 6, #44  ; 'w' línea 6
-    db 94, 3, #44  ; '~' línea 3 (hollow circle)
-    db 94, 4, #44  ; '~' línea 4 (hollow circle)
-    db #FF          ; fin de tabla
+    db 32, 1, #24  ; '@' line 1
+    db 32, 6, #20  ; '@' line 6
+    db 45, 0, #44  ; 'M' line 0
+    db 46, 6, #64  ; 'N' line 6
+    db 55, 6, #44  ; 'W' line 6
+    db 62, 1, #44  ; '^' line 1 (hourglass: X...X)
+    db 63, 7, #7E  ; '_' line 7
+    db 74, 7, #70  ; 'j' line 7
+    db 77, 2, #68  ; 'm' line 2
+    db 82, 3, #70  ; 'r' line 3
+    db 87, 6, #44  ; 'w' line 6
+    db 94, 3, #44  ; '~' line 3 (hollow circle)
+    db 94, 4, #44  ; '~' line 4 (hollow circle)
+    db #FF          ; end of table
 
 ; ============================================
-; compareStringZ - Compara dos strings Z-terminated
-; Entrada: HL, DE = punteros a strings
-; Salida:  Z=1 si iguales, Z=0 si diferentes
-; Preserva: HL, DE, BC
+; compareStringZ - Compare two zero-terminated strings
+; Input: HL, DE = string pointers
+; Output: Z=1 if equal, Z=0 if different
+; Preserves: HL, DE, BC
 ; ============================================
 compareStringZ:
     push hl
@@ -743,9 +763,9 @@ compareStringZ:
     ld c, a
     ld a, (hl)
     cp c
-    jr nz, .different       ; Diferentes -> Z=0
+    jr nz, .different
     and a
-    jr z, .equal            ; Ambos 0 -> iguales, Z=1
+    jr z, .equal            ; both zero -> equal
     inc hl
     inc de
     jr .loop
@@ -759,19 +779,19 @@ compareStringZ:
     pop bc
     pop de
     pop hl
-    or 1                    ; Z=0 (A nunca será 0)
+    or 1                    ; Z=0
     ret
 
 ; ============================================
-; draw_hline - Línea horizontal de 1 pixel a lo ancho de pantalla
-; Entrada: A = fila (0-23), E = scanline (0-7), D = atributo
-; Destruye: AF, BC, DE, HL
+; draw_hline - 1-pixel horizontal line across full screen width
+; Input: A = row (0-23), E = scanline (0-7), D = attribute
+; Destroys: AF, BC, DE, HL
 ; ============================================
 draw_hline:
     push de
     call draw_hline_only
     pop de
-    ; Atributos
+    ; Attributes
     ld a, c
     ld l, 0
     srl a : rr l
@@ -787,9 +807,9 @@ draw_hline:
     djnz .attr
     ret
 
-; draw_hline_only - Solo píxeles, sin tocar atributos
-; Entrada: A = fila (0-23), E = scanline (0-7)
-; Destruye: AF, BC, HL. Preserva C = fila
+; draw_hline_only - Pixels only, no attribute change
+; Input: A = row (0-23), E = scanline (0-7)
+; Destroys: AF, BC, HL. Preserves: C = row
 draw_hline_only:
     ld c, a
     and #18
@@ -813,10 +833,10 @@ draw_hline_only:
     ret
 
 ; ============================================
-; stretchRows01 - Estira row 0 a doble alto en rows 0-1
-; Debe llamarse DESPUÉS de renderizar texto/gráficos en row 0
-; Cada scanline se duplica: top 4 → row 0, bottom 4 → row 1
-; Destruye: AF, BC, DE, HL
+; stretchRows01 - Stretch row 0 to double-height across rows 0-1
+; Must be called AFTER rendering text/graphics in row 0
+; Each scanline is duplicated: top 4 -> row 0, bottom 4 -> row 1
+; Destroys: AF, BC, DE, HL
 ; ============================================
 stretchRows01:
     ld hl, #4700        ; src: row0 scanline 7
@@ -826,7 +846,7 @@ stretchRows01:
     ld de, #4700        ; dst: row0 scanline 7
     jp stretchFour
 
-; Estira row 18 a doble alto en rows 18-19
+; Stretch row 18 to double-height across rows 18-19
 stretchRows1819:
     ld hl, #5740        ; src: row18 scanline 7
     ld de, #5760        ; dst: row19 scanline 7
@@ -835,7 +855,7 @@ stretchRows1819:
     ld de, #5740        ; dst: row18 scanline 7
     jp stretchFour
 
-; Estira row 4 a doble alto en rows 4-5
+; Stretch row 4 to double-height across rows 4-5
 stretchRows45:
     ld hl, #4780        ; src: row4 scanline 7
     ld de, #47A0        ; dst: row5 scanline 7
@@ -844,7 +864,7 @@ stretchRows45:
     ld de, #4780        ; dst: row4 scanline 7
     jp stretchFour
 
-; Estira row 3 a doble alto en rows 3-4
+; Stretch row 3 to double-height across rows 3-4
 stretchRows34:
     ld hl, #4760        ; src: row3 scanline 7
     ld de, #4780        ; dst: row4 scanline 7
@@ -860,18 +880,18 @@ stretchFour:
     push hl
     push de
     ld bc, 32
-    ldir                ; copiar src → dst_high
+    ldir                ; copy src -> dst_high
     pop de
     pop hl
     push hl
     dec d               ; dst_low = dst_high - 256
     push de
     ld bc, 32
-    ldir                ; copiar src → dst_low (duplicar)
+    ldir                ; copy src -> dst_low (duplicate)
     pop de
     pop hl
     dec h               ; src -= 256
-    dec d               ; dst_high siguiente = dst_low - 256
+    dec d               ; next dst_high = dst_low - 256
     pop bc
     djnz .sloop
     ret

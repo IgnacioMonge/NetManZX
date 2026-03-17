@@ -1,33 +1,31 @@
     module Uart
 
-; Timeout por defecto - Next necesita más porque su CPU es más rápida
+; Default timeout - Next needs more due to faster CPU
     IFDEF NEXT
-DEFAULT_TIMEOUT = #FFFF          ; Next: timeout máximo 16-bit
+DEFAULT_TIMEOUT = #FFFF          ; Next: max 16-bit timeout
     ELSE
-DEFAULT_TIMEOUT = #8000          ; UNO/divMMC: (~1.6s a 3.5MHz)
+DEFAULT_TIMEOUT = #8000          ; UNO/divMMC: ~1.6s at 3.5MHz
     ENDIF
 
-; Timeout largo: se implementa como varios bloques para tolerar pausas
-; largas (JOIN/DHCP/SCAN) sin declarar timeout prematuro.
-; Next tiene CPU más rápida, necesita más repeticiones
+; Long timeout: multiple blocks to tolerate long pauses
+; (JOIN/DHCP/SCAN) without premature timeout.
 LONG_TIMEOUT_BLOCK = #FFFF
     IFDEF NEXT
-LONG_TIMEOUT_REPS  = 80          ; Next: CPU más rápida, necesita más tiempo
+LONG_TIMEOUT_REPS  = 80          ; Next: faster CPU needs more reps
     ELSE
-LONG_TIMEOUT_REPS  = 8           ; UNO/divMMC: valor original
+LONG_TIMEOUT_REPS  = 8
     ENDIF
 
-; Timeout medio: para lectura de datos en curso (ej: scan)
+; Medium timeout: for in-progress data reads (e.g. scan)
     IFDEF NEXT
-MEDIUM_TIMEOUT = #FFFF           ; Next: timeout máximo 16-bit
+MEDIUM_TIMEOUT = #FFFF
     ELSE
-MEDIUM_TIMEOUT = #8000           ; UNO/divMMC: igual que default
+MEDIUM_TIMEOUT = #8000
     ENDIF
 
 init:
-    ; Mensaje movido a main.asm para control de flujo
     call UartImpl.init
-    ; Inicializar buffer de log (modo linea)
+    ; Init line-mode log buffer
     ld hl, log_buf
     ld (log_ptr), hl
     xor a
@@ -38,7 +36,7 @@ write:
     push af
     call UartImpl.write
     pop af
-    push af                 ; Guardar byte para log
+    push af
     ld a, (log_enabled)
     and a
     jr z, .skipLog
@@ -50,35 +48,30 @@ write:
     ret
   
 
-; Lectura con timeout normal
-; Salida: A = byte leído, CF=1 si éxito
-;         CF=0 si timeout
+; Read with default timeout
+; Out: A = byte read, CF=1 success, CF=0 timeout
 readTimeout:
     push bc, de, hl
     ld de, DEFAULT_TIMEOUT
     call poll_block
     jr c, got_byte
-    ; Timeout
     pop hl, de, bc
     or a
     ret
 
-; Lectura con timeout medio (para datos en curso, ej: scan)
-; Salida: A = byte leído, CF=1 si éxito
-;         CF=0 si timeout
+; Read with medium timeout (for in-progress data, e.g. scan)
+; Out: A = byte read, CF=1 success, CF=0 timeout
 readTimeoutMedium:
     push bc, de, hl
     ld de, MEDIUM_TIMEOUT
     call poll_block
     jr c, got_byte
-    ; Timeout
     pop hl, de, bc
     or a
     ret
 
-; Lectura con timeout largo (para conexión WiFi)
-; Salida: A = byte leído, CF=1 si éxito
-;         CF=0 si timeout o BREAK pulsado
+; Read with long timeout (for WiFi connection)
+; Out: A = byte read, CF=1 success, CF=0 timeout or BREAK pressed
 readTimeoutLong:
     push bc, de, hl
     ld b, LONG_TIMEOUT_REPS
@@ -86,27 +79,27 @@ readTimeoutLong:
     ld de, LONG_TIMEOUT_BLOCK
     call poll_block
     jr c, got_byte
-    ; Chequear BREAK entre bloques (~370ms cada uno)
+    ; Check BREAK between blocks (~370ms each)
     call Keyboard.checkBreak
-    jr z, .breakAbort           ; Z=1 → BREAK pulsado
+    jr z, .breakAbort
     djnz .outer
 .breakAbort
-    ; Timeout total o BREAK
+    ; Total timeout or BREAK
     pop hl, de, bc
     or a
     ret
 
 ; ------------------------------------------------------------
 ; poll_block
-;   Entrada: DE = contador
-;   Salida:  CF=1 si hay byte (A=byte), CF=0 si timeout
+;   In:  DE = counter
+;   Out: CF=1 byte available (A=byte), CF=0 timeout
 ; ------------------------------------------------------------
 poll_block:
 .loop
     call UartImpl.uartRead
     ret c
 
-    ; Pequeño delay para no saturar
+    ; Small delay to avoid bus saturation
     ld a, 4
 .delay
     dec a
@@ -115,36 +108,36 @@ poll_block:
     dec de
     ld a, e
     or a
-    jr nz, .loop          ; E no es 0: seguir rápido
-    ; E=0: cada 256 iteraciones, chequear BREAK
+    jr nz, .loop
+    ; E=0: every 256 iterations, check BREAK
     ld a, d
     or a
-    jr z, .done           ; D también 0: timeout
+    jr z, .done
     call Keyboard.checkBreak
-    jr z, .done           ; Z=1 → BREAK pulsado, abortar
+    jr z, .done
     jr .loop
 .done
     or a
     ret
 
 got_byte
-    push af                 ; Guardar byte leído PRIMERO
+    push af
     ld a, (log_enabled)
     and a
     jr z, .skipLog
-    pop af                  ; Recuperar para mostrar
-    push af                 ; Volver a guardar
+    pop af
+    push af
     call log_char
 .skipLog
-    pop af                  ; Recuperar byte leído
+    pop af
     pop hl, de, bc
-    scf                 ; CF = 1, éxito
+    scf
     ret
 
 ; ------------------------------------------------------------
-; Log modo linea
-;   Acumula bytes en log_buf y vuelca en Display.putStrLog al ver LF.
-;   Mantiene CR/LF (si CR llega antes de LF se almacena igual).
+; Line-mode log
+;   Accumulates bytes in log_buf, flushes via Display.putStrLog on LF.
+;   CR/LF preserved (CR before LF is stored as-is).
 ; ------------------------------------------------------------
 LOG_BUF_SIZE = 160
 
@@ -158,7 +151,7 @@ log_char:
     sbc hl, de
     jr c, .have_space
 
-    ; Sin espacio: marcar overflow y forzar flush cuando llegue LF
+    ; No space: mark overflow, flush will happen on next LF
     ld a, 1
     ld (log_overflow), a
     jr .maybe_flush
@@ -183,7 +176,7 @@ log_flush:
     push af, hl
     ld hl, (log_ptr)
     xor a
-    ld (hl), a               ; Zero-terminate
+    ld (hl), a
     ld hl, log_buf
     call Display.putStrLog
     ld hl, log_buf
@@ -193,8 +186,8 @@ log_flush:
     pop hl, af
     ret
 
-; Reinicia el buffer de log (descarta linea parcial). Util para mutear log en medio
-; de un comando multipart (p. ej. AT+CWJAP) sin mezclar contenidos.
+; Reset log buffer (discards partial line). Used to mute log mid-command
+; (e.g. AT+CWJAP) without mixing output.
 logReset:
     ld hl, log_buf
     ld (log_ptr), hl
@@ -202,9 +195,8 @@ logReset:
     ld (log_overflow), a
     ret
 
-; Variables al final (después del código)
-; Por defecto activado: ahora es log por lineas (mucho mas ligero).
-log_enabled  db 1
+; Disabled by default; toggled at runtime with L key.
+log_enabled  db 0
 log_overflow db 0
 log_ptr      dw 0
     RTVAR log_buf, LOG_BUF_SIZE

@@ -4,19 +4,19 @@ KEY_BS = 12
 KEY_UP = 11
 KEY_DN = 10
 
-; Verifica si BREAK está pulsado (CAPS SHIFT + SPACE)
-; Devuelve: Z=1 si BREAK pulsado, Z=0 si no
+; Checks if BREAK is pressed (CAPS SHIFT + SPACE)
+; Returns: Z=1 if BREAK pressed, Z=0 if not
 checkBreak:
-    ld a, #7F               ; Fila SPACE (B-SPACE)
+    ld a, #7F               ; SPACE row (B-SPACE)
     in a, (#FE)
-    bit 0, a                ; SPACE es bit 0
-    ret nz                  ; No pulsado, Z=0
-    ld a, #FE               ; Fila CAPS SHIFT (SHIFT-V)
+    bit 0, a                ; SPACE is bit 0
+    ret nz                  ; Not pressed, Z=0
+    ld a, #FE               ; CAPS SHIFT row (SHIFT-V)
     in a, (#FE)
-    bit 0, a                ; CAPS SHIFT es bit 0
-    ret                     ; Z=1 si ambos pulsados
+    bit 0, a                ; CAPS SHIFT is bit 0
+    ret                     ; Z=1 if both pressed
 
-; Lectura bloqueante - espera hasta que haya tecla (sync 50Hz)
+; Blocking read - waits until a key is available (sync 50Hz)
 inKey:
     halt
     call inKeyNoWait
@@ -24,13 +24,13 @@ inKey:
     jr z, inKey
     ret
 
-; Lectura no bloqueante - devuelve 0 si no hay tecla
+; Non-blocking read - returns 0 if no key available
 inKeyNoWait:
     ld hl, BASIC_KEY
     ld a, (hl)
     and a
-    ret z               ; Sin tecla, devolver 0
-    ld (hl), 0          ; Limpiar inmediatamente
+    ret z               ; No key, return 0
+    ld (hl), 0          ; Clear immediately
     ret
 
     endmodule

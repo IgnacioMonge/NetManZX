@@ -57,7 +57,7 @@ NetManZX is based on the original [netman-zx](https://github.com/nihirash/netman
 
 ### Other
 - **About screen** (I key): Shows version, build date, author, GitHub URL, and license
-- **UART Debug Log**: Toggle live UART log display with L key
+- **UART Debug Log**: Toggle live UART log display with L key (works globally). Red indicator dot in log area when active
 - **Compressed font**: Built-in nibble-packed font system (no external font.bin dependency)
 - **Three UART backends**: Supports ZX-Uno, AY-UART (ZX-Badaloc), and ZX Spectrum Next hardware
 - **NextSync baud recovery** (Next build only): Automatically detects and recovers if ESP was left at wrong baud rate by NextSync

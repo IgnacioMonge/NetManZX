@@ -11,23 +11,23 @@ init:
     ld bc, ZXUNO_ADDR : ld a, UART_DATA_REG : out (c), a
     ld bc, ZXUNO_REG : in A, (c)
 
-    ; Espera breve de arranque y drenaje de basura RX.
-    ; Importante: no hacer logging aquí (muy caro) para evitar pérdida de bytes
-    ; en backends rápidos (115200).
+    ; Brief startup wait and RX garbage drain.
+    ; Important: no logging here (too expensive) to avoid byte loss
+    ; on fast backends (115200).
     ei
     ld b,50
 1
     push bc
-    call uartRead           ; descartar (si lo hay)
+    call uartRead           ; discard (if any)
     pop bc
     halt
     djnz 1b
 
-    ; Drenaje adicional acotado
+    ; Additional bounded drain
     ld bc, #0800
 .flush
     push bc
-    call uartRead           ; descartar (si lo hay)
+    call uartRead           ; discard (if any)
     pop bc
     dec bc
     ld a,b : or c

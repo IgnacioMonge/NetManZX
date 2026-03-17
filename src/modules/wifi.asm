@@ -27,7 +27,7 @@
     module Wifi
 
 ; ============================================
-; UART lock (evita competencia con UI.checkAsyncWifi)
+; UART lock (prevents contention with UI.checkAsyncWifi)
 ; ============================================
 uartLock:
     ld a, 1
@@ -39,8 +39,8 @@ uartUnlock:
     ld (uart_busy), a
     ret
 
-; Constantes de configuración (MAX_NETWORKS, MAX_SSID_LEN, BUFFER_* defined in main.asm)
-MAX_RETRIES     = 3           ; Reintentos en init
+; Config constants (MAX_NETWORKS, MAX_SSID_LEN, BUFFER_* defined in main.asm)
+MAX_RETRIES     = 3           ; Init retries
 
 checkConnection:
     call flushInput
@@ -185,27 +185,27 @@ checkConnection:
     cp 10 : jr nz, .flushToLF
     ret
 
-; Drena el UART hasta silencio (con límite de 1024 bytes para evitar bloqueo)
+; Drain UART until silence (capped at 1024 bytes to prevent lockup)
 flushInput:
     ld de, 1024
 .flushLoop
     call UartImpl.uartRead
-    jr nc, .flushDone           ; CF=0 → silencio, fin
+    jr nc, .flushDone
     dec de
     ld a, d : or e
-    jr nz, .flushLoop           ; Quedan bytes por drenar
+    jr nz, .flushLoop
 .flushDone
     ret
 
-; Salir de modo transparente (+++, guard time, flush)
-; Seguro llamar aunque el ESP no esté en modo transparente.
+; Exit transparent mode (+++, guard time, flush)
+; Safe to call even if ESP is not in transparent mode.
 exitTransparent:
     EspSend "+++"
     ld b, 75               ; ~1.5s guard time
 .etp_wait
     halt
     djnz .etp_wait
-    call flushInput         ; Descartar respuesta (puede ser "NO CHANGE" etc.)
+    call flushInput         ; Discard response (may be "NO CHANGE" etc.)
     ret
 
 init:
@@ -302,14 +302,14 @@ getList:
     call uartLock
     call flushInput
 
-    ; --- LIMPIEZA DE MEMORIA SEGURA (LDIR) ---
+    ; --- Clear buffer (LDIR) ---
     ld hl, buffer
     ld de, buffer + 1
     ld bc, BUFFER_SIZE - 1
     xor a
-    ld (hl), a      ; Poner a 0 el primer byte
-    ldir            ; Extender el 0 a todo el buffer
-    ; -----------------------------------------
+    ld (hl), a
+    ldir
+    ; --------------------------
 
     ld hl, buffer
     ld (buff_ptr), hl
@@ -328,11 +328,11 @@ getList:
     ; fall through to loadList
 
 loadList:
-    ; Primera espera con timeout largo (el scan puede tardar 5-15 segundos)
+    ; First wait with long timeout (scan can take 5-15 seconds)
     IFDEF NEXT
-    ld b, 60                     ; Next: CPU más rápida, más intentos
+    ld b, 60                     ; Next: faster CPU, more attempts
     ELSE
-    ld b, 20                     ; UNO/divMMC: valor original
+    ld b, 20                     ; UNO/divMMC: original value
     ENDIF
 .waitFirstResponse
     push bc
@@ -340,7 +340,7 @@ loadList:
     pop bc
     jr c, .gotFirstChar
     djnz .waitFirstResponse
-    jp .scan_timeout             ; Sin respuesta después de timeout
+    jp .scan_timeout             ; No response after timeout
     
 .gotFirstChar
     cp '+' : jr z, .plusStart
@@ -388,8 +388,8 @@ loadList:
     jr loadList
 
 .ok_return
-    call initDisplayIndices     ; Inicializar índices para mostrar
-    call sortNetworks           ; Ordenar por RSSI automáticamente
+    call initDisplayIndices     ; Initialize display indices
+    call sortNetworks           ; Auto-sort by RSSI
     or a
     call uartUnlock
     ret
@@ -403,7 +403,7 @@ loadList:
     cp 'O' : jp nz, loadList
     call Uart.readTimeout : jp nc, .scan_timeout
     cp 'R' : jp nz, loadList
-    ; Scan devolvió ERROR - limpiar y salir
+    ; Scan returned ERROR - clean up and exit
     ld hl, .scan_err_msg
     call Display.putStrLog
     call uartUnlock
@@ -423,7 +423,7 @@ loadList:
     ld a, (networks_count)
     cp MAX_NETWORKS
     jr c, .skipToEcn
-    ; Drenar resto de línea antes de volver (evita desincronización)
+    ; Flush rest of line before returning (prevents desync)
 .flushMax
     call Uart.readTimeout
     jp nc, .scan_timeout
@@ -651,43 +651,41 @@ dbg_rx_error    db "<< ERROR", 13, 10, 0
 dbg_rx_fail     db "<< FAIL", 13, 10, 0
 
 
-; checkOkErr - Usa timeout normal
+; checkOkErr - Uses normal timeout
 checkOkErr:
     xor a
     ld (use_long_timeout), a
-    ld (last_error), a          ; Sin error específico
+    ld (last_error), a
     jr checkOkErrCommon
 
-; checkOkErrLong - Usa timeout largo para AT+CWJAP
+; checkOkErrLong - Uses long timeout for AT+CWJAP
 checkOkErrLong:
     ld a, 1
     ld (use_long_timeout), a
     xor a
-    ld (last_error), a          ; Sin error específico
+    ld (last_error), a
     ; Fall through
 
 checkOkErrCommon:
     call uartLock
-    ; Límite de bytes para evitar bucle infinito con tráfico de red
-    ld hl, 2000                 ; Máximo 2000 bytes antes de rendirse
+    ; Byte limit to prevent infinite loop with network traffic
+    ld hl, 2000
     ld (byte_limit), hl
 
 .mainLoop
-    ; Verificar límite
+    ; Check byte limit
     ld hl, (byte_limit)
     ld a, h
     or l
-    jr z, .timeout              ; Límite alcanzado
-    dec hl
-    ld (byte_limit), hl
+    jr z, .timeout              ; Limit reached
     
     call .doRead
     jp nc, .timeout
     cp 'O' : jp z, .okStart 
     cp 'E' : jp z, .errStart 
     cp 'F' : jp z, .failStart
-    cp '+' : jp z, .plusStart   ; Detectar +CWJAP:X
-    ; Ignorar mensajes asíncronos
+    cp '+' : jp z, .plusStart   ; Detect +CWJAP:X
+    ; Ignore async messages
     jr .mainLoop
 
 .timeout
@@ -753,10 +751,10 @@ checkOkErrCommon:
     scf
     ret
 
-; Detectar +CWJAP:X para códigos de error
+; Detect +CWJAP:X error codes
 .plusStart
     call .doRead : jp nc, .timeout
-    cp 'C' : jp nz, .mainLoop   ; No es +CWJAP
+    cp 'C' : jp nz, .mainLoop   ; Not +CWJAP
     call .doRead : jp nc, .timeout
     cp 'W' : jp nz, .mainLoop
     call .doRead : jp nc, .timeout
@@ -767,12 +765,12 @@ checkOkErrCommon:
     cp 'P' : jp nz, .mainLoop
     call .doRead : jp nc, .timeout
     cp ':' : jp nz, .mainLoop
-    ; Leer código de error (1-4)
+    ; Read error code (1-4)
     call .doRead : jp nc, .timeout
-    sub '0'                     ; Convertir ASCII a número
-    ld (last_error), a          ; Guardar código de error
+    sub '0'                     ; ASCII to number
+    ld (last_error), a          ; Store error code
     call .flushToLF
-    jp .mainLoop                ; Seguir esperando ERROR/FAIL
+    jp .mainLoop                ; Keep waiting for ERROR/FAIL
 
 .flushToLF
     call .doRead
@@ -780,7 +778,7 @@ checkOkErrCommon:
     cp 10 : jr nz, .flushToLF
     ret
 
-; Subrutina que llama al read apropiado según use_long_timeout
+; Calls appropriate read based on use_long_timeout flag
 .doRead
     ld a, (use_long_timeout)
     and a
@@ -789,16 +787,15 @@ checkOkErrCommon:
 
 use_long_timeout db 0
 byte_limit       dw 0
-last_error       db 0           ; Código de error CWJAP (0=ninguno, 1-4=error)
+last_error       db 0           ; CWJAP error code (0=none, 1-4=error)
 
 ; ============================================
-; getIP - Obtiene la IP actual del ESP
-; Resultado en ip_buffer
-; CF=0 si éxito, CF=1 si error
+; getIP - Gets the current ESP IP address
+; Output: ip_buffer, CF=0 success, CF=1 error
 ; ============================================
 getIP:
     call uartLock
-    ; Limpiar buffer primero
+    ; Clear buffer first
     ld hl, ip_buffer
     ld b, 16
     xor a
@@ -807,13 +804,13 @@ getIP:
     inc hl
     djnz .clear
 
-    ld bc, 500                  ; Límite de bytes
+    ld bc, 500                  ; Byte limit
     EspCmd "AT+CIFSR"
 .loop
     dec bc
     ld a, b
     or c
-    jr z, .timeout              ; Límite alcanzado
+    jr z, .timeout              ; Limit reached
     call Uart.readTimeout
     jp nc, .timeout
     cp 'P' : jr z, .infoStart
@@ -824,7 +821,7 @@ getIP:
     call Uart.readTimeout : jp nc, .timeout
     cp '"' : jr nz, .loop
     ld hl, ip_buffer
-    ld b, 16                    ; Límite de caracteres IP
+    ld b, 16                    ; IP char limit
 .copyIpLoop
     push hl
     push bc
@@ -836,11 +833,11 @@ getIP:
     ld (hl), a
     inc hl
     djnz .copyIpLoop
-    ; IP demasiado larga, truncar
+    ; IP too long, truncate
 .finish
     xor a
     ld (hl), a
-    ; Verificar que hay algo válido
+    ; Verify we got something valid
     ld a, (ip_buffer)
     cp '0'
     jr nz, .ok
@@ -930,8 +927,8 @@ ensureCommandMode:
 .msg_escape db 13, "-- Escape +++ (trying to exit pass-through)", 13, 10, 0
 
 ; ============================================
-; initDisplayIndices - Inicializa índices a 0,1,2,...,n-1
-; Llamar después de cada escaneo
+; initDisplayIndices - Initialize indices to 0,1,2,...,n-1
+; Call after each scan
 ; ============================================
 initDisplayIndices:
     ld hl, display_indices
@@ -947,19 +944,19 @@ initDisplayIndices:
     ret
 
 ; ============================================
-; sortNetworks - Toggle ordenación por señal
-; Si no está ordenado: ordena los índices por RSSI
-; Si está ordenado: restaura orden original
+; sortNetworks - Toggle sort by signal strength
+; If unsorted: sort indices by RSSI
+; If sorted: restore original order
 ; ============================================
 sortNetworks:
     ld a, (is_sorted)
     and a
     jr nz, .unsort
     
-    ; --- Ordenar por señal (bubble sort sobre índices) ---
+    ; --- Sort by signal (bubble sort on indices) ---
     ld a, (networks_count)
     cp 2
-    ret c                       ; Si hay 0 o 1 red, no ordenar
+    ret c                       ; 0 or 1 networks, nothing to sort
     
     dec a
     ld (sort_passes), a
@@ -973,22 +970,22 @@ sortNetworks:
     ld (sort_index), a
     
 .innerLoop
-    ; Obtener display_indices[i] y display_indices[i+1]
+    ; Get display_indices[i] and display_indices[i+1]
     ld a, (sort_index)
     ld hl, display_indices
     ld e, a
     ld d, 0
     add hl, de                  ; HL = &display_indices[i]
-    
-    ld b, (hl)                  ; B = display_indices[i] (índice real red i)
+
+    ld b, (hl)                  ; B = display_indices[i]
     inc hl
-    ld c, (hl)                  ; C = display_indices[i+1] (índice real red i+1)
-    
-    ; Obtener RSSI de las redes reales
-    push hl                     ; Guardar &display_indices[i+1]
-    push bc                     ; Guardar B y C
-    
-    ; RSSI de red B
+    ld c, (hl)                  ; C = display_indices[i+1]
+
+    ; Get RSSI for actual networks
+    push hl                     ; Save &display_indices[i+1]
+    push bc
+
+    ; RSSI of network B
     ld hl, rssi_buffer
     ld e, b
     ld d, 0
@@ -997,9 +994,9 @@ sortNetworks:
     and #7F
     ld d, a                     ; D = RSSI[indices[i]] & 0x7F
     
-    ; RSSI de red C
-    pop bc                      ; Recuperar B y C
-    push de                     ; Guardar D (RSSI de i)
+    ; RSSI of network C
+    pop bc
+    push de                     ; Save D (RSSI of i)
     ld hl, rssi_buffer
     ld e, c
     ld d, 0
@@ -1007,17 +1004,17 @@ sortNetworks:
     ld a, (hl)
     and #7F                     ; A = RSSI[indices[i+1]] & 0x7F
     
-    pop de                      ; D = RSSI de i
-    
-    ; Comparar: si RSSI[i+1] < RSSI[i], intercambiar índices
+    pop de                      ; D = RSSI of i
+
+    ; Compare: if RSSI[i+1] < RSSI[i], swap indices
     cp d
     pop hl                      ; HL = &display_indices[i+1]
     jr nc, .noSwap
     
-    ; Intercambiar display_indices[i] y display_indices[i+1]
-    ld (hl), b                  ; display_indices[i+1] = antiguo indices[i]
+    ; Swap display_indices[i] and display_indices[i+1]
+    ld (hl), b                  ; display_indices[i+1] = old indices[i]
     dec hl
-    ld (hl), c                  ; display_indices[i] = antiguo indices[i+1]
+    ld (hl), c                  ; display_indices[i] = old indices[i+1]
     
 .noSwap
     ld a, (sort_index)
@@ -1039,14 +1036,14 @@ sortNetworks:
     ret
 
 .unsort
-    ; Restaurar orden original
+    ; Restore original order
     call initDisplayIndices
     ret
 
 ; ============================================
-; getDisplayIndex - Obtiene el índice real de una red
-; Entrada: A = posición en pantalla (0-19)
-; Salida: A = índice real de la red
+; getDisplayIndex - Gets actual network index
+; Input: A = screen position (0-19)
+; Output: A = actual network index
 ; ============================================
 getDisplayIndex:
     ld hl, display_indices
@@ -1062,7 +1059,7 @@ sort_index      db 0
     RTVAR display_indices, MAX_NETWORKS
 is_sorted       db 0
 
-; Variables del módulo
+; Module variables
 buff_ptr        dw buffer
 rssi_ptr        dw rssi_buffer
 ecn_ptr         dw ecn_buffer
@@ -1073,7 +1070,7 @@ ok_ignored      db 0
 old_fw          db 0
 retry_count     db 0
 is_connected    db 0
-uart_busy       db 0           ; 1=UART ocupado por parser/operación crítica
+uart_busy       db 0           ; 1=UART busy (parser/critical operation)
 debug_log      db 0           ; 1=log TX/RX key info (safe)
 
     RTVAR rssi_buffer, MAX_NETWORKS
