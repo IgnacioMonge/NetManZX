@@ -8,7 +8,7 @@
 
 ## What is NetManZX?
 
-NetManZX is a WiFi network configuration utility for ZX Spectrum computers equipped with ESP8266-based WiFi modules (such as ZX-Badaloc or similar). It provides a user-friendly interface to scan, select, and connect to wireless networks directly from your Spectrum.
+NetManZX is a WiFi network configuration utility for ZX Spectrum computers equipped with ESP8266-based WiFi modules (such as ditTiesus Pijus Magnificus or similar). It provides a user-friendly interface to scan, select, and connect to wireless networks directly from your Spectrum.
 
 ## Origin
 
