@@ -82,11 +82,11 @@ checkConnection:
     or a
     ret
 
-; ------------------------------------------------------------
+; ============================================
 ; .waitCwJAP
 ;   Waits for a +CWJAP... line and extracts SSID.
 ;   Returns: CF=0 if connected (SSID extracted), CF=1 otherwise.
-; ------------------------------------------------------------
+; ============================================
 .waitCwJAP
     ld b, 8                      ; allow several initial timeouts
 .loop
@@ -205,8 +205,7 @@ exitTransparent:
 .etp_wait
     halt
     djnz .etp_wait
-    call flushInput         ; Discard response (may be "NO CHANGE" etc.)
-    ret
+    jp flushInput           ; Discard response (may be "NO CHANGE" etc.)
 
 init:
     call flushInput
@@ -214,38 +213,38 @@ init:
     ld a, MAX_RETRIES
     ld (retry_count), a
     
-.retry_reset
+.retryReset
     call reset
-    jr nc, .reset_ok
+    jr nc, .resetOk
     
     ld a, (retry_count)
     dec a
     ld (retry_count), a
-    jr z, .reset_failed
+    jr z, .resetFailed
     
     ld b, 100
-.retry_wait
+.retryWait
     halt
-    djnz .retry_wait
-    jr .retry_reset
+    djnz .retryWait
+    jr .retryReset
 
-.reset_failed
+.resetFailed
     scf
     ret
     
-.reset_ok
+.resetOk
     EspCmdOkErr "ATE0"
     EspCmdOkErr "AT+SYSSTORE=1"
-    jr c, .old_fw_detect
+    jr c, .oldFwDetect
     EspCmdOkErr "AT+CWMODE=1"
-    jr .check_mode
+    jr .checkMode
 
-.old_fw_detect
+.oldFwDetect
     ld a, 1
     ld (old_fw), a
     EspCmdOkErr "AT+CWMODE_DEF=1"
 
-.check_mode
+.checkMode
     jr c, .err
     EspCmdOkErr "AT+CWAUTOCONN=1"
     jr c, .err
@@ -309,7 +308,7 @@ getList:
     xor a
     ld (hl), a
     ldir
-    ; --------------------------
+    ; ============================================
 
     ld hl, buffer
     ld (buff_ptr), hl
@@ -323,8 +322,11 @@ getList:
     ld (networks_count), a
     ld (seen_cwlap), a
     ld (ok_ignored), a
-    
-    EspCmd "AT+CWLAP"
+
+    ; Try extended scan with longer dwell time per channel
+    ld a, 1
+    ld (scan_extended), a
+    EspCmd "AT+CWLAP=,,,,200,1500"
     ; fall through to loadList
 
 loadList:
@@ -340,78 +342,93 @@ loadList:
     pop bc
     jr c, .gotFirstChar
     djnz .waitFirstResponse
-    jp .scan_timeout             ; No response after timeout
+    jp .scanTimeout             ; No response after timeout
     
 .gotFirstChar
     cp '+' : jr z, .plusStart
     cp 'O' : jr z, .okStart
     cp 'E' : jp z, .errStart
+    cp 13  : jr z, loadList          ; CR — back to long timeout
+    cp 10  : jr z, loadList          ; LF — back to long timeout
     jr .continueLoad
 
 .continueLoad
     call Uart.readTimeoutMedium
-    jp nc, .scan_timeout
-    
+    jp nc, .scanTimeout
+
     cp '+' : jr z, .plusStart
     cp 'O' : jr z, .okStart
     cp 'E' : jp z, .errStart
+    cp 13  : jr z, loadList          ; CR — back to long timeout
+    cp 10  : jr z, loadList          ; LF — back to long timeout
     jr .continueLoad
 
 .plusStart
-    call Uart.readTimeout : jp nc, .scan_timeout
+    call Uart.readTimeout : jp nc, .scanTimeout
     cp 'C' : jr nz, loadList
-    call Uart.readTimeout : jp nc, .scan_timeout
+    call Uart.readTimeout : jp nc, .scanTimeout
     cp 'W' : jr nz, loadList
-    call Uart.readTimeout : jp nc, .scan_timeout
+    call Uart.readTimeout : jp nc, .scanTimeout
     cp 'L' : jr nz, loadList
     ld a, 1
     ld (seen_cwlap), a
     jp .loadAp
 
 .okStart
-    call Uart.readTimeout : jp nc, .scan_timeout
+    call Uart.readTimeout : jp nc, .scanTimeout
     cp 'K' : jr nz, loadList
-    call Uart.readTimeout : jp nc, .scan_timeout
+    call Uart.readTimeout : jp nc, .scanTimeout
     cp 13  : jr nz, loadList
 
     ; Some firmwares (or prior commands) may leave a stray OK in the RX stream.
     ; Ignore the first OK if we have not seen any +CWLAP lines yet.
     ld a, (seen_cwlap)
     and a
-    jr nz, .ok_return
+    jr nz, .okReturn
 
     ld a, (ok_ignored)
     and a
-    jr nz, .ok_return
+    jr nz, .okReturn
     ld a, 1
     ld (ok_ignored), a
-    jr loadList
+    jp loadList
 
-.ok_return
+.okReturn
     call initDisplayIndices     ; Initialize display indices
     call sortNetworks           ; Auto-sort by RSSI
     or a
-    call uartUnlock
-    ret
+    jp uartUnlock
 
 .errStart
-    call Uart.readTimeout : jp nc, .scan_timeout
+    call Uart.readTimeout : jp nc, .scanTimeout
     cp 'R' : jp nz, loadList
-    call Uart.readTimeout : jp nc, .scan_timeout
+    call Uart.readTimeout : jp nc, .scanTimeout
     cp 'R' : jp nz, loadList
-    call Uart.readTimeout : jp nc, .scan_timeout
+    call Uart.readTimeout : jp nc, .scanTimeout
     cp 'O' : jp nz, loadList
-    call Uart.readTimeout : jp nc, .scan_timeout
+    call Uart.readTimeout : jp nc, .scanTimeout
     cp 'R' : jp nz, loadList
-    ; Scan returned ERROR - clean up and exit
-    ld hl, .scan_err_msg
+    ; Extended scan not supported? Fallback to basic AT+CWLAP
+    ld a, (scan_extended)
+    and a
+    jr z, .scanFail
+    xor a
+    ld (scan_extended), a
+    ld (seen_cwlap), a
+    ld (ok_ignored), a
+    call flushInput
+    EspCmd "AT+CWLAP"
+    jp loadList
+
+.scanFail
+    ld hl, .scanErrMsg
     call Display.putStrLog
     call uartUnlock
     scf
     ret
-.scan_err_msg db 13, "Scan fail!", 0
+.scanErrMsg db 13, "Scan fail!", 0
 
-.scan_timeout
+.scanTimeout
     ld hl, .timeout_msg
     call Display.putStrLog
     call uartUnlock
@@ -426,16 +443,16 @@ loadList:
     ; Flush rest of line before returning (prevents desync)
 .flushMax
     call Uart.readTimeout
-    jp nc, .scan_timeout
+    jp nc, .scanTimeout
     cp 10
     jr nz, .flushMax
     jp loadList
 
 .skipToEcn
-    call Uart.readTimeout : jp nc, .scan_timeout
+    call Uart.readTimeout : jp nc, .scanTimeout
     cp '(' : jr nz, .skipToEcn
     
-    call Uart.readTimeout : jp nc, .scan_timeout
+    call Uart.readTimeout : jp nc, .scanTimeout
     sub '0'
     ; Save ECN to its own buffer and also to rssi_ptr (open flag, overwritten later)
     ld hl, (ecn_ptr)
@@ -444,13 +461,13 @@ loadList:
     ld (hl), a
 
 .findQuote
-    call Uart.readTimeout : jp nc, .scan_timeout
+    call Uart.readTimeout : jp nc, .scanTimeout
     cp '"' : jr nz, .findQuote
-    
+
     ld c, 0
-    
+
 .loadName
-    call Uart.readTimeout : jp nc, .scan_timeout
+    call Uart.readTimeout : jp nc, .scanTimeout
     cp '"' : jr z, .loadedName
     
     ld b, a             
@@ -485,17 +502,17 @@ loadList:
 .loadedName
     xor a
     ld hl, (buff_ptr) : ld (hl), a : inc hl : ld (buff_ptr), hl
-    
+
 .findRssi
-    call Uart.readTimeout : jp nc, .scan_timeout
+    call Uart.readTimeout : jp nc, .scanTimeout
     cp ',' : jr nz, .findRssi
     
-    call Uart.readTimeout : jp nc, .scan_timeout
+    call Uart.readTimeout : jp nc, .scanTimeout
     cp '-' : jr nz, .skipRssi   
     
     ld de, 0            
 .readRssiDigit
-    call Uart.readTimeout : jp nc, .scan_timeout
+    call Uart.readTimeout : jp nc, .scanTimeout
     cp '0' : jr c, .rssiDone
     cp '9'+1 : jr nc, .rssiDone
     
@@ -529,14 +546,14 @@ loadList:
     ; The comma after RSSI was already consumed by readRssiDigit.
     ; Skip MAC field (e.g. "aa:bb:cc:dd:ee:ff") until comma after it.
 .skipMac
-    call Uart.readTimeout : jp nc, .scan_timeout
+    call Uart.readTimeout : jp nc, .scanTimeout
     cp ',' : jr nz, .skipMac
     ; Comma after MAC consumed. Next chars are channel digits.
 
     ; Parse channel number (1-14)
     ld e, 0
 .readChanDigit
-    call Uart.readTimeout : jp nc, .scan_timeout
+    call Uart.readTimeout : jp nc, .scanTimeout
     cp '0' : jr c, .chanDone
     cp '9'+1 : jr nc, .chanDone
     sub '0'
@@ -579,8 +596,7 @@ espSend:
     ret
 
 espSendZ:
-    ; Safe TX log (line-based) for debugging.
-    ; Masks AT+CWJAP to avoid printing passwords.
+    ; TX log only when debug enabled (protects passwords sent in parts)
     ld a, (debug_log)
     and a
     jr z, .sendLoop
@@ -595,13 +611,13 @@ espSendZ:
     inc hl
     jr .sendLoop
 
-; ------------------------------------------------------------
+; ============================================
 ; logTxMasked
 ;   HL -> Z-terminated command string (usually includes CR/LF)
 ;   Logs to on-screen UART log as:
 ;       >> <command>
 ;   but masks AT+CWJAP payload.
-; ------------------------------------------------------------
+; ============================================
 logTxMasked:
     push hl
     ld hl, dbg_prefix
@@ -678,7 +694,9 @@ checkOkErrCommon:
     ld a, h
     or l
     jr z, .timeout              ; Limit reached
-    
+    dec hl
+    ld (byte_limit), hl
+
     call .doRead
     jp nc, .timeout
     cp 'O' : jp z, .okStart 
@@ -699,17 +717,12 @@ checkOkErrCommon:
     call .doRead : jp nc, .timeout
     cp 13  : jp nz, .mainLoop
     call .flushToLF
-    ld a, (debug_log)
-    and a
-    jr z, .ok_no_log
     push hl
     ld hl, dbg_rx_ok
     call Display.putStrLog
     pop hl
-.ok_no_log
     or a
-    call uartUnlock
-    ret
+    jp uartUnlock
 .errStart
     call .doRead : jp nc, .timeout
     cp 'R' : jp nz, .mainLoop
@@ -720,14 +733,10 @@ checkOkErrCommon:
     call .doRead : jp nc, .timeout
     cp 'R' : jp nz, .mainLoop
     call .flushToLF
-    ld a, (debug_log)
-    and a
-    jr z, .err_no_log
     push hl
     ld hl, dbg_rx_error
     call Display.putStrLog
     pop hl
-.err_no_log
     call uartUnlock
     scf
     ret 
@@ -739,14 +748,10 @@ checkOkErrCommon:
     call .doRead : jp nc, .timeout
     cp 'L' : jp nz, .mainLoop
     call .flushToLF
-    ld a, (debug_log)
-    and a
-    jr z, .fail_no_log
     push hl
     ld hl, dbg_rx_fail
     call Display.putStrLog
     pop hl
-.fail_no_log
     call uartUnlock
     scf
     ret
@@ -785,9 +790,10 @@ checkOkErrCommon:
     jp z, Uart.readTimeout
     jp Uart.readTimeoutLong
 
-use_long_timeout db 0
-byte_limit       dw 0
-last_error       db 0           ; CWJAP error code (0=none, 1-4=error)
+; Variables in printer buffer (set before each use, no init needed)
+use_long_timeout = #5B18
+byte_limit       = #5B19    ; dw
+last_error       = #5B1B    ; CWJAP error code (0=none, 1-4=error)
 
 ; ============================================
 ; getIP - Gets the current ESP IP address
@@ -846,8 +852,7 @@ getIP:
     jr z, .noIP
 .ok
     or a                    ; CF = 0
-    call uartUnlock
-    ret
+    jp uartUnlock
 .timeout
 .noIP
     call uartUnlock
@@ -921,8 +926,7 @@ ensureCommandMode:
     ; Clear any response noise and retry AT
     call flushInput
     EspCmd "AT"
-    call checkOkErr
-    ret
+    jp checkOkErr
 
 .msg_escape db 13, "-- Escape +++ (trying to exit pass-through)", 13, 10, 0
 
@@ -965,18 +969,11 @@ sortNetworks:
     ld a, (networks_count)
     dec a
     ld (sort_compares), a
-    
-    xor a
-    ld (sort_index), a
-    
-.innerLoop
-    ; Get display_indices[i] and display_indices[i+1]
-    ld a, (sort_index)
-    ld hl, display_indices
-    ld e, a
-    ld d, 0
-    add hl, de                  ; HL = &display_indices[i]
 
+    ld hl, display_indices      ; HL maintained across inner loop
+
+.innerLoop
+    ; HL = &display_indices[i] (maintained)
     ld b, (hl)                  ; B = display_indices[i]
     inc hl
     ld c, (hl)                  ; C = display_indices[i+1]
@@ -993,7 +990,7 @@ sortNetworks:
     ld a, (hl)
     and #7F
     ld d, a                     ; D = RSSI[indices[i]] & 0x7F
-    
+
     ; RSSI of network C
     pop bc
     push de                     ; Save D (RSSI of i)
@@ -1003,24 +1000,21 @@ sortNetworks:
     add hl, de
     ld a, (hl)
     and #7F                     ; A = RSSI[indices[i+1]] & 0x7F
-    
+
     pop de                      ; D = RSSI of i
 
     ; Compare: if RSSI[i+1] < RSSI[i], swap indices
     cp d
     pop hl                      ; HL = &display_indices[i+1]
     jr nc, .noSwap
-    
+
     ; Swap display_indices[i] and display_indices[i+1]
     ld (hl), b                  ; display_indices[i+1] = old indices[i]
     dec hl
     ld (hl), c                  ; display_indices[i] = old indices[i+1]
-    
+    inc hl                      ; Restore HL to &display_indices[i+1]
+
 .noSwap
-    ld a, (sort_index)
-    inc a
-    ld (sort_index), a
-    
     ld a, (sort_compares)
     dec a
     ld (sort_compares), a
@@ -1037,8 +1031,7 @@ sortNetworks:
 
 .unsort
     ; Restore original order
-    call initDisplayIndices
-    ret
+    jp initDisplayIndices
 
 ; ============================================
 ; getDisplayIndex - Gets actual network index
@@ -1053,25 +1046,31 @@ getDisplayIndex:
     ld a, (hl)
     ret
 
-sort_passes     db 0
-sort_compares   db 0
-sort_index      db 0
-    RTVAR display_indices, MAX_NETWORKS
-is_sorted       db 0
+; Sort variables in printer buffer (set before use in sortNetworks)
+sort_passes     = #5B0D
+sort_compares   = #5B0E
+is_sorted       = #5B0F
 
-; Module variables
+    RTVAR display_indices, MAX_NETWORKS
+
+; Module variables - pointers need binary init, kept in code section
 buff_ptr        dw buffer
 rssi_ptr        dw rssi_buffer
 ecn_ptr         dw ecn_buffer
 chan_ptr         dw channel_buffer
-networks_count  db 0
-seen_cwlap      db 0
-ok_ignored      db 0
-old_fw          db 0
-retry_count     db 0
-is_connected    db 0
-uart_busy       db 0           ; 1=UART busy (parser/critical operation)
-debug_log      db 0           ; 1=log TX/RX key info (safe)
+
+; Flags in printer buffer (all set before first read)
+networks_count  = #5B11
+seen_cwlap      = #5B12
+ok_ignored      = #5B13
+scan_extended   = #5B14
+old_fw          = #5B15
+retry_count     = #5B16
+is_connected    = #5B17
+
+; In printer buffer (set by uartLock/unlock and L-key toggle)
+uart_busy       = #5B1C
+debug_log       = #5B1D
 
     RTVAR rssi_buffer, MAX_NETWORKS
     RTVAR ecn_buffer, MAX_NETWORKS      ; Encryption type per network (0-5)

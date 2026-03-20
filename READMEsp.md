@@ -140,12 +140,14 @@ Pon el fichero NETMANZX.BAS y netmanzx.cod en el mismo directorio. Ejecuta NETMA
 
 ### Robustez de Conectividad
 
-- **Deteccion BREAK**: Tecla BREAK comprobada cada ~5ms durante comandos AT para cancelacion casi instantanea
+- **Deteccion BREAK**: Tecla BREAK comprobada cada ~5ms durante comandos AT para cancelacion casi instantanea. Pantalla dedicada de "Cancelled" con debounce
 - **Deteccion Automatica de Caida WiFi**: Parseo asincrono de eventos del ESP para detectar desconexiones inesperadas al instante
-- **Chequeo Periodico en Idle**: Validacion periodica mediante comandos AT para comprobar que el enlace sigue activo
+- **Chequeo Periodico en Idle**: Validacion periodica mediante comandos AT con debounce (3 fallos consecutivos requeridos antes de declarar desconexion)
 - **Proteccion UART Busy**: Mecanismo tipo mutex que evita que el parser asincrono interfiera durante operaciones criticas
+- **Seguridad de Registros UART**: Los tres backends UART (UNO, AY, Next) preservan los registros del llamante durante operaciones de escritura
 - **Reintento de IP al Conectar**: 3 intentos con intervalos de 1 segundo tras la asociacion WiFi exitosa
-- **Recuperacion Automatica de Estado**: Al perder conexion, la interfaz pasa a Disconnected y programa un rescaneo seguro
+- **Recuperacion Automatica de Estado**: Al perder conexion, la interfaz pasa a Disconnected y programa un rescaneo seguro. El auto-rescan preserva la lista anterior en caso de fallo
+- **Busquedas de Buffer Acotadas**: Todas las busquedas CPIR limitadas al tamano real del buffer
 - **Recuperacion NextSync** (solo build Next): Detecta ESP dejado a 1152000 baudios por NextSync y reinicia automaticamente a la velocidad correcta
 
 ## Historial de Versiones

@@ -10,7 +10,7 @@
     ; V = Mmp...  (M=major, m=minor, p=patch)
     ; Examples: V=12  -> 1.2
     ;           V=121 -> 1.2.1
-    DEFINE V 141
+    DEFINE V 142
 
 ; Global constants
 buffer = #C000
@@ -41,7 +41,7 @@ version_string:
     include "modules/uart-common.asm"
     include "modules/keyboard.asm"
 
-    ; ------------------------------------------------------------
+    ; ============================================
     ; UART backend selection (SjASMPlus compatible)
     ;
     ; Build defines:
@@ -50,7 +50,7 @@ version_string:
     ;   -DAY   : AY-3-8912 UART (ZX-Badaloc and similar)
     ;
     ; If none is provided, AY is used as a safe default.
-    ; ------------------------------------------------------------
+    ; ============================================
     IFDEF UNO
         include "drivers/zxuno.asm"
     ELSE
@@ -105,37 +105,37 @@ start:
     ld hl, .msg_query_status
     call Display.putStrLog
     call Wifi.checkConnection
-    jr nc, .already_connected  ; CF=0 means connected
+    jr nc, .alreadyConnected  ; CF=0 means connected
 
     ; Fallback: some firmwares don't respond to CWJAP? but have an IP assigned.
     ; If a valid IP exists, consider it connected.
     call Wifi.getIP
-    jr c, .no_preconn
+    jr c, .noPreconn
     ld a, 1
     ld (Wifi.is_connected), a
     ld hl, Wifi.connected_ssid
     ld a, (hl)
     and a
-    jr nz, .already_connected
+    jr nz, .alreadyConnected
     ; Unknown SSID -> show placeholder
     ld hl, .ssid_unknown
     ld de, Wifi.connected_ssid
-.copy_ssid_u
+.copySsidU
     ld a, (hl)
     ld (de), a
     inc hl
     inc de
     and a
-    jr nz, .copy_ssid_u
-    jr .already_connected
+    jr nz, .copySsidU
+    jr .alreadyConnected
 
-.no_preconn
+.noPreconn
     ; --- NOT CONNECTED: full initialization ---
     ld hl, .msg_init_wifi
     call Display.putStrLog
     
     call Wifi.init
-    jp c, .init_failed
+    jp c, .initFailed
     
     ; Warm-up delay
     ld b, 125
@@ -145,25 +145,25 @@ start:
 
     ; Final connection check
     call Wifi.checkConnection
-    jr c, .not_connected
+    jr c, .notConnected
     
-.already_connected:
+.alreadyConnected:
     ; --- CASE: CONNECTED ---
     call UI.updateWifiStatus_q  ; Switch from Scanning to Connected (no render)
     call UI.ipShowConnected     ; Show IP (single render)
     
     call UI.showConnectedDialog 
-    jr nc, .force_scan       ; User chose 'Y' (Reconfigure) -> Scan
+    jr nc, .forceScan       ; User chose 'Y' (Reconfigure) -> Scan
 
     ; User chose 'N' (Keep) -> Exit to BASIC
     jp UI.showConnectedSuccessScreen
 
-.not_connected
+.notConnected
     ; --- Update top and bottom bars ---
     call UI.updateWifiStatus_q  ; Ensure bottom bar is RED (no render)
     call UI.ipShowNotConnected  ; Set "IP: not connected" (single render)
 
-.force_scan
+.forceScan
     ; --- CASE: NOT CONFIGURED / RESCAN ---
 
     ; CRITICAL: Reset UI variables before new scan
@@ -174,32 +174,32 @@ start:
 
     ld b, 5                 ; 5 attempts
     
-.scan_loop
+.scanLoop
     push bc
     
     call UI.topClean
     gotoXY 0, 17
-    ld hl, .msg_scanning
+    ld hl, UI.rescan.scanning_msg
     call Display.putStr
-    
+
     call Wifi.getList
     
-    jr c, .scan_timeout     ; CF=1 -> Communication error
+    jr c, .scanTimeout     ; CF=1 -> Communication error
     
     ld a, (Wifi.networks_count)
     and a
-    jr nz, .scan_success    ; Networks found -> proceed
+    jr nz, .scanSuccess    ; Networks found -> proceed
 
     ; 0 networks found
     ld a, 2
     ld (.scan_fail_reason), a
-    jr .retry_wait
+    jr .retryWait
 
-.scan_timeout
+.scanTimeout
     ld a, 1
     ld (.scan_fail_reason), a
     
-.retry_wait
+.retryWait
     pop bc
     push bc
     
@@ -207,12 +207,12 @@ start:
     gotoXY 1, 5
     ld a, (.scan_fail_reason)
     cp 1
-    jr nz, .show_no_networks
+    jr nz, .showNoNetworks
     ld hl, .msg_esp_timeout
-    jr .show_retry_msg
-.show_no_networks
+    jr .showRetryMsg
+.showNoNetworks
     ld hl, .msg_no_networks
-.show_retry_msg
+.showRetryMsg
     call Display.putStr
     
     ld b, 50                ; Longer wait so message is visible
@@ -220,42 +220,48 @@ start:
     djnz .w
     
     pop bc
-    djnz .scan_loop
+    djnz .scanLoop
     
-    jr .end_scan
+    jr .endScan
 
-.scan_success
+.scanSuccess
     pop bc
     xor a
     ld (.scan_fail_reason), a    ; Success
 
-.end_scan
+.endScan
     ; If no networks found, log the reason
     ld a, (Wifi.networks_count)
     and a
-    jr nz, .show_list
+    jr nz, .showList
     
     ld a, (.scan_fail_reason)
     cp 1
-    jr nz, .log_no_networks
+    jr nz, .logNoNetworks
     ld hl, .msg_log_timeout
-    jr .log_reason
-.log_no_networks
+    jr .logReason
+.logNoNetworks
     ld hl, .msg_log_empty
-.log_reason
+.logReason
     call Display.putStrLog
 
-.show_list
+.showList
     call UI.renderList
+    ; Clear startup messages from log area (list already visible)
+    ld b, 4
+.clearLog
+    push bc
+    ld a, 13 : call Display.putLogC
+    pop bc
+    djnz .clearLog
     jp   UI.uiLoop
 
-.init_failed
+.initFailed
     call Display.clrscr
     ld hl, .msg_err_init
     call Display.putStr
-    jr .wait_exit
 
-.wait_exit
+.waitExit
     ld hl, .msg_exit
     call Display.putStr
 .k  halt
@@ -264,19 +270,18 @@ start:
     jr z, .k
     ; Fall through to exit_clean
 
-.exit_clean
+.exitClean
     ld sp, (saved_sp)
     ei
     ret
 
 ; String constants
-.msg_checking   db "Checking connection...", 13, 0
-.msg_preparing  db "Preparing UART...", 13, 0
+.msg_checking   db "Checking...", 13, 0
+.msg_preparing  db "UART init...", 13, 0
 .msg_baud_fix   db "Baud recovery...", 13, 0
 .msg_query_status db "Checking WiFi status...", 13, 0
 .ssid_unknown     db "(unknown)", 0
 .msg_init_wifi  db "Initializing WiFi module...", 13, 0
-.msg_scanning   db "Scanning...", 0
 .msg_err_init   db "WiFi Init Failed", 0
 .msg_exit       db " Press key", 0
 .msg_esp_timeout db "ESP not responding, retrying...", 0
@@ -284,9 +289,9 @@ start:
 .msg_log_timeout db "Scan failed: ESP timeout", 13, 0
 .msg_log_empty   db "Scan complete: no networks", 13, 0
 
-; Variables
-.scan_fail_reason db 0          ; 0=ok, 1=timeout, 2=empty
-saved_sp dw 0
+; Variables in printer buffer (set before use)
+.scan_fail_reason = #5B39
+saved_sp = #5B3A  ; dw
 
 program_end:
 
@@ -295,9 +300,9 @@ program_end:
     ASSERT rt_ptr <= stack_top - 64           ; runtime vars must not reach stack
 
     IFDEF TAP
-        ; ==========================================
+        ; ============================================
         ; Full TAP format (loader + code)
-        ; ==========================================
+        ; ============================================
 
         ; Define BASIC loader in temporary area
         ORG #6000
@@ -344,8 +349,8 @@ basic_end:
         savetap "netmanzx.tap", CODE, "netmanzx", text, program_end - text, text
         
     ELSE
-        ; ==========================================
+        ; ============================================
         ; Standard +3DOS format
-        ; ==========================================
+        ; ============================================
         save3dos "netmanzx.cod", text, program_end - text
     ENDIF

@@ -4,6 +4,54 @@ All notable changes to NetManZX are documented in this file.
 
 ---
 
+## [1.4.2] - "Absolution" - 2026-03-20
+
+### Bug Fixes - UART Drivers
+- **Register corruption in UART write** (next.asm, zxuno.asm): `write` functions destroyed BC, DE, HL without preserving them. Added push/pop to match ay.asm discipline. Prevents intermittent bugs in callers
+- **Lost byte during TX on ZX-Uno** (zxuno.asm): `.is_recvF` detected incoming bytes during transmission but never read them from the data port. Now reads and buffers the byte before setting `is_recv` flag
+- **Unbounded CPIR searches** (ui.asm): Two uses of `ld bc, #FFFF / cpir` for NUL scanning replaced with `ld bc, BUFFER_SIZE` (660 bytes). Prevents runaway memory scan on corrupted buffers
+
+### Bug Fixes - Connection Robustness
+- **Auto-rescan destroyed network list on timeout**: `getList` cleared buffers before confirming scan success. Now clears only on first +CWLAP line, preserving previous data on failure
+- **Health-check too fragile**: A single failed `checkConnection` invalidated the WiFi state. Now requires 3 consecutive failures (debounce counter). Also, `connected_ssid` is no longer cleared before confirming disconnection
+- **doDisconnect was optimistic**: Sent AT+CWQAP with a fixed 100-halt wait, ignoring the response. Now uses `checkOkErr` for proper verification, consistent with the other 3 disconnect paths
+- **SSID input red border flash**: `.ssidClearRest` fell through to `.ssidMaxLen` (red border flash) on every partial redraw. Added `jr .ssidFinishDraw` so the flash only triggers at the 32-char limit
+
+### Bug Fixes - UX Flow
+- **3rd retry shown before fail screen**: On the 3rd failed connection attempt, "Retry..." was displayed before jumping to the error screen. Now checks remaining retries before showing Retry
+- **BREAK during connection showed "Retry..." flash**: BREAK was only checked during the retry wait loop, after "Retry..." was already on screen. Now checks BREAK immediately after connection failure, before any visual feedback
+- **"Cancelled" screen had no debounce**: BREAK key was still held when entering the wait loop, causing immediate exit. Added 15-frame debounce for key release
+- **Startup "No" -> Diagnostics -> Back showed no networks**: `showDiagnostics` never returns (uses `jp renderListAndLoop`), so the scan in main.asm was never reached. Now `renderListAndLoop` triggers a fresh scan when `networks_count == 0`
+- **"No networks found" flash on return from Diagnostics**: `renderList` displayed "No networks found. Press 'R' to rescan." before the automatic scan started. Added `skip_footer` flag to suppress both that message and the footer during the transitional `renderList` call
+- **Hostname input buffer overflow**: `passwordInput` allows up to 40 chars but `hn_buf` is only 21 bytes. Now truncates input to 20 characters before copying
+
+### Visual Enhancements
+- **"Connecting (x/3)..." in double-height green**: Connection attempt message now uses `showBigMessage` with bright green color (rows 3-4), with "Press BREAK to cancel" on row 6
+- **"Retry..." in double-height red**: Shown on rows 8-9 below the cancel message (attempts 1 and 2 only)
+- **Unified connection failure screen**: Both manual and normal routes now share `showConnFailScreen` with big red title + detail text + yellow "Press any key" on row 17. Removes duplicated error dispatch code
+- **"Cancelled." screen**: New `showCancelledScreen` with double-height red title and "Press any key" prompt
+- **"Disconnected." transition**: Screen drawn before updating status bar, eliminating flicker between "Disconnecting..." and "Disconnected."
+- **WPS warning in double-height red**: "WPS requires disconnecting first." now uses `showBigMessage` with `ATTR_ALERT`
+- **Hidden Network title in double-height green**: "Hidden Network (Manual SSID)" now uses `showBigMessage` with `ATTR_SSID_INPUT`
+- **Manual SSID shown in double-height green**: On the password screen, the entered SSID is displayed in stretched green text (rows 4-5) below "Selected SSID:", matching the normal connection flow
+- **Hostname confirmation screen**: After setting hostname, shows "Hostname set to:" with the hostname in double-height green, replacing the old inline "Hostname set OK!" message
+- **Consistent "Press any key" positioning**: All modal screens (connect success, fail, disconnect, cancel, hostname) use `showPressKey` at row 17
+
+### Code Cleanup
+- **Dead symbols removed**: `scr_addr`, `dcb_rc_top` (display.asm), `log_overflow` (uart-common.asm - written in 4 places, never read), `read:` alias (next.asm)
+- **Duplicate ATTR_NORMAL removed**: Two identical definitions consolidated to one
+- **Dead error strings removed**: Old multi-line `msg_fail_generic/timeout/password/notfound/connfail` replaced by unified `showConnFailScreen`
+
+### Size Optimization
+- **String deduplication**: Shared `msg_yes_anykey` and `at_quote_crlf` labels (-34 bytes)
+- **gotoXY0 function**: 72 of 87 `gotoXY 0, Y` macro calls replaced with `ld a, Y : call Display.gotoXY0` (-66 bytes)
+- **espSendZ system**: 16 inline `EspCmd`/`EspCmdOkErr` macros replaced with `ld hl, S_xxx : call espSendZ[CheckOk]` using 13 shared AT command strings (-84 bytes)
+
+### Binary Size
+- UNO: 14,966 bytes (was 15,245 in v1.4.1, **-279 bytes**)
+
+---
+
 ## [1.4.1] - "Sharp Eye" - 2026-03-17
 
 ### Bug Fixes

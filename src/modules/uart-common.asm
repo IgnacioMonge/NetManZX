@@ -89,11 +89,11 @@ readTimeoutLong:
     or a
     ret
 
-; ------------------------------------------------------------
+; ============================================
 ; poll_block
 ;   In:  DE = counter
 ;   Out: CF=1 byte available (A=byte), CF=0 timeout
-; ------------------------------------------------------------
+; ============================================
 poll_block:
 .loop
     call UartImpl.uartRead
@@ -134,11 +134,11 @@ got_byte
     scf
     ret
 
-; ------------------------------------------------------------
+; ============================================
 ; Line-mode log
 ;   Accumulates bytes in log_buf, flushes via Display.putStrLog on LF.
 ;   CR/LF preserved (CR before LF is stored as-is).
-; ------------------------------------------------------------
+; ============================================
 LOG_BUF_SIZE = 160
 
 log_char:

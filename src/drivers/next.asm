@@ -60,13 +60,13 @@ write:
     out (c), d
     ret
 
-; -----------------------------------------------------------------
+; ============================================
 ; uartRead / read
 ; Reads a byte from UART in NON-BLOCKING mode.
 ; Output:
 ;   CF = 1 : Byte read in A
 ;   CF = 0 : No data available (immediate return)
-; -----------------------------------------------------------------
+; ============================================
 read:                        ; Alias for compatibility
 uartRead:
     ld bc, UART_GetStatus
@@ -80,11 +80,11 @@ uartRead:
     scf                  ; Mark success (CF=1)
     ret
 
-; -----------------------------------------------------------------
+; ============================================
 ; tryFastBaud - Temporarily switches UART to ~1152000 baud
 ; For recovery if NextSync left the ESP at high speed.
 ; After use, call init to restore 115200.
-; -----------------------------------------------------------------
+; ============================================
 tryFastBaud:
     ; Detect core type (same as init)
     ld hl, .tableFast

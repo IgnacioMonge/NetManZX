@@ -26,8 +26,7 @@ init:
 .flush
     halt
     djnz .flush
-    call setSpeed
-    ret
+    jp setSpeed
 
 dataSequence:
     ; (Data sequence unchanged)

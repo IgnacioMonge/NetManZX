@@ -17,9 +17,14 @@ ATTR_BANNER_TOP  = 01000111b  ; White on black, BRIGHT (row 0 banner)
 ATTR_BANNER_BOT  = 00000111b  ; White on black, no BRIGHT (row 1 banner)
 ATTR_RSSI        = 004o   ; Green on black (signal bars)
 ATTR_SSID_INPUT  = 104o   ; Bright green on black (selected SSID)
-ATTR_PASS_LINE   = 071o   ; White on blue
-ATTR_PASS_INPUT  = 171o   ; Bright white on blue
+ATTR_PASS_INPUT  = 171o   ; Bright blue on white (password input)
 ATTR_STATUS_BOT  = 00111000b  ; Black ink, white paper, no BRIGHT (double-height bot)
+ATTR_NORMAL      = 107o   ; Bright white on black (standard text)
+ATTR_NORMAL_DIM  = 007o   ; White on black, no bright (double-height bottom)
+ATTR_ALERT       = 102o   ; Bright red on black (warnings/disconnect)
+ATTR_STATUS_DISC = 172o   ; Bright red on white (status: disconnected)
+ATTR_STATUS_CONN = 174o   ; Bright green on white (status: connected)
+ATTR_INPUT_LINE  = 071o   ; Blue on white (input field background)
 
 ; Input: A = line number, C = color
 ; Sets color for entire line (32 columns)
@@ -65,12 +70,30 @@ setAttrPartial:
     ret
 
 putStr:
-    ld a, (hl) : and a : ret z
+    ld bc, (coords)         ; C = col, B = row
+.loop
+    ld a, (hl)
+    and a : jr z, .done
+    cp 13 : jr z, .cr
     push hl
-    call putC
+    push bc
+    ld (drawC.coords), bc   ; set drawC coords directly
+    call drawC
+    pop bc
+    inc c                   ; next column
+    ld a, c : cp 42 : jr nc, .cr2  ; wrap at column 42
     pop hl
     inc hl
-    jr putStr
+    jr .loop
+.cr2
+    pop hl
+    inc hl
+.cr
+    ld c, 0 : inc b
+    jr .loop
+.done
+    ld (coords), bc         ; save final position
+    ret
 
 putStrBig:
     ld a, (hl) : and a : ret z
@@ -203,11 +226,9 @@ putLogC:
     ret
 
 ; Log indicator pixel data — 8 bytes, one per scanline.
-; Populated by UI.updateLogIndicator when log state changes.
-; All zeros = no indicator visible.
-log_ind_data:
-    db 0,0,0,0,0,0,0,0
-putLogC_coord db 0
+; In printer buffer. Populated by UI.updateLogIndicator.
+log_ind_data = #5B4E  ; 8 bytes (#5B4E-#5B55)
+putLogC_coord = #5B36  ; In printer buffer (set before use)
 
 
 drawC:
@@ -216,53 +237,44 @@ drawC:
     ld hl, 0
 .coords = $ - 2
     ld b, l
-    call calc
-    ld d, h
-    ld e, l
-    ld (.rot_tmp), a
+    call calc               ; L = byte col, A = pixel offset (0,2,4,6)
+    ld (dcb_rot), a         ; save pixel offset (reuses drawCBig's temp)
+    ld d, h : ld e, l
     call findAddr
     push de                 ; save screen address
-; Mask rotation
-    ld a, (.rot_tmp)
-    ld hl, #03ff
-    and a : jr z, .drawIt
-.rot_loop
-    ex af, af
-    ld a,l
-    rrca
-    rr h
-    rr l
-    ex af, af
-    dec a
-    jr nz, .rot_loop
-.drawIt    
-    ld a, l
-    ld (.mask1), a
-    ld a, h
-    ld (.mask2), a
-    pop ix, de 
-; Basic draw
-    ld a, 0
-.rot_tmp = $ - 1
-    ld (.rot_cnt), a
+; Mask table lookup (replaces mask rotation loop)
+    ld a, (dcb_rot)
+    ld c, a : ld b, 0
+    ld hl, .maskTable
+    add hl, bc              ; HL = &maskTable[pixel_offset]
+    ld a, (hl) : ld (.mask2), a
+    inc hl
+    ld a, (hl) : ld (.mask1), a
+; Shift dispatch: compute jr offset into unrolled shift chain
+    ld a, c                 ; pixel offset (0,2,4,6)
+    add a, a : add a, a     ; ×4 = bytes to skip back from .shift0
+    ld c, a
+    ld a, .shift0 - .shiftJr - 2
+    sub c
+    ld (.shiftJr + 1), a
+    pop ix, de              ; IX = screen addr, DE = glyph_buf
     ld b, 8
 .printIt
     ld a, (de)
-    ld h,a
-    ld l,0
-    ld a,0
-.rot_cnt = $ - 1
-    and a : jr z, .skipRot
-.rotation
-    ex af, af
-    ld a, l
-    rrca
-    rr h
-    rr l
-    ex af, af
-    dec a
-    jr nz, .rotation
-.skipRot
+    ld h, a
+    ld l, 0
+.shiftJr
+    jr .shift0              ; self-mod: dispatches to correct shift entry
+.shift6
+    srl h : rr l
+    srl h : rr l
+.shift4
+    srl h : rr l
+    srl h : rr l
+.shift2
+    srl h : rr l
+    srl h : rr l
+.shift0
     ld a, (ix + 1)
     and #0f
 .mask1 = $ - 1
@@ -278,11 +290,17 @@ drawC:
     djnz .printIt
     ret
 
-; SMC variables for drawCBig (module level, outside code flow)
-dcb_rot     db 0
-dcb_rc_top  db 0
-dcb_m1      db 0
-dcb_m2      db 0
+.maskTable
+    db #03, #FF             ; shift 0: mask2 (left), mask1 (right)
+    db #C0, #FF             ; shift 2
+    db #F0, #3F             ; shift 4
+    db #FC, #0F             ; shift 6
+
+; SMC variables for drawCBig (in printer buffer, set before use)
+dcb_rot     = #5B32
+dcb_rc_top  = #5B33
+dcb_m1      = #5B34
+dcb_m2      = #5B35
 
 drawCBig:
     call decompressChar
@@ -291,26 +309,27 @@ drawCBig:
 .coords = $ - 2
     ld b, l
     call calc
-    ld d, h
-    ld e, l
     ld (dcb_rot), a
+    ld d, h : ld e, l
     call findAddr
     push de
+; Mask table lookup (shared with drawC)
     ld a, (dcb_rot)
-    ld hl, #03ff
-    and a : jr z, .maskReady
-.rot_loop
-    ex af, af
-    ld a, l : rrca : rr h : rr l
-    ex af, af
-    dec a : jr nz, .rot_loop
-.maskReady
-    ld a, l : ld (dcb_m1), a
-    ld a, h : ld (dcb_m2), a
+    ld c, a : ld b, 0
+    ld hl, drawC.maskTable
+    add hl, bc
+    ld a, (hl) : ld (dcb_m2), a
+    inc hl
+    ld a, (hl) : ld (dcb_m1), a
+; Shift dispatch setup
+    ld a, c                 ; pixel offset (0,2,4,6)
+    add a, a : add a, a     ; ×4
+    ld c, a
+    ld a, .wShift0 - .wShiftJr - 2
+    sub c
+    ld (.wShiftJr + 1), a
     pop ix, de
     push ix
-    ld a, (dcb_rot)
-    ld (dcb_rc_top), a
     ld b, 4
 .topLoop
     call .writeOnePair
@@ -330,17 +349,21 @@ drawCBig:
     djnz .botLoop
     ret
 
-; Sub: read 1 glyph byte, rotate, write to 2 scanlines (duplicated)
+; Sub: read 1 glyph byte, shift, write to 2 scanlines (duplicated)
 .writeOnePair
     ld a, (de) : ld h, a : ld l, 0
-    ld a, (dcb_rc_top)
-    and a : jr z, .noRot
-.doRot
-    ex af, af
-    ld a, l : rrca : rr h : rr l
-    ex af, af
-    dec a : jr nz, .doRot
-.noRot
+.wShiftJr
+    jr .wShift0             ; self-mod: dispatches to correct shift entry
+.wShift6
+    srl h : rr l
+    srl h : rr l
+.wShift4
+    srl h : rr l
+    srl h : rr l
+.wShift2
+    srl h : rr l
+    srl h : rr l
+.wShift0
     ; First scanline
     ld a, (ix + 1)
     push hl : ld l, a : ld a, (dcb_m1) : and l : pop hl
@@ -533,7 +556,7 @@ calc:
     srl l
     ret
 
-coords dw 0
+coords = #5B37  ; In printer buffer (set by gotoXY macro)
 
 ; ============================================
 ; decompressChar - Decompress a character from the packed font
@@ -555,7 +578,7 @@ decompressChar:
     add hl, hl
     ld de, font_packed
     add hl, de
-    ; Unpack 4 bytes -> 8 scanlines via LUT
+    ; Unpack 4 bytes -> 8 scanlines via LUT (font_lut is 16-byte aligned)
     ld de, glyph_buf
     push bc                 ; preserve C (char index)
     ld b, 4
@@ -563,30 +586,19 @@ decompressChar:
     ld a, (hl)
     push hl
     ld c, a                 ; save packed byte
+    ld hl, font_lut         ; H = page, L = base (aligned, no page cross)
     ; High nibble -> even scanline
-    rrca
-    rrca
-    rrca
-    rrca
+    ld a, c
+    rrca : rrca : rrca : rrca
     and #0F
-    ld hl, font_lut
-    add a, l
-    ld l, a
-    adc a, h
-    sub l
-    ld h, a
+    add a, l : ld l, a     ; HL = &font_lut[high_nibble], H preserved
     ld a, (hl)
     ld (de), a
     inc de
-    ; Low nibble -> odd scanline
+    ; Low nibble -> odd scanline (H still valid)
     ld a, c
     and #0F
-    ld hl, font_lut
-    add a, l
-    ld l, a
-    adc a, h
-    sub l
-    ld h, a
+    add a, low font_lut : ld l, a  ; reset L to base + low_nibble
     ld a, (hl)
     ld (de), a
     inc de
@@ -631,6 +643,7 @@ glyph_buf: ds 8
 ; Compressed 6px font - 96 characters (ASCII 32-127)
 ; Format: nibble-packed with 16-value LUT + exception table
 ; ============================================
+    ALIGN 16
 font_lut:
     db #00, #0C, #10, #18, #1C, #28, #30, #36, #38, #3C, #4C, #54, #60, #6C, #78, #7C
 

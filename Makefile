@@ -242,8 +242,6 @@ all: dirs preflight clean_step
 	$(call STEP,2/3,Building all targets)
 	$(call RUN_ASM,UNO,-DUNO -DTAP)
 	$(call MOVE_FILE,$(OUTPUT_TAP),$(BUILDDIR)/netmanzx-uno.tap)
-	$(call RUN_ASM,AY,-DAY -DTAP)
-	$(call MOVE_FILE,$(OUTPUT_TAP),$(BUILDDIR)/netmanzx-ay.tap)
 	$(call RUN_ASM,NEXT,-DNEXT -DTAP)
 	$(call MOVE_FILE,$(OUTPUT_TAP),$(BUILDDIR)/netmanzx-next.tap)
 	$(call OK,All builds complete.)

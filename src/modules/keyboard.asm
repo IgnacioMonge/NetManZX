@@ -3,6 +3,8 @@ BASIC_KEY = #5C08
 KEY_BS = 12
 KEY_UP = 11
 KEY_DN = 10
+KEY_LEFT = 8
+KEY_RIGHT = 9
 
 ; Checks if BREAK is pressed (CAPS SHIFT + SPACE)
 ; Returns: Z=1 if BREAK pressed, Z=0 if not
@@ -14,7 +16,11 @@ checkBreak:
     ld a, #FE               ; CAPS SHIFT row (SHIFT-V)
     in a, (#FE)
     bit 0, a                ; CAPS SHIFT is bit 0
-    ret                     ; Z=1 if both pressed
+    ret nz                  ; Not pressed (just SPACE alone), Z=0
+    ; BREAK detected - clear stale SPACE from ROM buffer
+    xor a
+    ld (BASIC_KEY), a
+    ret                     ; A=0, Z=1
 
 ; Blocking read - waits until a key is available (sync 50Hz)
 inKey:

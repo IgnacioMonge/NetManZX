@@ -140,12 +140,14 @@ Put NETMANZX.BAS file loader and netmanzx.cod in the same directory. Run NETMANZ
 
 ### Connection Robustness
 
-- **BREAK Detection**: BREAK key checked every ~5ms during AT commands for near-instant cancellation
+- **BREAK Detection**: BREAK key checked every ~5ms during AT commands for near-instant cancellation. Dedicated "Cancelled" screen with debounce
 - **Automatic WiFi Drop Detection**: Asynchronous ESP event parsing detects unexpected disconnections instantly
-- **Idle Connection Health Check**: Periodic AT-based link validation ensures the ESP connection remains alive
+- **Idle Connection Health Check**: Periodic AT-based link validation with debounce (3 consecutive failures required before declaring disconnection)
 - **UART Busy Protection**: Mutex-style guard prevents background async parsing from interfering during critical operations
+- **UART Register Safety**: All three UART backends (UNO, AY, Next) preserve caller registers during write operations
 - **IP Retry on Connect**: 3 attempts with 1-second intervals after successful WiFi association
-- **Automatic State Recovery**: On link loss, UI transitions to Disconnected and schedules a safe rescan
+- **Automatic State Recovery**: On link loss, UI transitions to Disconnected and schedules a safe rescan. Auto-rescan preserves previous network list on scan failure
+- **Bounded Buffer Searches**: All CPIR-based string searches bounded to actual buffer sizes
 - **NextSync Recovery** (Next build only): Detects ESP left at 1152000 baud by NextSync and auto-resets to correct speed
 
 ## Version History

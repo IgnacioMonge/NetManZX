@@ -16,8 +16,7 @@ init:
     call Display.stretchRows01
     call drawBadge
     call drawSeparator
-    call clearPassBuffer
-    ret
+    jp clearPassBuffer
 
 ; SpectalkZX-style badge: dithered triangle with color transitions
 ; Row 0 (top): 4 cells at bytes 28-31 (staggered, 1 cell less)
@@ -155,7 +154,7 @@ ipShowScanning:
 ipShowNotConnected:
     ld hl, msg_ip_disconn
     call ipSetFromZ
-    ld a, 172o              ; Red on bright white
+    ld a, Display.ATTR_STATUS_DISC
     ld (ip_value_color), a
     jp statusBarFinalize
 
@@ -167,7 +166,7 @@ ipShowConnected:
     call ipSetPrefix
     ld hl, Wifi.ip_buffer
     call ipAppendZ
-    ld a, 171o              ; Blue on bright white
+    ld a, Display.ATTR_PASS_INPUT
     ld (ip_value_color), a
     jp statusBarFinalize
 
@@ -285,8 +284,8 @@ setStatusCommon:
     call setStatusCommon_q
     jp statusBarFinalize
 
-status_color db 0
-status_text_ptr dw 0
+status_color = #5B46        ; In printer buffer (set in UI.init)
+status_text_ptr = #5B47     ; dw
 ip_value_color db Display.ATTR_STATUSBAR
 
 ; Status data: color (1 byte) + message
@@ -294,10 +293,10 @@ status_scanning_data:
     db Display.ATTR_STATUSBAR   ; Black on bright white
     db "Scanning    ", 0
 status_connected_data:
-    db 174o                     ; Green on bright white
+    db Display.ATTR_STATUS_CONN
     db "Connected   ", 0
 status_disconn_data:
-    db 172o                     ; Red on bright white
+    db Display.ATTR_STATUS_DISC
     db "Disconnected", 0
 msg_conn_lost      db "Connection lost!", 13, 10, 0
 
@@ -411,11 +410,19 @@ passwordInput:
     ei
     jp .piWait
 
+; Max length reached: red border flash feedback
+.piMaxLen
+    ld a, 2 : out (#FE), a
+    halt : halt
+    xor a : out (#FE), a
+    jp .piWait
+
 ; --- Key wait loop ---
 .piWait
     ld b, 4
-.piWL   halt : djnz .piWL
+.piWL   halt
     call Keyboard.checkBreak : jp z, .piCancel
+    djnz .piWL
     call Keyboard.inKeyNoWait : and a : jr z, .piWait
     cp Keyboard.KEY_UP : jp z, .piToggle
     cp 8 : jp z, .piLeft
@@ -427,7 +434,7 @@ passwordInput:
 
     ; --- Insert character ---
     ld c, a
-    ld a, (pass_len) : cp MAX_PASS_LEN : jp nc, .piWait
+    ld a, (pass_len) : cp MAX_PASS_LEN : jp nc, .piMaxLen
     ld a, (pass_cursor) : ld b, a : ld a, (pass_len) : cp b
     jr nz, .piInsMid                ; Cursor in middle -> full redraw
 
@@ -448,10 +455,13 @@ passwordInput:
     ; Insert in middle -> shift + full redraw
 .piInsMid
     ld a, (pass_len) : ld b, a : ld a, (pass_cursor) : ld e, a
+    ; HL = pass_buffer + len (maintain across loop)
+    ld hl, pass_buffer : ld d, 0 : push de : ld e, b : add hl, de : pop de
 .piShR  ld a, b : cp e : jr z, .piIns
-    dec b : ld hl, pass_buffer : ld d, 0 : push de : ld e, b : add hl, de
-    ld a, (hl) : inc hl : ld (hl), a : pop de : jr .piShR
-.piIns  ld a, (pass_cursor) : ld hl, pass_buffer : ld d, 0 : ld e, a : add hl, de : ld (hl), c
+    dec b : dec hl
+    ld a, (hl) : inc hl : ld (hl), a : dec hl
+    jr .piShR
+.piIns  ld (hl), c              ; HL = pass_buffer + cursor
     ld a, (pass_len) : inc a : ld (pass_len), a
     ld hl, pass_buffer : ld d, 0 : ld e, a : add hl, de : xor a : ld (hl), a
     ld a, (pass_cursor) : inc a : ld (pass_cursor), a
@@ -488,9 +498,11 @@ passwordInput:
     ld b, a : ld a, (pass_len) : cp b : jr z, .piDelEnd
     ; Delete in middle -> shift + full redraw
     ld a, (pass_cursor) : ld b, a : ld a, (pass_len) : ld c, a
-.piShL  ld a, b : cp c : jr z, .piDelEnd
+    ; HL = pass_buffer + cursor (maintain across loop)
     ld hl, pass_buffer : ld d, 0 : ld e, b : add hl, de
-    ld a, (hl) : dec hl : ld (hl), a : inc b : jr .piShL
+.piShL  ld a, b : cp c : jr z, .piDelEnd
+    ld a, (hl) : dec hl : ld (hl), a : inc hl : inc hl
+    inc b : jr .piShL
 .piDelEnd
     ld a, (pass_len) : dec a : ld (pass_len), a
     ld hl, pass_buffer : ld d, 0 : ld e, a : add hl, de : xor a : ld (hl), a
@@ -510,10 +522,38 @@ passwordInput:
 .piEnter or a : ret
 .piCancel scf : ret
 
-sti_buf  dw 0
-sti_max  db 0
-sti_len  db 0
-sti_line db 0
+sti_buf  = #5B56  ; dw, in printer buffer (set before use)
+sti_max  = #5B58
+sti_len  = #5B30     ; In printer buffer (set before use)
+sti_line = #5B31
+
+; Set B consecutive rows starting from row A to color C
+; Destroys: all (via Display.setAttr)
+setRowsColor:
+    push af, bc
+    call Display.setAttr
+    pop bc, af
+    inc a
+    djnz setRowsColor
+    ret
+
+; Clear pixel rows with LDIR
+; Input: D = start row, C = bytes per scanline - 1
+; Destroys: AF, BC, DE, HL
+clearPixelRows:
+    ld e, 0
+    call Display.findAddr
+    ld b, 8
+.lp: push bc : push de
+    ld h, d : ld l, e
+    ld (hl), 0
+    ld d, h : ld e, l : inc de
+    ld b, 0
+    ldir
+    pop de : pop bc
+    inc d
+    djnz .lp
+    ret
 
 topClean:
     call Display.clrListOnly    ; Only clears lines 2-14
@@ -662,8 +702,7 @@ renderNetworksCommon:
 .noNetworks
     gotoXY 0, 6
     ld hl, no_net_msg
-    call Display.putStr
-    ret
+    jp Display.putStr
 
 msg_hidden db "<hidden>", 0
 
@@ -724,6 +763,11 @@ showConnectedSuccessScreen:
     jp exitProgram
 
 ; ============================================
+; Shorthand: renderList + jp uiLoop
+renderListAndLoop:
+    call renderList
+    jp uiLoop
+
 ; renderList - Draw full list with help text
 ; ============================================
 renderList:
@@ -799,8 +843,7 @@ showScrollIndicators:
 
     gotoXY 41, 16
     ld a, 24                ; Up arrow char
-    call Display.putC
-    ret
+    jp Display.putC
 
 ; ============================================
 ; clampOffsetToCount
@@ -897,11 +940,12 @@ printRssi:
     
     ret
 
-rssi_value db 0
+rssi_value = #5B2A             ; In printer buffer (set in renderList)
 
-current_line db 0
-current_screen_idx db 0
-conn_row_found db 0             ; Flag: 1 if connected network already found
+; In printer buffer (set in renderList)
+current_line = #5B2B
+current_screen_idx = #5B2C
+conn_row_found = #5B2D
 
 ; ============================================
 ; showConnectedDialog
@@ -913,8 +957,7 @@ showConnectedDialog:
     gotoXY 0, 4
     ld hl, Wifi.connected_ssid
     call Display.putStrBig
-    setLineColor 4, Display.ATTR_SSID_INPUT
-    setLineColor 5, Display.ATTR_SSID_INPUT
+    ld a, 4 : ld b, 2 : ld c, Display.ATTR_SSID_INPUT : call setRowsColor
     ; Questions
     gotoXY 0, 7 : ld hl, .msg_question : call Display.putStr
     gotoXY 0, 9 : ld hl, .msg_options : call Display.putStr
@@ -962,8 +1005,7 @@ showCursor:
     jr nc, cursor
     ld c, Display.ATTR_CONN_CURSOR  ; Cursor on connected row: blue on yellow
 cursor:
-    ld a,(cursor_position) : add a, 6 : call Display.setAttrPartial
-    ret
+    ld a,(cursor_position) : add a, 6 : jp Display.setAttrPartial
 
 ; ============================================
 ; cursorIsConnectedRow
@@ -1013,8 +1055,7 @@ invalidateConnectedIfMissing:
     call connectedSSIDPresentInList
     ret c                       ; present -> keep
     ; Not in list -> invalidate
-    call doMarkDisconnected
-    ret
+    jp doMarkDisconnected
 
 ; ============================================
 ; connectedSSIDPresentInList
@@ -1194,6 +1235,8 @@ uiLoopMain:
     cp 'O' : jp z, pageUp
     cp 'p' : jp z, pageDown
     cp 'P' : jp z, pageDown
+    cp Keyboard.KEY_LEFT  : jp z, goFirstNetwork
+    cp Keyboard.KEY_RIGHT : jp z, goLastNetwork
 
     cp 'r' : jp z, rescan
     cp 'R' : jp z, rescan
@@ -1248,8 +1291,7 @@ doMarkDisconnected:
     call updateWifiStatus_q
     call ipShowNotConnected
     ld hl, msg_conn_lost
-    call Display.putStrLog
-    ret
+    jp Display.putStrLog
 
 handleDisconnect
     call doMarkDisconnected
@@ -1280,7 +1322,7 @@ rescan:
     call clearNetworksArea
     
     call Wifi.getList
-    call invalidateConnectedIfMissing
+    call nc, invalidateConnectedIfMissing  ; skip on scan timeout
     call renderListOnly         ; Only redraws the list, not the help
     jp uiLoop
 .scanning_msg db "Scanning...", 0
@@ -1356,7 +1398,10 @@ doAutoRescan:
     ld (offset), a
     
 .autoRender
-    call invalidateConnectedIfMissing
+    ; Only invalidate if scan returned results (avoid false disconnect on timeout)
+    ld a, (Wifi.networks_count)
+    and a
+    call nz, invalidateConnectedIfMissing
     call renderListOnly
     
     pop hl
@@ -1376,10 +1421,8 @@ doDisconnect:
 
     ; Confirmation
     call hideCursor : call topClean
-    gotoXY 1, 3
-    ld hl, .msg_disc_confirm
-    call Display.putStr
-    gotoXY 1, 5
+    ld hl, .msg_disc_confirm : ld c, Display.ATTR_ALERT : call showBigMessage
+    gotoXY 1, 6
     ld hl, .msg_disc_yn
     call Display.putStr
 .waitDiscConfirm
@@ -1389,9 +1432,13 @@ doDisconnect:
     cp 'y' : jr z, .doDiscNow
     cp 'Y' : jr z, .doDiscNow
     ; Any other key cancels
-    call renderList : jp uiLoop
+    jp renderListAndLoop
 
 .doDiscNow
+    ; Immediate feedback while waiting
+    call topClean
+    ld hl, .msg_disconnecting : ld c, Display.ATTR_ALERT : call showBigMessage
+
     ; Send disconnect command
     ld hl, cmd_disconnect
     call Wifi.espSendZ
@@ -1409,9 +1456,9 @@ doDisconnect:
     call updateWifiStatus_q
     call ipShowNotConnected
 
-    ; Show confirmation in double-height
+    ; Show final confirmation
     call topClean
-    ld hl, .msg_disconnected : ld c, 102o : call showBigMessage
+    ld hl, .msg_disconnected : ld c, Display.ATTR_ALERT : call showBigMessage
     call showPressKey
 
 .waitDiscKey
@@ -1419,13 +1466,13 @@ doDisconnect:
     call Keyboard.inKey
     and a
     jr z, .waitDiscKey
-    
-    call renderList
-    jp uiLoop
 
-.msg_disc_confirm  db "Disconnect from WiFi?", 0
-.msg_disc_yn       db "(Y)es / any key = cancel", 0
-.msg_disconnected  db "Disconnected.", 0
+    jp renderListAndLoop
+
+.msg_disc_confirm   db "Disconnect from WiFi?", 0
+.msg_disc_yn        db "(Y)es / any key = cancel", 0
+.msg_disconnecting  db "Disconnecting...", 0
+.msg_disconnected   db "Disconnected.", 0
 
 ; ============================================
 ; manualSSID - Enter SSID manually
@@ -1460,8 +1507,7 @@ manualSSID:
     ld hl, .msg_ssid_help
     call Display.putStr
 
-    setLineColor 8, Display.ATTR_PASS_INPUT
-    setLineColor 9, Display.ATTR_PASS_INPUT
+    ld a, 8 : ld b, 2 : ld c, Display.ATTR_PASS_INPUT : call setRowsColor
 
 ; Full SSID redraw (for cursor left)
 .drawSSIDFull
@@ -1575,14 +1621,19 @@ manualSSID:
     ld a, ' ' : call Display.putCBig
     ld a, ' ' : call Display.putCBig
 
+; Max SSID length reached: red border flash feedback
+.ssidMaxLen
+    ld a, 2 : out (#FE), a
+    halt : halt
+    xor a : out (#FE), a
+
 .ssidFinishDraw
 .waitSSIDKey
     ld b, 4
 .waitSSIDLoop
     halt
-    djnz .waitSSIDLoop
-
     call Keyboard.checkBreak : jp z, .cancelManual
+    djnz .waitSSIDLoop
     call Keyboard.inKeyNoWait
     and a
     jr z, .waitSSIDKey
@@ -1607,7 +1658,7 @@ manualSSID:
     ld c, a                         ; Save char
     ld a, (manual_ssid_len)
     cp 32                           ; Max 32 chars
-    jp nc, .waitSSIDKey
+    jp nc, .ssidMaxLen
     
     ; Check if inserting at end or in the middle
     ld a, (manual_ssid_cursor)
@@ -1621,20 +1672,23 @@ manualSSID:
     ld b, a
     ld a, (manual_ssid_cursor)
     ld e, a
-.ssidShiftRight
-    ld a, b
-    cp e
-    jr z, .ssidDoInsert
-    dec b
+    ; HL = manual_ssid_buffer + len (maintain across loop)
     ld hl, manual_ssid_buffer
     ld d, 0
     push de
     ld e, b
     add hl, de
+    pop de
+.ssidShiftRight
+    ld a, b
+    cp e
+    jr z, .ssidDoInsert
+    dec b
+    dec hl
     ld a, (hl)
     inc hl
     ld (hl), a
-    pop de
+    dec hl
     jr .ssidShiftRight
 
 .ssidInsertAtEnd
@@ -1702,17 +1756,20 @@ manualSSID:
     ld b, a
     ld a, (manual_ssid_len)
     ld c, a
-.ssidShiftLeft
-    ld a, b
-    cp c
-    jr z, .ssidFinishDelete
+    ; HL = manual_ssid_buffer + cursor (maintain across loop)
     ld hl, manual_ssid_buffer
     ld d, 0
     ld e, b
     add hl, de
+.ssidShiftLeft
+    ld a, b
+    cp c
+    jr z, .ssidFinishDelete
     ld a, (hl)
     dec hl
     ld (hl), a
+    inc hl
+    inc hl
     inc b
     jr .ssidShiftLeft
 
@@ -1738,9 +1795,8 @@ manualSSID:
     jp .drawSSID
 
 .cancelManual
-    setLineColor 8, 107o
-    call renderList
-    jp uiLoop
+    setLineColor 8, Display.ATTR_NORMAL
+    jp renderListAndLoop
 
 .msg_ssid_help db "BREAK=cancel, L/R=move cursor", 0
 
@@ -1751,7 +1807,7 @@ manualSSID:
     jp z, .waitSSIDKey              ; Empty SSID, keep waiting
     
     ; Now request password
-    setLineColor 6, 107o
+    setLineColor 6, Display.ATTR_NORMAL
     call topClean
     
     ; Show selected SSID
@@ -1771,7 +1827,7 @@ manualSSID:
     ld hl, msg_pass
     call Display.putStr
 
-    setLineColor 4, 071o
+    setLineColor 4, Display.ATTR_INPUT_LINE
     setLineColor 7, Display.ATTR_PASS_INPUT
     setLineColor 8, Display.ATTR_PASS_INPUT
     xor a
@@ -1842,7 +1898,13 @@ manualSSID:
     ld hl, selectItem.log_cwjap_masked
     call Display.putStrLog
     call Uart.logReset
-    xor a : ld (Uart.log_enabled), a
+    ; Save and mute both log flags to hide password
+    ld a, (Uart.log_enabled)
+    ld b, a
+    ld a, (Wifi.debug_log)
+    ld c, a
+    push bc
+    xor a : ld (Uart.log_enabled), a : ld (Wifi.debug_log), a
 
     ; Send connect command with manual SSID
     ld a, (Wifi.old_fw) : ld hl, at_start : or a : jr z, .sendCmdManual : ld hl, at_start_old
@@ -1857,14 +1919,18 @@ manualSSID:
     ld a, '"' : call Uart.write
     ld a, 13  : call Uart.write
     ld a, 10  : call Uart.write
-    
+
     call Wifi.checkOkErrLong
-    
+
+    ; --- RESTORE LOG FLAGS ---
     push af
-    ld a, 1 : ld (Uart.log_enabled), a
-    ; Add newline to log to separate from previous command
+    pop ix                       ; save CF result in IX
+    pop bc
+    ld a, b : ld (Uart.log_enabled), a
+    ld a, c : ld (Wifi.debug_log), a
     ld hl, selectItem.log_newline
     call Display.putStrLog
+    push ix
     pop af
     
     jr nc, .connSuccessManual
@@ -1893,8 +1959,7 @@ manualSSID:
 
 .breakPressedManual
     call Wifi.flushInput
-    call renderList
-    jp uiLoop
+    jp renderListAndLoop
 
 .connSuccessManual
     ld a, 1 : ld (Wifi.is_connected), a
@@ -1906,19 +1971,21 @@ manualSSID:
     ldir
     
     call updateWifiStatus_q
-    call topClean
+    ; Delay for IP before showing result (previous screen stays visible)
     ld b, 50
 .ipDelayManual
     halt
     djnz .ipDelayManual
     call ipShowConnected
-    ld hl, msg_connected_title : ld c, 104o : call showBigMessage
+    ; Now show result screen all at once
+    call topClean
+    ld hl, msg_connected_title : ld c, Display.ATTR_SSID_INPUT : call showBigMessage
     gotoXY 0, 6 : ld hl, msg_done_body : call Display.putStr
-    gotoXY 0, 8 : ld hl, msg_press_key : call Display.putStr
+    ld a, 8 : call showPressKeyAt
 .waitSuccessManual
     halt : call Keyboard.inKey : and a : jr z, .waitSuccessManual
     cp 15 : jp z, exitProgram
-    call renderList : jp uiLoop
+    jp renderListAndLoop
 
 .connFailedManual
     call tryRecoverESP
@@ -1926,7 +1993,7 @@ manualSSID:
     call updateWifiStatus_q
     call ipShowNotConnected
     call topClean
-    setLineColor 4, 107o : setLineColor 7, 107o
+    setLineColor 4, Display.ATTR_NORMAL : setLineColor 7, Display.ATTR_NORMAL
     gotoXY 0, 3
     ld a, (Wifi.last_error)
     cp 1 : jr z, .errTimeoutManual
@@ -1948,17 +2015,18 @@ manualSSID:
     ld hl, msg_fail_connfail
 .showFailMsgManual
     call Display.putStr
-    gotoXY 0, 7 : ld hl, msg_press_key : call Display.putStr
+    ld a, 7 : call showPressKeyAt
 .waitFailManual
     halt : call Keyboard.inKey : and a : jr z, .waitFailManual
-    call renderList : jp uiLoop
+    jp renderListAndLoop
 
 .msg_manual_title db "Hidden Network (Manual SSID)", 0
 .msg_enter_ssid   db "Enter network SSID:", 0
 
     RTVAR manual_ssid_buffer, 33
-manual_ssid_len    db 0
-manual_ssid_cursor db 0
+; In printer buffer (set before use)
+manual_ssid_len    = #5B2E
+manual_ssid_cursor = #5B2F
 
 exitProgram:
     call Display.clrscr
@@ -2053,7 +2121,7 @@ doWPS:
     ; If connected, ask confirmation before disconnecting
     ld a, (Wifi.is_connected)
     and a
-    jr z, .wps_start
+    jr z, .wpsStart
 
     call hideCursor : call topClean
     gotoXY 0, 3
@@ -2062,16 +2130,16 @@ doWPS:
     gotoXY 0, 5
     ld hl, .msg_wps_yn
     call Display.putStr
-.wps_confirm
+.wpsConfirm
     halt
     call Keyboard.inKey
-    and a : jr z, .wps_confirm
-    cp 'y' : jr z, .wps_do_disc
-    cp 'Y' : jr z, .wps_do_disc
+    and a : jr z, .wpsConfirm
+    cp 'y' : jr z, .wpsDoDisc
+    cp 'Y' : jr z, .wpsDoDisc
     ; Cancel
-    call renderList : jp uiLoop
+    jp renderListAndLoop
 
-.wps_do_disc
+.wpsDoDisc
     ; Disconnect first
     ld hl, cmd_disconnect
     call Wifi.espSendZ
@@ -2079,12 +2147,12 @@ doWPS:
     xor a : ld (Wifi.is_connected), a
     call updateWifiStatus
     ld b, 75
-.wps_disc_wait
+.wpsDiscWait
     halt
-    djnz .wps_disc_wait
+    djnz .wpsDiscWait
     call flushUartBuffer
 
-.wps_start
+.wpsStart
     call topClean
     gotoXY 1, 4
     ld hl, .msg_wps_prompt
@@ -2093,61 +2161,60 @@ doWPS:
     ld hl, .msg_wps_wait
     call Display.putStr
 
-.wps_send
+.wpsSend
     ; Send AT+WPS=1
     call flushUartBuffer
     ld hl, .cmd_wps
     call Wifi.espSendZ
     ; Wait for long response (WPS can take ~120s)
     call Wifi.checkOkErrLong
-    jr c, .wps_fail
+    jr c, .wpsFail
     ; Flush post-WPS (residual async messages)
     call flushUartBuffer
     ; Check connection
     call Wifi.checkConnection
-    jr c, .wps_fail
+    jr c, .wpsFail
     ; Success
     call updateWifiStatus_q
     call ipShowConnected
     gotoXY 1, 8
     ld hl, .msg_wps_ok
     call Display.putStr
-    jr .wps_exit
-.wps_fail
+    jr .wpsExit
+.wpsFail
     ; WPS failure leaves the ESP in bad state: reset to recover
     call flushUartBuffer
     call Wifi.reset
     ; Wait for ESP to stabilize after reset
     ld b, 125
-.wps_reset_wait
+.wpsResetWait
     halt
-    djnz .wps_reset_wait
+    djnz .wpsResetWait
     call flushUartBuffer
     gotoXY 1, 8
     ld hl, .msg_wps_fail
     call Display.putStr
-.wps_exit
+.wpsExit
     call showPressKey
-.wps_waitkey
+.wpsWaitKey
     halt
     call Keyboard.inKeyNoWait
     and a
-    jr z, .wps_waitkey
+    jr z, .wpsWaitKey
     cp 'l' : jr z, .wpsLog : cp 'L' : jr z, .wpsLog
-    jr .wps_keyOk
+    jr .wpsKeyOk
 .wpsLog
-    call toggleLogQuiet : jr .wps_waitkey
-.wps_keyOk
+    call toggleLogQuiet : jr .wpsWaitKey
+.wpsKeyOk
     ; Wait before scanning (ESP may need time after WPS)
     ld b, 100
-.wps_scanwait
+.wpsScanWait
     halt
-    djnz .wps_scanwait
+    djnz .wpsScanWait
     call flushUartBuffer
     ; Rescan to recover network list
     call Wifi.getList
-    call renderList
-    jp uiLoop
+    jp renderListAndLoop
 .msg_wps_warn   db "WPS requires disconnecting first.", 0
 .msg_wps_yn     db "(Y)es / any key = cancel", 0
 .msg_wps_prompt db "Press WPS button on router", 0
@@ -2181,9 +2248,8 @@ cursorDown:
     
     ld (offset), a
     xor a : ld (cursor_position), a
-    call renderList
-    jp uiLoop
-    
+    jp renderListAndLoop
+
 .store
     ld (cursor_position), a
 .atEnd
@@ -2215,14 +2281,30 @@ pageDown:
     add a, PER_PAGE
     ld hl, Wifi.networks_count
     cp (hl)
-    jr nc, .lastPage            ; No full page, go to last
+    jr nc, goLastNetwork        ; No full page, go to last
     ld (offset), a
     xor a : ld (cursor_position), a
-    call renderList
+    jp renderListAndLoop
+
+; Go to first network (LEFT arrow)
+goFirstNetwork:
+    call hideCursor
+    ld a, (offset)
+    and a
+    jr z, .atFirst
+    xor a
+    ld (offset), a
+    ld (cursor_position), a
+    jp renderListAndLoop
+.atFirst:
+    xor a
+    ld (cursor_position), a
+    call showCursor
     jp uiLoop
-.lastPage
-    ; Go to last network.
-    ; If already visible on current page, just move cursor (no repaint).
+
+; Go to last network (RIGHT arrow, also used by pageDown overflow)
+goLastNetwork:
+    call hideCursor
     ld a, (Wifi.networks_count)
     and a
     jp z, uiLoop                ; No networks
@@ -2254,8 +2336,7 @@ pageDown:
     ld hl, offset
     sub (hl)
     ld (cursor_position), a
-    call renderList
-    jp uiLoop
+    jp renderListAndLoop
 
 ; Page Up - jump one full page
 pageUp:
@@ -2269,8 +2350,7 @@ pageUp:
 .setOffset
     ld (offset), a
     xor a : ld (cursor_position), a
-    call renderList
-    jp uiLoop
+    jp renderListAndLoop
 .firstItem
     xor a : ld (cursor_position), a
     call showCursor
@@ -2383,11 +2463,11 @@ showNetDetail:
     ld (hl), a : inc hl : djnz .nd_attr_g4
     ; Row 5: same colors without BRIGHT
     ld hl, #58A0
-    ld a, 007o
+    ld a, Display.ATTR_NORMAL_DIM
     ld b, 12
 .nd_attr_w5
     ld (hl), a : inc hl : djnz .nd_attr_w5
-    ld a, 004o
+    ld a, Display.ATTR_RSSI
     ld b, 20
 .nd_attr_g5
     ld (hl), a : inc hl : djnz .nd_attr_g5
@@ -2494,8 +2574,7 @@ selectItem:
     call Keyboard.inKey
     and a
     jr z, .waitAlready
-    call renderList
-    jp uiLoop
+    jp renderListAndLoop
 
 .msg_already_conn db "Already connected to this network", 0
 .msg_connect_yn   db "(Y)es connect / (N)o cancel", 0
@@ -2507,8 +2586,7 @@ selectItem:
     ld a, (is_open_network) : and a : jp nz, .openConfirm
     call clearPassBuffer
     gotoXY 0, 11 : ld hl, msg_pass : call Display.putStr
-    setLineColor 12, Display.ATTR_PASS_INPUT
-    setLineColor 13, Display.ATTR_PASS_INPUT
+    ld a, 12 : ld b, 2 : ld c, Display.ATTR_PASS_INPUT : call setRowsColor
     ld a, 12 : ld (pass_line), a
     xor a
     ld (show_password), a
@@ -2521,9 +2599,8 @@ selectItem:
     ; Fall through to cancel
 
 .cancel
-    setLineColor 12, Display.ATTR_NORMAL
-    setLineColor 13, Display.ATTR_NORMAL
-    call renderList : jp uiLoop
+    ld a, 12 : ld b, 2 : ld c, Display.ATTR_NORMAL : call setRowsColor
+    jp renderListAndLoop
 
 .openConfirm
     ; Open network: show confirmation before connecting
@@ -2545,22 +2622,8 @@ selectItem:
 
 .connect
     ; Clear password area (rows 10-13) -- fast via LDIR
-    setLineColor 10, Display.ATTR_NORMAL
-    setLineColor 11, Display.ATTR_NORMAL
-    setLineColor 12, Display.ATTR_NORMAL
-    setLineColor 13, Display.ATTR_NORMAL
-    ld d, 10 : ld e, 0 : call Display.findAddr  ; DE = row 10 sl0
-    ld b, 8
-.clrPwSl
-    push bc : push de
-    ld h, d : ld l, e
-    ld (hl), 0
-    ld d, h : ld e, l : inc de
-    ld bc, 127          ; 4 rows × 32 bytes - 1
-    ldir
-    pop de : pop bc
-    inc d
-    djnz .clrPwSl
+    ld a, 10 : ld b, 4 : ld c, Display.ATTR_NORMAL : call setRowsColor
+    ld d, 10 : ld c, 127 : call clearPixelRows  ; 4 rows pixels
 
     ; Initialize retry counter
     ld a, 3
@@ -2587,22 +2650,9 @@ selectItem:
 
 .connectRetry
     ; Clear password/input area (rows 11-13) -- fast via LDIR
-    setLineColor 11, Display.ATTR_NORMAL
-    setLineColor 12, Display.ATTR_NORMAL
-    setLineColor 13, Display.ATTR_NORMAL
-    ; Clear pixels of rows 11-13 (third 1: rows 8-15)
-    ld d, 11 : ld e, 0 : call Display.findAddr  ; DE = row 11 sl0
-    ld b, 8             ; 8 scanlines
-.clrRows
-    push bc : push de
-    ld h, d : ld l, e
-    ld (hl), 0
-    ld d, h : ld e, l : inc de
-    ld bc, 95           ; 3 rows × 32 bytes - 1
-    ldir
-    pop de : pop bc
-    inc d               ; next scanline
-    djnz .clrRows
+    ld a, 11 : ld b, 3 : ld c, Display.ATTR_NORMAL : call setRowsColor
+    ; Clear pixels of rows 11-13
+    ld d, 11 : ld c, 95 : call clearPixelRows   ; 3 rows pixels
 
     gotoXY 0, 11
     ; Show current attempt
@@ -2625,7 +2675,13 @@ selectItem:
     ld hl, .log_cwjap_masked
     call Display.putStrLog
     call Uart.logReset
-    xor a : ld (Uart.log_enabled), a
+    ; Save and mute both log flags to hide password
+    ld a, (Uart.log_enabled)
+    ld b, a
+    ld a, (Wifi.debug_log)
+    ld c, a
+    push bc
+    xor a : ld (Uart.log_enabled), a : ld (Wifi.debug_log), a
 
     ld a, (Wifi.old_fw) : ld hl, at_start : or a : jr z, .send_cmd : ld hl, at_start_old
 .send_cmd
@@ -2633,26 +2689,28 @@ selectItem:
     ld hl, (selected_ssid_ptr)
     call Wifi.espSendZ
     ld hl, at_middle   : call Wifi.espSendZ
-    
+
     ; Send password (muted)
     ld hl, pass_buffer : call Wifi.espSendZ
-    
+
     ; Send closing quote + CR LF manually (muted)
-    ; This prevents logging the password or echo prematurely
     ld a, '"' : call Uart.write
     ld a, 13  : call Uart.write
     ld a, 10  : call Uart.write
-    
+
     ; Use long timeout for WiFi connection (can take 5-15 seconds)
     ; LOG STILL MUTED to avoid password echo
     call Wifi.checkOkErrLong
-    
-    ; --- UNMUTE UART LOG ---
-    push af                     ; Preserve result
-    ld a, 1 : ld (Uart.log_enabled), a
-    ; Add newline to log to separate from previous command
+
+    ; --- RESTORE LOG FLAGS ---
+    push af
+    pop ix                       ; save CF result in IX
+    pop bc
+    ld a, b : ld (Uart.log_enabled), a
+    ld a, c : ld (Wifi.debug_log), a
     ld hl, .log_newline
     call Display.putStrLog
+    push ix
     pop af
     
     jr nc, .connSuccess         ; CF=0 -> OK
@@ -2683,8 +2741,7 @@ selectItem:
 .breakPressed
     ; User cancelled with BREAK
     call Wifi.flushInput
-    call renderList
-    jp uiLoop
+    jp renderListAndLoop
 
 .connSuccess
     ld a, 1 : ld (Wifi.is_connected), a
@@ -2698,9 +2755,8 @@ selectItem:
     call updateWifiStatus_q
 
     call topClean
-    ld hl, msg_connected_title : ld c, 104o : call showBigMessage
+    ld hl, msg_connected_title : ld c, Display.ATTR_SSID_INPUT : call showBigMessage
     gotoXY 0, 6 : ld hl, msg_done_body : call Display.putStr
-    gotoXY 0, 8 : ld hl, msg_press_key : call Display.putStr
 
     ; Delay for ESP to have IP ready, retry if fails
     ld c, 3                 ; 3 attempts to get IP
@@ -2715,6 +2771,7 @@ selectItem:
     jr nz, .ipRetry         ; Retry
 .ipGot
     call ipShowConnected
+    ld a, 8 : call showPressKeyAt
 .waitSuccess
     halt : call Keyboard.inKey : and a : jr z, .waitSuccess
     cp 'l' : jr z, .wsLog : cp 'L' : jr z, .wsLog
@@ -2723,7 +2780,7 @@ selectItem:
 .wsLog
     call toggleLogQuiet : jr .waitSuccess
 .wsEnd
-    call renderList : jp uiLoop
+    jp renderListAndLoop
 
 .connFailedFinal
     ; Try to recover ESP if hung
@@ -2734,7 +2791,7 @@ selectItem:
     call updateWifiStatus_q
     call ipShowNotConnected
     call topClean
-    setLineColor 4, 107o : setLineColor 7, 107o
+    setLineColor 4, Display.ATTR_NORMAL : setLineColor 7, Display.ATTR_NORMAL
     
     ; Show message based on error code
     gotoXY 0, 3
@@ -2761,11 +2818,11 @@ selectItem:
     
 .showFailMsg
     call Display.putStr
-    gotoXY 0, 7 : ld hl, msg_press_key : call Display.putStr
+    ld a, 7 : call showPressKeyAt
 .waitFail
     halt : call Keyboard.inKey : and a : jr z, .waitFail
     cp 'l' : jr z, .wfLog : cp 'L' : jr z, .wfLog
-    call renderList : jp uiLoop
+    jp renderListAndLoop
 .wfLog
     call toggleLogQuiet : jr .waitFail
 
@@ -2787,8 +2844,15 @@ ATTR_DIAG_TITLE = 00000100b  ; Green on black (BRIGHT 0)
 ; "Press any key..." on line 17, col 0, yellow
 ATTR_PRESS_KEY = 01000110b  ; Bright yellow on black
 showPressKey:
-    setLineColor 17, ATTR_PRESS_KEY
-    gotoXY 0, 17
+    ld a, 17
+; Show "Press any key..." at row A, col 0, yellow
+showPressKeyAt:
+    push af
+    ld c, ATTR_PRESS_KEY
+    call Display.setAttr
+    pop af
+    ld h, a : ld l, 0
+    ld (Display.coords), hl
     ld hl, msg_press_key
     jp Display.putStr
 
@@ -2798,7 +2862,7 @@ diagHeader:
     push hl
     call topClean
     pop hl
-    ld c, 104o              ; Green BRIGHT on black
+    ld c, Display.ATTR_SSID_INPUT              ; Green BRIGHT on black
     jp showBigMessage
 
 showDiagnostics:
@@ -2820,45 +2884,46 @@ showDiagnostics:
     and a
     jr z, .waitNotConn
     cp 'l' : jr z, .wncLog : cp 'L' : jr z, .wncLog
-    call renderList
-    jp uiLoop
+    jp renderListAndLoop
 .wncLog
     call toggleLogQuiet : jr .waitNotConn
 
 .showMenu
     ld hl, .msg_diag_title
     call diagHeader
-    ; Options (without numbers)
-    gotoXY 0, 6
-    ld hl, .msg_diag_opt1
+    ; Options via loop + pointer table
+    ld hl, .diagPtrs
+    ld b, DIAG_ITEMS
+    ld c, DIAG_FIRST_LINE
+.menuLp:
+    push bc
+    push hl
+    ld a, c
+    ld h, a : ld l, 0
+    ld (Display.coords), hl
+    pop hl
+    push hl
+    ld e, (hl) : inc hl : ld d, (hl) : inc hl
+    ex de, hl
     call Display.putStr
-    gotoXY 0, 7
-    ld hl, .msg_diag_opt2
-    call Display.putStr
-    gotoXY 0, 8
-    ld hl, .msg_diag_opt3
-    call Display.putStr
-    gotoXY 0, 9
-    ld hl, .msg_diag_opt4
-    call Display.putStr
-    gotoXY 0, 10
-    ld hl, .msg_diag_opt5
-    call Display.putStr
-    gotoXY 0, 11
-    ld hl, .msg_diag_opt6
-    call Display.putStr
-    gotoXY 0, 12
-    ld hl, .msg_diag_opt7
-    call Display.putStr
+    pop hl
+    inc hl : inc hl
+    pop bc
+    inc c
+    djnz .menuLp
     ; Separator line below items
-    ld a, 13 : ld e, 3 : ld d, Display.ATTR_NORMAL
+    ld a, 14 : ld e, 3 : ld d, Display.ATTR_NORMAL
     call Display.draw_hline
-    gotoXY 0, 14
+    gotoXY 0, 15
     ld hl, .msg_diag_exit
     call Display.putStr
-    ; Initial cursor
-    xor a : ld (.diag_cursor), a
-    call .showDiagCursor
+    ; Restore cursor (persists across sub-screen visits)
+    ld a, (.diag_cursor)
+    cp DIAG_ITEMS
+    jr c, .cursorOk
+    xor a
+.cursorOk:
+    jr .diagSet
 
 .diagLoop
     ld b, 3
@@ -2873,6 +2938,8 @@ showDiagnostics:
     cp Keyboard.KEY_DN : jr z, .diagDown
     cp 'a' : jr z, .diagDown
     cp 'A' : jr z, .diagDown
+    cp Keyboard.KEY_LEFT : jr z, .diagFirst
+    cp Keyboard.KEY_RIGHT : jr z, .diagLast
     cp 'l' : jr z, .diagLog : cp 'L' : jr z, .diagLog
     cp 13 : jr z, .diagSelect
     jr .diagLoop
@@ -2882,18 +2949,27 @@ showDiagnostics:
 .diagUp
     ld a, (.diag_cursor)
     and a : jr z, .diagLoop
-    call .hideDiagCursor
-    ld hl, .diag_cursor
-    dec (hl)
-    call .showDiagCursor
-    jr .diagLoop
+    dec a
+    jr .diagSet
 
 .diagDown
     ld a, (.diag_cursor)
     cp DIAG_ITEMS - 1 : jr z, .diagLoop
+    inc a
+    jr .diagSet
+
+.diagFirst
+    xor a
+    jr .diagSet
+
+.diagLast
+    ld a, DIAG_ITEMS - 1
+
+.diagSet
+    push af
     call .hideDiagCursor
-    ld hl, .diag_cursor
-    inc (hl)
+    pop af
+    ld (.diag_cursor), a
     call .showDiagCursor
     jr .diagLoop
 
@@ -2922,10 +2998,9 @@ showDiagnostics:
     ; Reactivate UART log on exit
     ld a, 1
     ld (Uart.log_enabled), a
-    call renderList
-    jp uiLoop
+    jp renderListAndLoop
 
-.diag_cursor    db 0
+.diag_cursor    = #5B59  ; In printer buffer (set before use)
 .msg_not_conn   db "Connect to a network first!", 0
 .msg_diag_title db "DIAGNOSTICS", 0
 .msg_diag_opt1  db "Ping test", 0
@@ -2935,11 +3010,14 @@ showDiagnostics:
 .msg_diag_opt5  db "Static IP config", 0
 .msg_diag_opt6  db "Set hostname", 0
 .msg_diag_opt7  db "Config summary", 0
+.diagPtrs:
+    dw .msg_diag_opt1, .msg_diag_opt2, .msg_diag_opt3, .msg_diag_opt4
+    dw .msg_diag_opt5, .msg_diag_opt6, .msg_diag_opt7
 .msg_diag_exit  db "Q/A:Move ENTER:Select BREAK:Exit", 0
 
 ; Buffer for diagnostic responses
     RTVAR diag_buffer, 64
-diag_line       db 0            ; Current line on screen
+diag_line       = #5B1E         ; In printer buffer (set before use)
 
 ; Drain UART buffer (fast, no HALT: avoids losing bytes at 115200)
 flushUartBuffer:
@@ -3053,14 +3131,14 @@ showDiagLine:
     ld (diag_line), a
     ret
 
-; ------------------------------
+; ============================================
 ; Ping test
-; ------------------------------
+; ============================================
 MAX_IP_LEN = 15                 ; xxx.xxx.xxx.xxx
 
 ; IP buffer (persistent between calls)
     RTVAR ping_ip_buffer, MAX_IP_LEN + 1
-ping_ip_len     db 0                ; Current length
+ping_ip_len     = #5B1F             ; In printer buffer (set before use)
 
 ; Initialize default IP (called once)
 initPingIP:
@@ -3091,8 +3169,7 @@ doPing:
     gotoXY 0, 6
     ld hl, .msg_ip_prompt
     call Display.putStr
-    setLineColor 8, Display.ATTR_PASS_INPUT
-    setLineColor 9, Display.ATTR_PASS_INPUT
+    ld a, 8 : ld b, 2 : ld c, Display.ATTR_PASS_INPUT : call setRowsColor
 
     gotoXY 0, 11
     ld hl, .msg_ping_help
@@ -3133,9 +3210,8 @@ doPing:
     ld b, 4
 .waitIPLoop
     halt
-    djnz .waitIPLoop
-
     call Keyboard.checkBreak : jp z, .pingCancel
+    djnz .waitIPLoop
     call Keyboard.inKeyNoWait
     and a
     jr z, .waitIPKey
@@ -3339,11 +3415,11 @@ doPing:
     ld (hl), a : inc hl : djnz .pa4g
     ; Row 5: same but without BRIGHT
     ld hl, #58A0            ; Row 5 attr
-    ld a, 007o              ; White on black, no bright
+    ld a, Display.ATTR_NORMAL_DIM              ; White on black, no bright
     ld b, 6
 .pa5w
     ld (hl), a : inc hl : djnz .pa5w
-    ld a, 004o              ; Green on black, no bright
+    ld a, Display.ATTR_RSSI              ; Green on black, no bright
     ld b, 26
 .pa5g
     ld (hl), a : inc hl : djnz .pa5g
@@ -3453,9 +3529,9 @@ doPing:
 .msg_time_ms     db " ms", 0
 .msg_timeout     db "Request timed out", 0
 
-; ------------------------------
+; ============================================
 ; Module info (firmware version)
-; ------------------------------
+; ============================================
 doModuleInfo:
     ; Disable UART log
     xor a
@@ -3538,9 +3614,9 @@ doModuleInfo:
 .msg_module_title db "MODULE INFO", 0
 .cmd_gmr          db "AT+GMR", 13, 10, 0
 
-; ------------------------------
+; ============================================
 ; Network info
-; ------------------------------
+; ============================================
 doNetworkInfo:
     xor a
     ld (Uart.log_enabled), a
@@ -3645,9 +3721,9 @@ doNetworkInfo:
 .lbl_mac       db "MAC: ", 0
 .ni_ssid_lbl   db "Connected: ", 0
 
-; ------------------------------
+; ============================================
 ; UART Baud rate
-; ------------------------------
+; ============================================
 doBaudRate:
     ld hl, msg_baud_title
     call diagHeader
@@ -3847,11 +3923,12 @@ lbl_baud       db "Baud Rate: ", 0
 msg_uart_none db "No UART info (no response).", 0
 msg_uart_error db "UART query returned ERROR.", 0
 
-baud_tried_def  db 0
-baud_tried_plain db 0
-baud_have_value db 0
-baud_saw_error  db 0
-baud_recover_tried db 0
+; In printer buffer (set before use in doBaudRate)
+baud_tried_def  = #5B21
+baud_tried_plain = #5B22
+baud_have_value = #5B23
+baud_saw_error  = #5B24
+baud_recover_tried = #5B25
 
 ; ============================================
 ; doStaticIP - Static IP configuration (option 5)
@@ -3861,8 +3938,7 @@ doStaticIP:
     call diagHeader
     gotoXY 0, 6
     ld hl, .sip_prompt : call Display.putStr
-    setLineColor 8, Display.ATTR_PASS_INPUT
-    setLineColor 9, Display.ATTR_PASS_INPUT
+    ld a, 8 : ld b, 2 : ld c, Display.ATTR_PASS_INPUT : call setRowsColor
     gotoXY 0, 11
     ld hl, .sip_help : call Display.putStr
 
@@ -3939,8 +4015,9 @@ ipTextInput:
     ei
 .itiWait
     ld b, 4
-.itiWL  halt : djnz .itiWL
+.itiWL  halt
     call Keyboard.checkBreak : jr z, .itiCancel
+    djnz .itiWL
     call Keyboard.inKeyNoWait : and a : jr z, .itiWait
     cp 13 : jr z, .itiEnter
     cp Keyboard.KEY_BS : jr z, .itiBS
@@ -4027,10 +4104,9 @@ doHostname:
     call diagHeader
     gotoXY 0, 6
     ld hl, .hn_prompt : call Display.putStr
-    setLineColor 8, Display.ATTR_PASS_INPUT
-    setLineColor 9, Display.ATTR_PASS_INPUT
+    ld a, 8 : ld b, 2 : ld c, Display.ATTR_PASS_INPUT : call setRowsColor
     gotoXY 0, 11
-    ld hl, .hn_help : call Display.putStr
+    ld hl, doStaticIP.sip_help : call Display.putStr
 
     call clearPassBuffer
     ld a, 1 : ld (show_password), a     ; Show text (not asterisks)
@@ -4069,7 +4145,6 @@ doHostname:
 
 .hn_title   db "SET HOSTNAME", 0
 .hn_prompt  db "Enter hostname:", 0
-.hn_help    db "ENTER=accept, BREAK=cancel", 0
 .hn_ok      db "Hostname set OK!", 0
 .hn_err     db "Failed to set hostname", 0
 .hn_cmd     db "AT+CWHOSTNAME=\"", 0
@@ -4097,7 +4172,7 @@ doConfigSummary:
     gotoXY 0, 7
     ld hl, .cs_ip_lbl : call Display.putStr
     call .cs_flush
-    ld hl, .cs_ip_cmd : call Wifi.espSendZ
+    ld hl, doNetworkInfo.cmd_cifsr : call Wifi.espSendZ
     ld b, 8
 .cs_ip_loop
     push bc
@@ -4194,7 +4269,7 @@ doConfigSummary:
     gotoXY 0, 10
     ld hl, .cs_fw_lbl : call Display.putStr
     call .cs_flush
-    ld hl, .cs_fw_cmd : call Wifi.espSendZ
+    ld hl, doModuleInfo.cmd_gmr : call Wifi.espSendZ
     ld b, 10
 .cs_fw_loop
     push bc
@@ -4260,12 +4335,10 @@ doConfigSummary:
 .cs_fw_lbl  db "FW:   ", 0
 .cs_ver_lbl db "App:  NetManZX v", 0
 .cs_none    db "(none)", 0
-.cs_ip_cmd  db "AT+CIFSR", 13, 10, 0
 .cs_mac_cmd db "AT+CIPSTAMAC?", 13, 10, 0
 .cs_hn_cmd  db "AT+CWHOSTNAME?", 13, 10, 0
-.cs_fw_cmd  db "AT+GMR", 13, 10, 0
 
-conn_retries db 0
+conn_retries = #5B20            ; In printer buffer (set before use)
 cmd_disconnect db "AT+CWQAP", 13, 10, 0
 
 ; ============================================
@@ -4431,14 +4504,15 @@ checkAsyncWifi:
 
 ASYNC_BUF_SIZE = 16
     RTVAR async_buffer, ASYNC_BUF_SIZE
-async_buf_idx   db 0
-async_buf_count db 0                ; Byte count in buffer (for correct wrap)
+; In printer buffer (set before use)
+async_buf_idx   = #5B26
+async_buf_count = #5B27             ; Byte count in buffer (for correct wrap)
 
-; --------------------------------------------
+; ============================================--------------
 ; waitAnyKey
 ;   Blocks until any key is pressed.
 ;   For UI use (should not be used during high-speed parsers).
-; --------------------------------------------
+; ============================================--------------
 waitAnyKey:
 waitAnyKey_loop:
     halt
@@ -4459,8 +4533,7 @@ showPageInfo:
 
     ; 0 networks: clear line 17 completely (avoids stale counter)
     ld a, 17
-    call clearRowPixels
-    ret
+    jp clearRowPixels
 
 .haveNetworks
     
@@ -4554,8 +4627,7 @@ showPageInfo:
     ld a, '/' : call Display.putC
     ld a, (page_total) : call printNumber
     ld hl, .msg_pages_suff
-    call Display.putStr
-    ret
+    jp Display.putStr
 
 .msg_net_det    db " networks detected", 0
 .msg_pages_suff db " pages)", 0
@@ -4590,8 +4662,9 @@ printNumber:
     add a, '0'
     jp Display.putC
 
-page_total      db 0
-page_current    db 0
+; In printer buffer (set in showPageInfo)
+page_total      = #5B28
+page_current    = #5B29
 
 ; ============================================
 ; About screen (I key)
@@ -4625,8 +4698,7 @@ showAbout:
     call Keyboard.inKey
     and a
     jr z, .aboutWait
-    call renderList
-    jp uiLoop
+    jp renderListAndLoop
 
 .msg_about_title db "ABOUT NETMANZX", 0
 .msg_about_ver:
@@ -4667,18 +4739,20 @@ msg_ssid        db "Selected SSID:", 0
 msg_pass        db "Password (BREAK=cancel, UP=show):", 0
 
     RTVAR pass_buffer, MAX_PASS_LEN + 2
-pass_len        db 0
-pass_cursor     db 0                ; Cursor position in the password
-cursor_position db 0
-offset          db 0
-is_open_network db 0
-show_password   db 0                ; Flag to show password
-selected_ssid_ptr dw 0              ; Pointer to the selected SSID
-selected_real_idx db 0              ; Real index of the selected network
-ui_async_div    db 0                ; Divider for checkAsyncWifi
-autoscan_counter dw 0              ; Counter for auto-rescan (15000 = 5 min)
-health_counter  dw 0              ; Counter for periodic health-check (invalidate only)
-force_rescan   db 0              ; 1 => rescan pending after disconnect
+; In printer buffer (set before use in respective handlers)
+pass_len        = #5B3C
+pass_cursor     = #5B3D
+cursor_position = #5B3E
+offset          = #5B3F
+is_open_network = #5B40
+show_password   = #5B41
+selected_ssid_ptr = #5B42  ; dw
+selected_real_idx = #5B44
+; In printer buffer (accumulation counters, reset in uiLoop init paths)
+ui_async_div    = #5B49
+autoscan_counter = #5B4A  ; dw
+health_counter  = #5B4C   ; dw
+force_rescan   = #5B45           ; In printer buffer
 
 msg_head
     db "NetManZX "
