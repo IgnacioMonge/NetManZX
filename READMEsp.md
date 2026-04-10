@@ -65,7 +65,7 @@ NetManZX esta basado en el proyecto original [netman-zx](https://github.com/nihi
 - **Log de Depuracion UART**: Muestra/oculta el log UART en tiempo real con la tecla L (funciona globalmente). Indicador rojo en el area de log cuando esta activo
 - **Fuente comprimida**: Sistema de fuente comprimida por nibbles integrado (sin dependencia de archivo font.bin externo)
 - **Tres backends UART**: Soporta hardware ZX-Uno, AY-UART (ZX-Badaloc) y ZX Spectrum Next
-- **Auto-deteccion de baud rate** (solo Next): Si el ESP no responde a 115200, escanea 1152000, 9600 y 57600 baudios y corrige permanentemente via `AT+UART_DEF`. Maneja restos de NextSync, ESPs de fabrica y configuraciones erroneas sin overhead en arranques normales
+- **Auto-deteccion de baud rate** (solo Next): Si el ESP no responde a 115200, escanea 1152000, 2000000, 9600 y 57600 baudios y corrige permanentemente via `AT+UART_DEF`. Si ninguna tasa funciona, resetea el ESP por hardware. Maneja restos de NextSync/NextSync-fast, ESPs de fabrica y configuraciones erroneas sin overhead en arranques normales
 - **Formato NEX** (solo Next): Binario nativo `.nex` para arranque directo sin menu de seleccion de modo
 - **Fecha de compilacion**: Incrustada automaticamente en tiempo de ensamblado via Lua
 
@@ -156,7 +156,7 @@ Pon el fichero NETMANZX.BAS y netmanzx.cod en el mismo directorio. Ejecuta NETMA
 - **Reintento de IP al Conectar**: 3 intentos con intervalos de 1 segundo tras la asociacion WiFi exitosa
 - **Recuperacion Automatica de Estado**: Al perder conexion, la interfaz pasa a Disconnected y programa un rescaneo seguro. El auto-rescan preserva la lista anterior en caso de fallo
 - **Busquedas de Buffer Acotadas**: Todas las busquedas CPIR limitadas al tamano real del buffer
-- **Auto-deteccion de baud rate** (solo Next): Escanea 1152000, 9600, 57600 baudios si el ESP no responde a 115200. Corrige permanentemente a 115200 via `AT+UART_DEF`
+- **Auto-deteccion de baud rate** (solo Next): Escanea 1152000, 2000000, 9600, 57600 baudios si el ESP no responde a 115200. Corrige permanentemente a 115200 via `AT+UART_DEF`. Reset hardware del ESP como fallback
 
 ## Historial de Versiones
 

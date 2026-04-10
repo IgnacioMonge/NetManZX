@@ -33,7 +33,7 @@ Changes from v1.4.2:
 - **WPS timeout comment**: Corrected "~30s per round" to "~21s per round" (actual LONG_TIMEOUT_BLOCK timing)
 
 ### Enhancements
-- **Baud rate auto-detection (Next only)**: If the ESP doesn't respond at 115200, scans 1152000, 9600, and 57600 baud using video-timing-aware prescaler tables. When found, permanently fixes to 115200 via `AT+UART_DEF` + `AT+RST`. Handles NextSync leftovers, factory ESPs, and user misconfigurations. Zero overhead on normal boot
+- **Baud rate auto-detection (Next only)**: If the ESP doesn't respond at 115200, scans 1152000, 2000000, 9600, and 57600 baud using video-timing-aware prescaler tables. When found, permanently fixes to 115200 via `AT+UART_DEF` + `AT+RST`. Falls back to hardware ESP reset (NextReg $02) if no known rate matches. Handles NextSync/NextSync-fast leftovers, factory ESPs, and user misconfigurations. Zero overhead on normal boot
 - **Network name in connecting screen**: "Connecting to..." / "Reconnecting to..." now shows the SSID in double-height yellow text, with attempt counter. Overflow guard for long SSIDs
 - **Audible key click**: Key click changed from barely-audible single pulse to clear 8-cycle burst at ~3.4 kHz. Affects all key input
 - **Connection info screen**: Pressing ENTER on the already-connected network now shows full connection details: IP address (AT+CIFSR), gateway and netmask (AT+CIPSTA? with AT+CIPSTA_CUR? fallback), and MAC address (AT+CIFSR). Fields show "-" if the query fails (firmware compatibility)

@@ -107,6 +107,7 @@ baudScan:
 
 .scanPtrs:
     dw baudTableFast            ; 1152000 (NextSync)
+    dw baudTable2M              ; 2000000 (NextSync fast)
     dw baudTable9600            ; 9600 (factory default)
     dw baudTable57600           ; 57600 (some firmwares)
 .scanEnd:
@@ -118,5 +119,35 @@ baudTable9600:
     dw 2917,2976,3069,3125,3229,3333,3438,2813
 baudTable57600:
     dw 486,496,512,521,538,556,573,469
+baudTable2M:                    ; 2000000 (NextSync fast)
+    dw 14,14,15,15,15,16,16,13
+
+; ============================================
+; espHardReset - Hardware ESP reset via NextReg $02
+; Forces ESP to reboot at its default baud (115200).
+; Last resort when baudScan can't find the ESP.
+; ============================================
+espHardReset:
+    ld bc, $243B        ; NextReg Select
+    ld a, $02           ; Reset register
+    out (c), a
+    ld bc, $253B        ; NextReg Data
+    ld a, 128           ; Bit 7 = ESP reset
+    out (c), a
+    ld b, 25            ; ~500ms hold
+.rstWait:
+    halt
+    djnz .rstWait
+    ld bc, $243B
+    ld a, $02
+    out (c), a
+    ld bc, $253B
+    xor a               ; Release reset
+    out (c), a
+    ld b, 150           ; ~3s for ESP boot
+.bootWait:
+    halt
+    djnz .bootWait
+    ret
 
     endmodule

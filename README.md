@@ -65,7 +65,7 @@ NetManZX is based on the original [netman-zx](https://github.com/nihirash/netman
 - **UART Debug Log**: Toggle live UART log display with L key (works globally). Red indicator dot in log area when active
 - **Compressed font**: Built-in nibble-packed font system (no external font.bin dependency)
 - **Three UART backends**: Supports ZX-Uno, AY-UART (ZX-Badaloc), and ZX Spectrum Next hardware
-- **Baud rate auto-detection** (Next only): Scans common baud rates (1152000, 9600, 57600) if ESP doesn't respond at 115200, and permanently fixes it via `AT+UART_DEF`. Handles NextSync leftovers, factory ESPs, and user misconfigurations with zero overhead on normal boot
+- **Baud rate auto-detection** (Next only): Scans common baud rates (1152000, 2000000, 9600, 57600) if ESP doesn't respond at 115200, and permanently fixes it via `AT+UART_DEF`. Falls back to hardware ESP reset if no known rate matches. Handles NextSync/NextSync-fast leftovers, factory ESPs, and user misconfigurations with zero overhead on normal boot
 - **NEX format** (Next only): Native `.nex` binary for direct launch without mode selection menu
 - **Build date**: Automatically embedded at assembly time via Lua
 
@@ -156,7 +156,7 @@ Put NETMANZX.BAS file loader and netmanzx.cod in the same directory. Run NETMANZ
 - **IP Retry on Connect**: 3 attempts with 1-second intervals after successful WiFi association
 - **Automatic State Recovery**: On link loss, UI transitions to Disconnected and schedules a safe rescan. Auto-rescan preserves previous network list on scan failure
 - **Bounded Buffer Searches**: All CPIR-based string searches bounded to actual buffer sizes
-- **Baud Rate Auto-Detection** (Next only): Scans 1152000, 9600, 57600 baud if ESP doesn't respond at 115200. Permanently fixes to 115200 via `AT+UART_DEF`
+- **Baud Rate Auto-Detection** (Next only): Scans 1152000, 2000000, 9600, 57600 baud if ESP doesn't respond at 115200. Permanently fixes to 115200 via `AT+UART_DEF`. Hardware ESP reset as fallback
 
 ## Version History
 

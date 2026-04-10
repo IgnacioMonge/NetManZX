@@ -112,7 +112,7 @@ start:
     ld hl, .msg_baud_scan
     call Display.putStrLog
     call UartImpl.baudScan
-    jr c, .baudOk               ; Not found at any rate — continue anyway
+    jr c, .baudScanFail
 
     ; Found ESP at wrong baud — fix permanently and reboot
     ld hl, .msg_baud_fix
@@ -127,6 +127,16 @@ start:
     halt
     djnz .baudWait
     call Uart.init              ; Back to 115200
+    call Wifi.flushInput
+    jr .baudOk
+
+.baudScanFail:
+    ; Not found at any scanned rate — hardware ESP reset
+    ; Forces ESP back to default baud (115200)
+    ld hl, .msg_hw_reset
+    call Display.putStrLog
+    call UartImpl.espHardReset
+    call Uart.init              ; Reinit UART at 115200
     call Wifi.flushInput
 .baudOk:
     ENDIF
@@ -324,6 +334,7 @@ start:
     IFDEF NEXT
 .msg_baud_scan  db "Scanning baud rates...", 13, 0
 .msg_baud_fix   db "Fixing ESP baud to 115200...", 13, 0
+.msg_hw_reset   db "Resetting ESP module...", 13, 0
 .at_uart_def    db "AT+UART_DEF=115200,8,1,0,0", 13, 10, 0
     ENDIF
 .msg_query_status db "Checking WiFi status...", 13, 0
