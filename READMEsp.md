@@ -29,21 +29,25 @@ NetManZX esta basado en el proyecto original [netman-zx](https://github.com/nihi
 
 ### Interfaz de Usuario
 - **Renderizado en doble altura**: Banner, barra de estado, campos de entrada y mensajes renderizados en texto de doble altura sin parpadeo mediante un renderizador a nivel de pixel
-- **Pantalla de Detalle de Red**: Al seleccionar una red, una vista de detalle muestra el SSID (doble altura), tipo de seguridad, canal WiFi y barras de intensidad de senal antes de solicitar la contrasena
+- **Pantalla de Detalle de Red**: Vista de detalle con SSID (doble altura), tipo de seguridad, canal WiFi con indicador de banda (2.4/5 GHz) y barras de intensidad de senal
+- **Pantalla de conexion**: "Connecting to..." muestra el SSID en doble altura amarillo con contador de intentos
 - **Badge arcoiris**: Triangulo decorativo con transiciones de color en el banner
 - **Barras de senal RSSI de 8 niveles**: Indicador visual de intensidad de senal WiFi para cada red, con glifos personalizados de circulo cerrado/abierto
 - **Barra de estado anti-parpadeo**: Renderizado por sobreescritura directa con actualizaciones agrupadas que elimina el parpadeo visual
 - **Indicadores de scroll**: Flechas visuales que indican cuando hay mas redes disponibles
+- **Click de tecla audible**: Feedback sonoro claro en cada pulsacion durante la entrada de texto
 
 ### Gestion de Redes
-- **Escaneo de Redes**: Descubre automaticamente las redes WiFi disponibles con ordenacion por intensidad de senal
+- **Escaneo de Redes**: Descubre automaticamente las redes WiFi disponibles con parametros de escaneo extendidos para mejor cobertura, ordenadas por intensidad de senal
 - **Soporte de Redes Ocultas**: Introduce manualmente el SSID de redes que no emiten su nombre
-- **Deteccion Inteligente de Conexion**: Al iniciar, detecta si ya esta conectado y ofrece mantener o reconfigurar
-- **Entrada de Contrasena**: Soporte completo de teclado con opcion de mostrar/ocultar, entrada en doble altura con edicion de cursor
-- **Soporte WPS**: Conexion WPS por pulsacion de boton (tecla W), con dialogo de confirmacion si ya esta conectado
-- **Opcion de Desconexion**: Desconecta de la red actual sin salir de la aplicacion
-- **Monitorizacion de Estado en Tiempo Real**: Detecta automaticamente caidas y reconexiones
-- **Mensajes de Error Detallados**: Informacion especifica sobre fallos de conexion (contrasena incorrecta, AP no encontrado, timeout, etc.)
+- **Deteccion Inteligente de Conexion**: Al iniciar, detecta si ya esta conectado y ofrece mantener o reconfigurar (con acceso directo a diagnosticos)
+- **Pantalla de informacion de conexion**: Pulsa ENTER sobre la red ya conectada para ver IP, gateway, mascara de subred y direccion MAC
+- **Guardar y Reconectar** (tecla C, solo UNO/NEXT): Guarda las credenciales WiFi en la tarjeta SD (`/SYS/CONFIG/NETMAN.CFG`). Pulsa C desde el menu principal para reconectar a la red guardada. Tambien ofrece guardar tras una conexion exitosa (tecla S)
+- **Entrada de Contrasena**: Soporte completo de teclado con opcion de mostrar/ocultar, entrada en doble altura con edicion de cursor (flechas izquierda/derecha)
+- **Soporte WPS**: Conexion WPS por pulsacion de boton (tecla W), con timeout de 120 segundos y cancelacion con BREAK
+- **Opcion de Desconexion**: Desconecta de la red actual con dialogo de confirmacion, sin salir de la aplicacion
+- **Monitorizacion de Estado en Tiempo Real**: Detecta automaticamente caidas y reconexiones mediante parseo asincrono de eventos del ESP
+- **Diagnostico de fallos de conexion**: Mensajes especificos de error: contrasena incorrecta, AP no encontrado, timeout o conexion rechazada
 - **Cancelacion con BREAK**: Cancelacion casi instantanea (~5ms de respuesta) durante cualquier comando AT o intento de conexion
 
 ### Menu de Diagnosticos
@@ -53,14 +57,15 @@ NetManZX esta basado en el proyecto original [netman-zx](https://github.com/nihi
 4. **UART baud rate** - Mostrar velocidad de comunicacion actual
 5. **Static IP** - Configurar direccion IP estatica, gateway y mascara de subred
 6. **Hostname** - Establecer un nombre de host personalizado para el modulo ESP
-7. **Config summary** - Ver todos los ajustes WiFi actuales de un vistazo (SSID, IP, MAC, hostname, firmware, version de la app)
+7. **Config summary** - Ver todos los ajustes WiFi actuales de un vistazo (SSID, IP, MAC, hostname, firmware, red guardada, version de la app)
 
 ### Otros
 - **Pantalla Acerca de** (tecla I): Muestra version, fecha de compilacion, autor, URL de GitHub y licencia
 - **Log de Depuracion UART**: Muestra/oculta el log UART en tiempo real con la tecla L (funciona globalmente). Indicador rojo en el area de log cuando esta activo
 - **Fuente comprimida**: Sistema de fuente comprimida por nibbles integrado (sin dependencia de archivo font.bin externo)
 - **Tres backends UART**: Soporta hardware ZX-Uno, AY-UART (ZX-Badaloc) y ZX Spectrum Next
-- **Recuperacion de baudios NextSync** (solo build Next): Detecta y recupera automaticamente si el ESP fue dejado a velocidad incorrecta por NextSync
+- **Auto-deteccion de baud rate** (solo Next): Si el ESP no responde a 115200, escanea 1152000, 9600 y 57600 baudios y corrige permanentemente via `AT+UART_DEF`. Maneja restos de NextSync, ESPs de fabrica y configuraciones erroneas sin overhead en arranques normales
+- **Formato NEX** (solo Next): Binario nativo `.nex` para arranque directo sin menu de seleccion de modo
 - **Fecha de compilacion**: Incrustada automaticamente en tiempo de ensamblado via Lua
 
 ## Requisitos
@@ -101,7 +106,7 @@ make all
 |--------|---------|-------------|
 | UNO | `netmanzx-uno.tap` | ZX-Uno / DivMMC |
 | AY | `netmanzx-ay.tap` | AY-UART / ZX-Badaloc |
-| NEXT | `netmanzx-next.tap` | ZX Spectrum Next |
+| NEXT | `netmanzx-next.nex` | ZX Spectrum Next (NEX nativo) |
 
 ### Carga
 
@@ -135,6 +140,8 @@ Pon el fichero NETMANZX.BAS y netmanzx.cod en el mismo directorio. Ejecuta NETMA
 | R | Reescanear redes |
 | L | Alternar log de depuracion UART |
 | W | Conexion WPS por pulsacion |
+| C | Reconectar a red guardada / Guardar config (UNO/NEXT) |
+| S | Guardar credenciales tras conexion exitosa (UNO/NEXT) |
 | I | Pantalla Acerca de |
 | ESC | Salir del programa |
 
@@ -148,7 +155,7 @@ Pon el fichero NETMANZX.BAS y netmanzx.cod en el mismo directorio. Ejecuta NETMA
 - **Reintento de IP al Conectar**: 3 intentos con intervalos de 1 segundo tras la asociacion WiFi exitosa
 - **Recuperacion Automatica de Estado**: Al perder conexion, la interfaz pasa a Disconnected y programa un rescaneo seguro. El auto-rescan preserva la lista anterior en caso de fallo
 - **Busquedas de Buffer Acotadas**: Todas las busquedas CPIR limitadas al tamano real del buffer
-- **Recuperacion NextSync** (solo build Next): Detecta ESP dejado a 1152000 baudios por NextSync y reinicia automaticamente a la velocidad correcta
+- **Auto-deteccion de baud rate** (solo Next): Escanea 1152000, 9600, 57600 baudios si el ESP no responde a 115200. Corrige permanentemente a 115200 via `AT+UART_DEF`
 
 ## Historial de Versiones
 

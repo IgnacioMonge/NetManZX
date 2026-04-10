@@ -221,11 +221,19 @@ build_next:
 	$(call BANNER)
 	$(call STEP,2/3,Build NEXT)
 	$(call INFO,Target: ZX Spectrum Next)
-	$(call INFO,Flags: -DNEXT -DTAP)
-	$(call RUN_ASM,NEXT,-DNEXT -DTAP)
+	$(call INFO,Flags: -DNEXT)
+	$(call RUN_ASM,NEXT,-DNEXT)
 	$(call MKDIR_P,$(BUILDDIR))
-	$(call MOVE_FILE,$(OUTPUT_TAP),$(BUILDDIR)/$(OUTPUT_TAP))
+	$(call MOVE_FILE,netmanzx.nex,$(BUILDDIR)/netmanzx.nex)
 	$(call OK,Build complete.)
+
+info_step_next:
+	$(call BANNER)
+	$(call STEP,3/3,Info)
+	$(call INFO,Output: $(BUILDDIR)/netmanzx.nex)
+	$(call INFO,Build log: $(LOGDIR)/last_build.log)
+	$(call ECHO_SIZE,$(BUILDDIR)/netmanzx.nex)
+	$(call BANNER)
 
 # ------------------------------------------------------------
 # Main targets
@@ -235,15 +243,17 @@ uno: dirs preflight clean_step build_uno info_step
 
 ay: dirs preflight clean_step build_ay info_step
 
-next: dirs preflight clean_step build_next info_step
+next: dirs preflight clean_step build_next info_step_next
 
 all: dirs preflight clean_step
 	$(call BANNER)
 	$(call STEP,2/3,Building all targets)
 	$(call RUN_ASM,UNO,-DUNO -DTAP)
 	$(call MOVE_FILE,$(OUTPUT_TAP),$(BUILDDIR)/netmanzx-uno.tap)
-	$(call RUN_ASM,NEXT,-DNEXT -DTAP)
-	$(call MOVE_FILE,$(OUTPUT_TAP),$(BUILDDIR)/netmanzx-next.tap)
+	$(call RUN_ASM,AY,-DAY -DTAP)
+	$(call MOVE_FILE,$(OUTPUT_TAP),$(BUILDDIR)/netmanzx-ay.tap)
+	$(call RUN_ASM,NEXT,-DNEXT)
+	$(call MOVE_FILE,netmanzx.nex,$(BUILDDIR)/netmanzx-next.nex)
 	$(call OK,All builds complete.)
 	$(call BANNER)
 	$(call INFO,Output files in $(BUILDDIR)/)
@@ -269,4 +279,4 @@ info:
 	@echo   make clean - Remove build artifacts
 	$(call BANNER)
 
-.PHONY: uno ay next all clean info dirs preflight clean_step build_uno build_ay build_next info_step
+.PHONY: uno ay next all clean info dirs preflight clean_step build_uno build_ay build_next info_step info_step_next

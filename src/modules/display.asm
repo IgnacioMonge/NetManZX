@@ -1,11 +1,9 @@
     module Display
-scr_addr = #4000
 
 ; ============================================
 ; Color attribute constants
 ; Format: FBPPPIII (Flash, Bright, Paper, Ink)
 ; ============================================
-ATTR_NORMAL      = 107o   ; White on black (list)
 ATTR_HIGHLIGHT   = 160o   ; Black on bright white (cursor)
 ATTR_CONNECTED   = 106o   ; Bright yellow on black (connected network)
 ATTR_CONN_CURSOR = 061o   ; Blue on yellow (cursor on connected network)
@@ -18,6 +16,7 @@ ATTR_BANNER_BOT  = 00000111b  ; White on black, no BRIGHT (row 1 banner)
 ATTR_RSSI        = 004o   ; Green on black (signal bars)
 ATTR_SSID_INPUT  = 104o   ; Bright green on black (selected SSID)
 ATTR_PASS_INPUT  = 171o   ; Bright blue on white (password input)
+ATTR_PASS_EXPOSED = 172o   ; Bright red on white (password visible)
 ATTR_STATUS_BOT  = 00111000b  ; Black ink, white paper, no BRIGHT (double-height bot)
 ATTR_NORMAL      = 107o   ; Bright white on black (standard text)
 ATTR_NORMAL_DIM  = 007o   ; White on black, no bright (double-height bottom)
@@ -74,7 +73,9 @@ putStr:
 .loop
     ld a, (hl)
     and a : jr z, .done
-    cp 13 : jr z, .cr
+    cp 13 : jr nz, .notCR
+    inc hl : jr .cr
+.notCR
     push hl
     push bc
     ld (drawC.coords), bc   ; set drawC coords directly
@@ -126,17 +127,22 @@ putC:
     ret
 
 putCBig:
-    cp 13 : jr z, .cr
+    cp 13 : jr z, putC.cr
     ld hl, (coords) : ld (drawCBig.coords), hl
     call drawCBig
     ld hl, coords
     inc (hl)
-    ld a,(hl) : cp 42 : jr nc, .cr
+    ld a,(hl) : cp 42 : jr nc, putC.cr
     ret
-.cr
+
+; Same as putCBig but skips decompressChar (glyph_buf already valid)
+putCBigGlyph:
+    ld hl, (coords) : ld (drawCBig.coords), hl
+    ld de, glyph_buf
+    call drawCBig.glyph
     ld hl, coords
-    xor a : ld (hl), a
-    inc hl : inc (hl)
+    inc (hl)
+    ld a,(hl) : cp 42 : jr nc, putC.cr
     ret
 
 ; ============================================
@@ -298,12 +304,12 @@ drawC:
 
 ; SMC variables for drawCBig (in printer buffer, set before use)
 dcb_rot     = #5B32
-dcb_rc_top  = #5B33
 dcb_m1      = #5B34
 dcb_m2      = #5B35
 
 drawCBig:
     call decompressChar
+.glyph:                          ; entry: DE = glyph_buf (pre-decompressed)
     push de
     ld hl, 0
 .coords = $ - 2
@@ -434,7 +440,7 @@ clrListOnly:
     djnz .loopT2
     ret
 
-; Clear network area only (lines 6-14)
+; Clear network area only (lines 6-15)
 clrNetworksOnly:
     ; Third 0: lines 6-7 (2 lines)
     ld hl, #40C0
@@ -451,15 +457,15 @@ clrNetworksOnly:
     add hl, bc
     pop bc
     djnz .loopN0
-    
-    ; Third 1: lines 8-14 (7 lines)
+
+    ; Third 1: lines 8-15 (8 lines = full PER_PAGE coverage)
     ld hl, #4800
     ld b, 8
 .loopN1
     push bc
     push hl
     ld d, h : ld e, l : inc de
-    ld bc, 223              ; 224 bytes (7 lines * 32)
+    ld bc, 255              ; 256 bytes (8 lines * 32)
     xor a : ld (hl), a
     ldir
     pop hl
@@ -468,11 +474,11 @@ clrNetworksOnly:
     pop bc
     djnz .loopN1
 
-    ; Clear network area attrs (lines 6-14) to avoid residual colors after rescan
+    ; Clear network area attrs (lines 6-15) to avoid residual colors after rescan
     ld a, ATTR_NORMAL
     ld hl, #58C0             ; 0x5800 + (6 * 32)
     ld de, #58C1
-    ld bc, 287               ; 9 lines * 32 - 1
+    ld bc, 319               ; 10 lines * 32 - 1
     ld (hl), a
     ldir
     ret
@@ -519,6 +525,16 @@ clrscr:
     ld bc, 127              ; 4 lines * 32 - 1 = 127
     ld (hl), a
     ldir
+
+    ; Zero printer-buffer display vars (128K/Next leaves garbage here)
+    xor a
+    ld (putLogC_coord), a
+    ld hl, log_ind_data
+    ld b, 8
+.clrInd
+    ld (hl), a
+    inc hl
+    djnz .clrInd
     ret
 
 findAddr:
@@ -542,18 +558,22 @@ findAddr:
 ; ============================================
 calc:
     ld a, b
-    ; A = B * 6
     add a, a        ; A = B * 2
-    ld c, a
-    add a, a        ; A = B * 4
-    add a, c        ; A = B * 6
-    ; L = A / 8, A = A % 8
-    ld c, a
-    and 7
-    ld l, c
+    add a, b        ; A = B * 3
+    ld l, a
     srl l
-    srl l
-    srl l
+    srl l           ; L = (B*3)/4 = (B*6)/8 = byte column
+    and 3           ; A = (B*3)%4
+    add a, a        ; A = ((B*3)%4)*2 = (B*6)%8 = pixel offset
+    ret
+
+; gotoXY0 - Set cursor to column 0, row A
+; Input: A = row (Y coordinate)
+; Destroys: HL
+gotoXY0:
+    ld h, a
+    ld l, 0
+    ld (coords), hl
     ret
 
 coords = #5B37  ; In printer buffer (set by gotoXY macro)
@@ -739,9 +759,9 @@ font_packed:
     db #00, #DD, #8D, #D0  ; 'x'
     db #00, #DD, #D8, #6C  ; 'y'
     db #00, #F3, #6C, #F0  ; 'z'
-    db #36, #6C, #66, #30  ; '{'
+    db #00, #F8, #20, #00  ; '{' → down arrow (scroll indicator)
     db #33, #33, #33, #30  ; '|'
-    db #63, #31, #33, #60  ; '}'
+    db #00, #28, #F0, #00  ; '}' → up arrow (scroll indicator)
     db #00, #80, #08, #00  ; '~' → hollow circle (open network)
     db #FF, #FF, #FF, #FF  ; DEL → cursor block (0x7C solid)
 
@@ -765,34 +785,25 @@ font_exceptions:
 ; compareStringZ - Compare two zero-terminated strings
 ; Input: HL, DE = string pointers
 ; Output: Z=1 if equal, Z=0 if different
-; Preserves: HL, DE, BC
+; Preserves: HL, DE, BC (BC not touched, HL/DE restored via push/pop)
 ; ============================================
 compareStringZ:
     push hl
     push de
-    push bc
 .loop
     ld a, (de)
-    ld c, a
-    ld a, (hl)
-    cp c
-    jr nz, .different
+    cp (hl)
+    jr nz, .diff
     and a
-    jr z, .equal            ; both zero -> equal
+    jr z, .done             ; both zero -> Z=1, CF=0
     inc hl
     inc de
     jr .loop
-.equal
-    pop bc
+.diff
+    or 1                    ; Z=0, CF=0 (fixes false equality on prefix match)
+.done
     pop de
     pop hl
-    xor a                   ; Z=1
-    ret
-.different
-    pop bc
-    pop de
-    pop hl
-    or 1                    ; Z=0
     ret
 
 ; ============================================
@@ -852,38 +863,31 @@ draw_hline_only:
 ; Destroys: AF, BC, DE, HL
 ; ============================================
 stretchRows01:
-    ld hl, #4700        ; src: row0 scanline 7
-    ld de, #4720        ; dst: row1 scanline 7
-    call stretchFour
-    ld hl, #4300        ; src: row0 scanline 3
-    ld de, #4700        ; dst: row0 scanline 7
-    jp stretchFour
+    ld hl, #4700
+    jp stretchRowPair
 
-; Stretch row 18 to double-height across rows 18-19
 stretchRows1819:
-    ld hl, #5740        ; src: row18 scanline 7
-    ld de, #5760        ; dst: row19 scanline 7
-    call stretchFour
-    ld hl, #5340        ; src: row18 scanline 3
-    ld de, #5740        ; dst: row18 scanline 7
-    jp stretchFour
+    ld hl, #5740
+    jp stretchRowPair
 
-; Stretch row 4 to double-height across rows 4-5
 stretchRows45:
-    ld hl, #4780        ; src: row4 scanline 7
-    ld de, #47A0        ; dst: row5 scanline 7
-    call stretchFour
-    ld hl, #4380        ; src: row4 scanline 3
-    ld de, #4780        ; dst: row4 scanline 7
-    jp stretchFour
+    ld hl, #4780
+    jp stretchRowPair
 
-; Stretch row 3 to double-height across rows 3-4
 stretchRows34:
-    ld hl, #4760        ; src: row3 scanline 7
-    ld de, #4780        ; dst: row4 scanline 7
+    ld hl, #4760
+    ; fall through
+
+; Generic double-height stretch (HL = row scanline 7 address)
+; Duplicates top 4 scanlines → bottom half, bottom 4 → next row
+stretchRowPair:
+    ld d, h : ld e, l
+    ld a, e : add a, #20 : ld e, a ; DE = HL + #20 (next row)
+    push hl
     call stretchFour
-    ld hl, #4360        ; src: row3 scanline 3
-    ld de, #4760        ; dst: row3 scanline 7
+    pop hl
+    ld d, h : ld e, l              ; DE = original HL (destination)
+    ld a, h : sub 4 : ld h, a      ; HL -= #400 (scanline 3)
     ; fall through
 
 stretchFour:

@@ -47,39 +47,33 @@ checkConnection:
 
     ; Wake up ESP and consume full response.
     ; This avoids stray "OK" bytes remaining in RX and contaminating the next query.
-    EspCmd "AT"
-    call checkOkErr
+    ld hl, S_AT : call espSendZCheckOk
     call flushInput
-
-    ; Clear stored SSID
-    ld hl, connected_ssid
-    ld (hl), 0
 
     ; Try different query variants for maximum AT firmware compatibility
-    EspCmd "AT+CWJAP?"
+    ld hl, S_AT_CWJAP_Q : call espSendZ
     call .waitCwJAP
     jr nc, .connected
 
     call flushInput
-    EspCmd "AT+CWJAP_CUR?"
+    ld hl, S_AT_CWJAP_CUR : call espSendZ
     call .waitCwJAP
     jr nc, .connected
 
     call flushInput
-    EspCmd "AT+CWJAP_DEF?"
+    ld hl, S_AT_CWJAP_DEF : call espSendZ
     call .waitCwJAP
     jr nc, .connected
 
-    ; Not connected
-    xor a
-    ld (is_connected), a
+    ; SSID query failed — return CF=1 without clearing state
+    ; (callers decide whether to mark disconnected)
     scf
     ret
 
 .connected
+    ; SSID found — update state
     ld a, 1
     ld (is_connected), a
-    or a
     ret
 
 ; ============================================
@@ -186,15 +180,19 @@ checkConnection:
     ret
 
 ; Drain UART until silence (capped at 1024 bytes to prevent lockup)
+; Flush until sustained silence (NextSync flush_uart_hard pattern)
 flushInput:
-    ld de, 1024
+    ld de, 10000              ; Silence timeout counter
 .flushLoop
     call UartImpl.uartRead
-    jr nc, .flushDone
+    jr nc, .flushQuiet
+    ; Byte received — reset timeout
+    ld de, 10000
+    jr .flushLoop
+.flushQuiet
     dec de
     ld a, d : or e
     jr nz, .flushLoop
-.flushDone
     ret
 
 ; Exit transparent mode (+++, guard time, flush)
@@ -233,20 +231,20 @@ init:
     ret
     
 .resetOk
-    EspCmdOkErr "ATE0"
-    EspCmdOkErr "AT+SYSSTORE=1"
+    ld hl, S_ATE0 : call espSendZCheckOk
+    ld hl, S_AT_SYSSTORE : call espSendZCheckOk
     jr c, .oldFwDetect
-    EspCmdOkErr "AT+CWMODE=1"
+    ld hl, S_AT_CWMODE : call espSendZCheckOk
     jr .checkMode
 
 .oldFwDetect
     ld a, 1
     ld (old_fw), a
-    EspCmdOkErr "AT+CWMODE_DEF=1"
+    ld hl, S_AT_CWMODE_DEF : call espSendZCheckOk
 
 .checkMode
     jr c, .err
-    EspCmdOkErr "AT+CWAUTOCONN=1"
+    ld hl, S_AT_CWAUTOCONN : call espSendZCheckOk
     jr c, .err
     ret
 
@@ -265,9 +263,9 @@ init:
 reset:
     call flushInput     
 
-    EspCmdOkErr "AT"
+    ld hl, S_AT : call espSendZCheckOk
     jr c, .timeout_err
-    EspCmd "AT+RST"
+    ld hl, S_AT_RST : call espSendZ
     
     ; Bounded number of readTimeout misses while waiting for "ready"
     ld de, 200
@@ -275,6 +273,8 @@ reset:
     call Uart.readTimeout
     jr nc, .check_timeout
     
+    cp 'r' : jr nz, .loop
+    call Uart.readTimeout : jr nc, .timeout_err
     cp 'e' : jr nz, .loop
     call Uart.readTimeout : jr nc, .timeout_err
     cp 'a' : jr nz, .loop
@@ -301,15 +301,26 @@ getList:
     call uartLock
     call flushInput
 
-    ; --- Clear buffer (LDIR) ---
+    ; Don't clear buffers yet — preserve old data until scan succeeds
+    xor a
+    ld (seen_cwlap), a
+    ld (ok_ignored), a
+
+    ; Try extended scan with longer dwell time per channel
+    ld a, 1
+    ld (scan_extended), a
+    ld hl, S_AT_CWLAP_EXT : call espSendZ
+    ; fall through to loadList
+    jr loadList
+
+; Clear SSID buffer, reset pointers and count (called on first +CWLAP)
+clearScanBuffers:
     ld hl, buffer
     ld de, buffer + 1
     ld bc, BUFFER_SIZE - 1
     xor a
     ld (hl), a
     ldir
-    ; ============================================
-
     ld hl, buffer
     ld (buff_ptr), hl
     ld hl, rssi_buffer
@@ -320,14 +331,7 @@ getList:
     ld (chan_ptr), hl
     xor a
     ld (networks_count), a
-    ld (seen_cwlap), a
-    ld (ok_ignored), a
-
-    ; Try extended scan with longer dwell time per channel
-    ld a, 1
-    ld (scan_extended), a
-    EspCmd "AT+CWLAP=,,,,200,1500"
-    ; fall through to loadList
+    ret
 
 loadList:
     ; First wait with long timeout (scan can take 5-15 seconds)
@@ -365,20 +369,26 @@ loadList:
 
 .plusStart
     call Uart.readTimeout : jp nc, .scanTimeout
-    cp 'C' : jr nz, loadList
+    cp 'C' : jp nz, loadList
     call Uart.readTimeout : jp nc, .scanTimeout
-    cp 'W' : jr nz, loadList
+    cp 'W' : jp nz, loadList
     call Uart.readTimeout : jp nc, .scanTimeout
-    cp 'L' : jr nz, loadList
+    cp 'L' : jp nz, loadList
+    ; First +CWLAP: clear buffers now that scan is producing results
+    ld a, (seen_cwlap)
+    and a
+    jr nz, .skipClear
+    call clearScanBuffers
+.skipClear
     ld a, 1
     ld (seen_cwlap), a
     jp .loadAp
 
 .okStart
     call Uart.readTimeout : jp nc, .scanTimeout
-    cp 'K' : jr nz, loadList
+    cp 'K' : jp nz, loadList
     call Uart.readTimeout : jp nc, .scanTimeout
-    cp 13  : jr nz, loadList
+    cp 13  : jp nz, loadList
 
     ; Some firmwares (or prior commands) may leave a stray OK in the RX stream.
     ; Ignore the first OK if we have not seen any +CWLAP lines yet.
@@ -394,9 +404,14 @@ loadList:
     jp loadList
 
 .okReturn
+    ; If OK arrived without any +CWLAP, clear old data (0-result scan)
+    ld a, (seen_cwlap)
+    and a
+    jr nz, .okAlreadyClear
+    call clearScanBuffers
+.okAlreadyClear
     call initDisplayIndices     ; Initialize display indices
     call sortNetworks           ; Auto-sort by RSSI
-    or a
     jp uartUnlock
 
 .errStart
@@ -417,23 +432,19 @@ loadList:
     ld (seen_cwlap), a
     ld (ok_ignored), a
     call flushInput
-    EspCmd "AT+CWLAP"
+    ld hl, S_AT_CWLAP : call espSendZ
     jp loadList
 
 .scanFail
     ld hl, .scanErrMsg
     call Display.putStrLog
-    call uartUnlock
-    scf
-    ret
+    jp uartUnlockFail
 .scanErrMsg db 13, "Scan fail!", 0
 
 .scanTimeout
     ld hl, .timeout_msg
     call Display.putStrLog
-    call uartUnlock
-    scf
-    ret
+    jp uartUnlockFail
 .timeout_msg db 13, "Scan timeout!", 0
 
 .loadAp
@@ -494,9 +505,7 @@ loadList:
 .bufferFull
     ld hl, .full_msg
     call Display.putStrLog
-    call uartUnlock
-    scf
-    ret
+    jp uartUnlockFail
 .full_msg db 13, "Buffer full!", 0
 
 .loadedName
@@ -586,14 +595,20 @@ loadList:
     jp loadList
 
 espSend:
-    ld a, (hl) 
+    ld a, (hl)
     push hl, de
     call Uart.write
     pop de, hl
-    inc hl 
+    inc hl
     dec e
     jr nz, espSend
     ret
+
+; espSendZCheckOk - Send Z-terminated string + check OK/ERROR
+; Input: HL = pointer to Z-terminated AT command (with CRLF)
+espSendZCheckOk:
+    call espSendZ
+    jp checkOkErr
 
 espSendZ:
     ; TX log only when debug enabled (protects passwords sent in parts)
@@ -671,18 +686,17 @@ dbg_rx_fail     db "<< FAIL", 13, 10, 0
 checkOkErr:
     xor a
     ld (use_long_timeout), a
-    ld (last_error), a
     jr checkOkErrCommon
 
 ; checkOkErrLong - Uses long timeout for AT+CWJAP
 checkOkErrLong:
     ld a, 1
     ld (use_long_timeout), a
-    xor a
-    ld (last_error), a
     ; Fall through
 
 checkOkErrCommon:
+    xor a
+    ld (last_error), a
     call uartLock
     ; Byte limit to prevent infinite loop with network traffic
     ld hl, 2000
@@ -707,9 +721,7 @@ checkOkErrCommon:
     jr .mainLoop
 
 .timeout
-    call uartUnlock
-    scf
-    ret
+    jp uartUnlockFail
 
 .okStart
     call .doRead : jp nc, .timeout
@@ -717,11 +729,7 @@ checkOkErrCommon:
     call .doRead : jp nc, .timeout
     cp 13  : jp nz, .mainLoop
     call .flushToLF
-    push hl
-    ld hl, dbg_rx_ok
-    call Display.putStrLog
-    pop hl
-    or a
+    ld hl, dbg_rx_ok : call logIfEnabled
     jp uartUnlock
 .errStart
     call .doRead : jp nc, .timeout
@@ -733,13 +741,8 @@ checkOkErrCommon:
     call .doRead : jp nc, .timeout
     cp 'R' : jp nz, .mainLoop
     call .flushToLF
-    push hl
-    ld hl, dbg_rx_error
-    call Display.putStrLog
-    pop hl
-    call uartUnlock
-    scf
-    ret 
+    ld hl, dbg_rx_error : call logIfEnabled
+    jp uartUnlockFail
 .failStart
     call .doRead : jp nc, .timeout
     cp 'A' : jp nz, .mainLoop
@@ -748,13 +751,8 @@ checkOkErrCommon:
     call .doRead : jp nc, .timeout
     cp 'L' : jp nz, .mainLoop
     call .flushToLF
-    push hl
-    ld hl, dbg_rx_fail
-    call Display.putStrLog
-    pop hl
-    call uartUnlock
-    scf
-    ret
+    ld hl, dbg_rx_fail : call logIfEnabled
+    jp uartUnlockFail
 
 ; Detect +CWJAP:X error codes
 .plusStart
@@ -810,8 +808,8 @@ getIP:
     inc hl
     djnz .clear
 
-    ld bc, 500                  ; Byte limit
-    EspCmd "AT+CIFSR"
+    ld hl, S_AT_CIFSR : call espSendZ
+    ld bc, 500                  ; Byte limit (after espSendZ to avoid BC clobber)
 .loop
     dec bc
     ld a, b
@@ -851,13 +849,148 @@ getIP:
     cp '.'
     jr z, .noIP
 .ok
-    or a                    ; CF = 0
     jp uartUnlock
 .timeout
 .noIP
-    call uartUnlock
-    scf                     ; CF = 1
+    jp uartUnlockFail
+
+; ============================================
+; getConnectionInfo - Query IP, gateway, netmask, MAC
+;   Fills: ip_buffer (from CIFSR), ci_gateway, ci_netmask (from CIPSTA),
+;          ci_mac (from CIFSR)
+;   Graceful fallback: fields left empty if query fails
+; ============================================
+getConnectionInfo:
+    call uartLock
+
+    ; Clear all connection info buffers (69 contiguous RTVAR bytes)
+    xor a
+    ld hl, ip_buffer
+    ld de, ip_buffer + 1
+    ld bc, 68
+    ld (hl), a
+    ldir
+
+    ; --- Phase 1: AT+CIFSR for IP + MAC ---
+    call flushInput
+    ld hl, S_AT_CIFSR : call espSendZ
+    ld bc, 500                  ; Byte limit
+
+.cifrLoop
+    dec bc : ld a, b : or c : jr z, .cifrDone
+    call Uart.readTimeout : jr nc, .cifrDone
+
+    ; Look for 'M' (start of MAC,"...)
+    cp 'M' : jr nz, .cifrNotM
+    call Uart.readTimeout : jr nc, .cifrDone
+    cp 'A' : jr nz, .cifrLoop
+    call Uart.readTimeout : jr nc, .cifrDone
+    cp 'C' : jr nz, .cifrLoop
+    ; Skip to opening quote
+.cifrFindQ
+    call Uart.readTimeout : jr nc, .cifrDone
+    cp '"' : jr nz, .cifrFindQ
+    ; Copy MAC until closing quote
+    ld hl, ci_mac
+    ld d, 17                    ; Max MAC chars (aa:bb:cc:dd:ee:ff)
+.cifrCopyMac
+    call Uart.readTimeout : jr nc, .cifrMacDone
+    cp '"' : jr z, .cifrMacDone
+    ld (hl), a : inc hl
+    dec d : jr nz, .cifrCopyMac
+.cifrMacDone
+    xor a : ld (hl), a
+    jr .cifrLoop
+
+.cifrNotM
+    ; Also catch STAIP for ip_buffer (reuse existing parser logic)
+    cp 'P' : jr nz, .cifrLoop
+    call Uart.readTimeout : jr nc, .cifrDone
+    cp ',' : jr nz, .cifrLoop
+    call Uart.readTimeout : jr nc, .cifrDone
+    cp '"' : jr nz, .cifrLoop
+    ; Copy IP
+    ld hl, ip_buffer
+    ld d, 16
+.cifrCopyIP
+    call Uart.readTimeout : jr nc, .cifrIPDone
+    cp '"' : jr z, .cifrIPDone
+    ld (hl), a : inc hl
+    dec d : jr nz, .cifrCopyIP
+.cifrIPDone
+    xor a : ld (hl), a
+    jr .cifrLoop
+
+.cifrDone
+    call flushInput
+
+    ; --- Phase 2: AT+CIPSTA? / AT+CIPSTA_CUR? for gateway + netmask ---
+    ld hl, S_AT_CIPSTA : call espSendZ
+    call .parseCipsta
+    jr nc, .ciDone              ; Success
+
+    ; Fallback: try _CUR variant
+    call flushInput
+    ld hl, S_AT_CIPSTA_CUR : call espSendZ
+    call .parseCipsta
+    ; Ignore result — if both fail, buffers stay empty
+
+.ciDone
+    call flushInput
+    jp uartUnlock
+
+; Parse +CIPSTA response: look for gateway:"..." and netmask:"..."
+; Output: CF=0 if at least gateway found, CF=1 if not
+.parseCipsta
+    ld bc, 600                  ; Byte limit
+.pcLoop
+    dec bc : ld a, b : or c : jr z, .pcFail
+    call Uart.readTimeout : jr nc, .pcFail
+
+    ; Look for 'g' (gateway) or 'n' (netmask) or 'O' (OK = done)
+    cp 'O' : jr z, .pcOk
+    cp 'g' : jr z, .pcGateway
+    cp 'n' : jr z, .pcNetmask
+    jr .pcLoop
+
+.pcGateway
+    ; Skip to opening quote
+.pcGwQ  call Uart.readTimeout : jr nc, .pcFail
+    cp '"' : jr nz, .pcGwQ
+    ld hl, ci_gateway
+    jr .pcCopy
+
+.pcNetmask
+    ; Skip to opening quote
+.pcNmQ  call Uart.readTimeout : jr nc, .pcFail
+    cp '"' : jr nz, .pcNmQ
+    ld hl, ci_netmask
+    ; Fall through to .pcCopy
+
+.pcCopy
+    ld d, 16                    ; Max IP-like string length
+.pcCopyLoop
+    call Uart.readTimeout : jr nc, .pcCopyDone
+    cp '"' : jr z, .pcCopyDone
+    ld (hl), a : inc hl
+    dec d : jr nz, .pcCopyLoop
+.pcCopyDone
+    xor a : ld (hl), a
+    jr .pcLoop
+
+.pcOk
+    ; Check if gateway was found
+    ld a, (ci_gateway)
+    and a
+    jr z, .pcFail
+    or a                        ; CF=0
     ret
+.pcFail
+    scf
+    ret
+
+S_AT_CIPSTA     db "AT+CIPSTA?", 13, 10, 0
+S_AT_CIPSTA_CUR db "AT+CIPSTA_CUR?", 13, 10, 0
 
 ; ============================================
 ; ensureCommandMode
@@ -873,8 +1006,7 @@ getIP:
 ensureCommandMode:
     ; Fast path
     call flushInput
-    EspCmd "AT"
-    call checkOkErr
+    ld hl, S_AT : call espSendZCheckOk
     ret nc
 
     ; Slow path: try to exit a possible transparent/pass-through mode
@@ -925,8 +1057,7 @@ ensureCommandMode:
 
     ; Clear any response noise and retry AT
     call flushInput
-    EspCmd "AT"
-    jp checkOkErr
+    ld hl, S_AT : jp espSendZCheckOk
 
 .msg_escape db 13, "-- Escape +++ (trying to exit pass-through)", 13, 10, 0
 
@@ -1072,10 +1203,41 @@ is_connected    = #5B17
 uart_busy       = #5B1C
 debug_log       = #5B1D
 
+; Log message if debug_log is enabled (HL = message)
+logIfEnabled:
+    ld a, (debug_log)
+    and a
+    ret z
+    jp Display.putStrLog
+
+; Unlock UART and return with CF=1 (error)
+uartUnlockFail:
+    call uartUnlock
+    scf
+    ret
+
+; Shared AT command strings (Z-terminated with CRLF)
+S_AT            db "AT", 13, 10, 0
+S_ATE0          db "ATE0", 13, 10, 0
+S_AT_RST        db "AT+RST", 13, 10, 0
+S_AT_SYSSTORE   db "AT+SYSSTORE=1", 13, 10, 0
+S_AT_CWMODE     db "AT+CWMODE=1", 13, 10, 0
+S_AT_CWMODE_DEF db "AT+CWMODE_DEF=1", 13, 10, 0
+S_AT_CWAUTOCONN db "AT+CWAUTOCONN=1", 13, 10, 0
+S_AT_CWJAP_Q    db "AT+CWJAP?", 13, 10, 0
+S_AT_CWJAP_CUR  db "AT+CWJAP_CUR?", 13, 10, 0
+S_AT_CWJAP_DEF  db "AT+CWJAP_DEF?", 13, 10, 0
+S_AT_CWLAP      db "AT+CWLAP", 13, 10, 0
+S_AT_CWLAP_EXT  db "AT+CWLAP=,,,,200,1500", 13, 10, 0
+S_AT_CIFSR      db "AT+CIFSR", 13, 10, 0
+
     RTVAR rssi_buffer, MAX_NETWORKS
     RTVAR ecn_buffer, MAX_NETWORKS      ; Encryption type per network (0-5)
     RTVAR channel_buffer, MAX_NETWORKS  ; WiFi channel per network (1-14)
     RTVAR connected_ssid, MAX_SSID_LEN + 1
     RTVAR ip_buffer, 17
+    RTVAR ci_gateway, 17
+    RTVAR ci_netmask, 17
+    RTVAR ci_mac, 18             ; "aa:bb:cc:dd:ee:ff" + null
 
     endmodule

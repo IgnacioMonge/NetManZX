@@ -28,8 +28,6 @@ init:
     ; Init line-mode log buffer
     ld hl, log_buf
     ld (log_ptr), hl
-    xor a
-    ld (log_overflow), a
     ret
 
 write:
@@ -55,6 +53,7 @@ readTimeout:
     ld de, DEFAULT_TIMEOUT
     call poll_block
     jr c, got_byte
+readTimeoutFail:
     pop hl, de, bc
     or a
     ret
@@ -66,9 +65,7 @@ readTimeoutMedium:
     ld de, MEDIUM_TIMEOUT
     call poll_block
     jr c, got_byte
-    pop hl, de, bc
-    or a
-    ret
+    jr readTimeoutFail
 
 ; Read with long timeout (for WiFi connection)
 ; Out: A = byte read, CF=1 success, CF=0 timeout or BREAK pressed
@@ -84,10 +81,7 @@ readTimeoutLong:
     jr z, .breakAbort
     djnz .outer
 .breakAbort
-    ; Total timeout or BREAK
-    pop hl, de, bc
-    or a
-    ret
+    jr readTimeoutFail
 
 ; ============================================
 ; poll_block
@@ -151,9 +145,7 @@ log_char:
     sbc hl, de
     jr c, .have_space
 
-    ; No space: mark overflow, flush will happen on next LF
-    ld a, 1
-    ld (log_overflow), a
+    ; No space: discard char, flush will happen on next LF
     jr .maybe_flush
 
 .have_space
@@ -181,8 +173,6 @@ log_flush:
     call Display.putStrLog
     ld hl, log_buf
     ld (log_ptr), hl
-    xor a
-    ld (log_overflow), a
     pop hl, af
     ret
 
@@ -191,13 +181,10 @@ log_flush:
 logReset:
     ld hl, log_buf
     ld (log_ptr), hl
-    xor a
-    ld (log_overflow), a
     ret
 
 ; Disabled by default; toggled at runtime with L key.
 log_enabled  db 0
-log_overflow db 0
 log_ptr      dw 0
     RTVAR log_buf, LOG_BUF_SIZE
 

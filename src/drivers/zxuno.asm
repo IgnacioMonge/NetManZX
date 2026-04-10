@@ -35,6 +35,7 @@ init:
     ret
 
 write:
+    push bc
     push af
     ld bc, ZXUNO_ADDR : ld a, UART_STAT_REG : out (c), a
     ld bc, ZXUNO_REG : in A, (c) : and UART_BYTE_RECIVED
@@ -46,12 +47,16 @@ write:
     ld bc, ZXUNO_ADDR : ld a, UART_DATA_REG : out (c), a
 
     ld bc, ZXUNO_REG : pop af : out (c), a
+    pop bc
     ret
 .is_recvF
-    push af : push hl
-    ld hl, is_recv : ld a, 1 : ld (hl), a 
-    
-    pop hl : pop af
+    ; Read incoming byte NOW before it's lost
+    ld bc, ZXUNO_ADDR : ld a, UART_DATA_REG : out (c), a
+    ld bc, ZXUNO_REG : in a, (c)
+    ld (byte_buff), a
+    ld a, 1 : ld (is_recv), a
+    ; Restore status register selection before checking TX busy
+    ld bc, ZXUNO_ADDR : ld a, UART_STAT_REG : out (c), a
     jr .checkSent
 
 
@@ -86,12 +91,8 @@ retReadByte:
     ret
 
 recvRet:
-    ld bc, ZXUNO_ADDR : ld a,  UART_DATA_REG : out (c),a
-
-    ld bc, ZXUNO_REG : in a, (c)
-    ld hl, is_recv : ld (hl), 0
-    ld hl, poked_byte : ld (hl), 0
-    
+    xor a : ld (is_recv), a : ld (poked_byte), a
+    ld a, (byte_buff)
     scf
     ret
 

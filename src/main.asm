@@ -1,4 +1,8 @@
-    device ZXSPECTRUM48
+    IFDEF NEXT
+        device ZXSPECTRUMNEXT
+    ELSE
+        device ZXSPECTRUM48
+    ENDIF
 
     IFDEF DOT
         org #8000
@@ -10,10 +14,18 @@
     ; V = Mmp...  (M=major, m=minor, p=patch)
     ; Examples: V=12  -> 1.2
     ;           V=121 -> 1.2.1
-    DEFINE V 142
+    DEFINE V 143
+
+; Platforms with esxDOS (SD card file I/O)
+    IFDEF UNO
+        DEFINE HAS_ESXDOS
+    ENDIF
+    IFDEF NEXT
+        DEFINE HAS_ESXDOS
+    ENDIF
 
 ; Global constants
-buffer = #C000
+buffer = #C100
 stack_top = #FFF0
 
 ; Runtime data area: uninitialized buffers placed after the SSID buffer
@@ -41,6 +53,11 @@ version_string:
     include "modules/uart-common.asm"
     include "modules/keyboard.asm"
 
+    ; Config save/load (esxDOS) - only for platforms with SD card
+    IFDEF HAS_ESXDOS
+        include "modules/config.asm"
+    ENDIF
+
     ; ============================================
     ; UART backend selection (SjASMPlus compatible)
     ;
@@ -62,37 +79,54 @@ version_string:
     ENDIF
 
 start:
+    ; Zero printer buffer (128K/Next ROM leaves garbage that corrupts
+    ; our variables stored there: debug_log, log_ind_data, etc.)
+    ld hl, #5B00
+    ld de, #5B01
+    ld (hl), 0
+    ld bc, 255
+    ldir
+
     ld (saved_sp), sp
     ld sp, stack_top
 
     call UI.init            ; Initialize full screen (IP: Scanning...)
-    
+
     ; Show log message
     ld hl, .msg_checking
     call Display.putStrLog
-    
+
     ; Initialize UART
     ld hl, .msg_preparing
     call Display.putStrLog
     call Uart.init
 
     IFDEF NEXT
-    ; Baud rate recovery: if NextSync left the ESP at 1152000
+    ; Baud rate auto-detection: try AT at 115200, scan if no response
     call Wifi.flushInput
-    EspCmd "AT"
+    ld hl, Wifi.S_AT : call Wifi.espSendZ
     call Wifi.checkOkErr
     jr nc, .baudOk
-    ; No response at 115200 - try reset at 1152000 (NextSync)
+
+    ; No response at 115200 — scan common baud rates
+    ld hl, .msg_baud_scan
+    call Display.putStrLog
+    call UartImpl.baudScan
+    jr c, .baudOk               ; Not found at any rate — continue anyway
+
+    ; Found ESP at wrong baud — fix permanently and reboot
     ld hl, .msg_baud_fix
     call Display.putStrLog
-    call UartImpl.tryFastBaud
     call Wifi.flushInput
-    EspCmd "AT+RST"             ; Reset ESP (restores saved baud)
-    ld b, 100                   ; Wait ~2s for reboot
-.recWait:
+    ld hl, .at_uart_def : call Wifi.espSendZ
+    call Wifi.checkOkErr        ; OK at detected baud
+    call Wifi.flushInput
+    ld hl, Wifi.S_AT_RST : call Wifi.espSendZ
+    ld b, 150                   ; Wait ~3s for ESP reboot
+.baudWait:
     halt
-    djnz .recWait
-    call Uart.init
+    djnz .baudWait
+    call Uart.init              ; Back to 115200
     call Wifi.flushInput
 .baudOk:
     ENDIF
@@ -100,6 +134,13 @@ start:
     ; Exit transparent mode (if SpecTalkZX or similar left it active)
     ; Requires 1s of prior silence (satisfied: we just started)
     call Wifi.exitTransparent
+
+    ; Disable echo early — ESP default is echo ON after power-on.
+    ; Without this, AT+CWLAP responses include the echoed command,
+    ; breaking the scan parser. Must happen before any scan path.
+    call Wifi.flushInput
+    ld hl, Wifi.S_ATE0 : call Wifi.espSendZ
+    call Wifi.checkOkErr
 
     ; Check if already connected
     ld hl, .msg_query_status
@@ -120,13 +161,7 @@ start:
     ; Unknown SSID -> show placeholder
     ld hl, .ssid_unknown
     ld de, Wifi.connected_ssid
-.copySsidU
-    ld a, (hl)
-    ld (de), a
-    inc hl
-    inc de
-    and a
-    jr nz, .copySsidU
+    call UI.copyStringZ
     jr .alreadyConnected
 
 .noPreconn
@@ -152,11 +187,11 @@ start:
     call UI.updateWifiStatus_q  ; Switch from Scanning to Connected (no render)
     call UI.ipShowConnected     ; Show IP (single render)
     
-    call UI.showConnectedDialog 
+    call UI.showConnectedDialog
     jr nc, .forceScan       ; User chose 'Y' (Reconfigure) -> Scan
 
-    ; User chose 'N' (Keep) -> Exit to BASIC
-    jp UI.showConnectedSuccessScreen
+    ; User chose 'N' (Keep) -> Diagnostics directly
+    jp UI.showDiagnostics
 
 .notConnected
     ; --- Update top and bottom bars ---
@@ -172,15 +207,17 @@ start:
     ld (UI.offset), a
     ld (.scan_fail_reason), a    ; 0=ok, 1=timeout, 2=no networks
 
+    ; Show full menu frame ONCE (help text + separator stay visible during scan)
+    call UI.renderList
+
     ld b, 5                 ; 5 attempts
-    
+
 .scanLoop
     push bc
-    
-    call UI.topClean
-    gotoXY 0, 17
-    ld hl, UI.rescan.scanning_msg
-    call Display.putStr
+
+    ; Only clear network area + show scanning (menu stays visible)
+    call UI.clearNetworksArea
+    ld a, 17 : ld hl, UI.rescan.scanning_msg : call UI.printAt0
 
     call Wifi.getList
     
@@ -204,7 +241,7 @@ start:
     push bc
     
     ; Show retry message based on failure type
-    gotoXY 1, 5
+    ld a, 8 : call Display.gotoXY0
     ld a, (.scan_fail_reason)
     cp 1
     jr nz, .showNoNetworks
@@ -254,6 +291,7 @@ start:
     ld a, 13 : call Display.putLogC
     pop bc
     djnz .clearLog
+
     jp   UI.uiLoop
 
 .initFailed
@@ -271,14 +309,23 @@ start:
     ; Fall through to exit_clean
 
 .exitClean
-    ld sp, (saved_sp)
-    ei
-    ret
+    IFDEF NEXT
+        ei
+        rst 0               ; Return to NextZXOS
+    ELSE
+        ld sp, (saved_sp)
+        ei
+        ret                 ; Return to BASIC
+    ENDIF
 
 ; String constants
 .msg_checking   db "Checking...", 13, 0
 .msg_preparing  db "UART init...", 13, 0
-.msg_baud_fix   db "Baud recovery...", 13, 0
+    IFDEF NEXT
+.msg_baud_scan  db "Scanning baud rates...", 13, 0
+.msg_baud_fix   db "Fixing ESP baud to 115200...", 13, 0
+.at_uart_def    db "AT+UART_DEF=115200,8,1,0,0", 13, 10, 0
+    ENDIF
 .msg_query_status db "Checking WiFi status...", 13, 0
 .ssid_unknown     db "(unknown)", 0
 .msg_init_wifi  db "Initializing WiFi module...", 13, 0
@@ -298,6 +345,18 @@ program_end:
     ; Build-time safety checks
     ASSERT program_end <= buffer              ; code must not overlap SSID buffer
     ASSERT rt_ptr <= stack_top - 64           ; runtime vars must not reach stack
+
+    IFDEF NEXT
+        ; ============================================
+        ; NEX format (native Next, no mode menu)
+        ; ============================================
+        SAVENEX OPEN "netmanzx.nex", start, stack_top
+        SAVENEX CORE 2, 0, 0       ; Minimum core version
+        SAVENEX CFG 0               ; Border black
+        SAVENEX AUTO                ; Save all modified pages
+        SAVENEX CLOSE
+
+    ELSE
 
     IFDEF TAP
         ; ============================================
@@ -347,10 +406,12 @@ basic_end:
         emptytap "netmanzx.tap"
         savetap "netmanzx.tap", BASIC, "netmanzx", basic_start, basic_end - basic_start, 10
         savetap "netmanzx.tap", CODE, "netmanzx", text, program_end - text, text
-        
+
     ELSE
         ; ============================================
         ; Standard +3DOS format
         ; ============================================
         save3dos "netmanzx.cod", text, program_end - text
     ENDIF
+
+    ENDIF   ; NEXT

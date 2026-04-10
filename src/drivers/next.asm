@@ -16,9 +16,11 @@ init:
     ld bc, UART_Sel
     ld a, %00100000      ; Select UART (bit 5=1)
     out (c), a
-    
-    ; Timing calculation for Next
-    ld hl, .table
+    ld hl, baudTable
+    ; Fall through to setBaudFromTable
+
+; Shared baud rate setup (HL = prescaler table)
+setBaudFromTable:
     ld bc, 9275
     ld a, 17
     out (c), a
@@ -28,13 +30,10 @@ init:
     rlc e
     ld d, 0
     add hl, de
-
     ld e, (hl)
     inc hl
     ld d, (hl)
     ex de, hl
-
-    ; Set Baud Rate
     ld bc, UART_SetBaud
     ld a, l
     and %01111111
@@ -44,13 +43,13 @@ init:
     rla
     or %10000000
     out (c), a           ; High 7 bits
-
     ret
 
-.table
+baudTable:
     dw 243,248,256,260,269,278,286,234
 
 write:
+    push bc, de
     ld d, a
     ld bc, UART_GetStatus
 .wait
@@ -58,16 +57,16 @@ write:
     and UART_TX_BUSY
     jr nz, .wait         ; Wait if TX is busy
     out (c), d
+    pop de, bc
     ret
 
 ; ============================================
-; uartRead / read
+; uartRead
 ; Reads a byte from UART in NON-BLOCKING mode.
 ; Output:
 ;   CF = 1 : Byte read in A
 ;   CF = 0 : No data available (immediate return)
 ; ============================================
-read:                        ; Alias for compatibility
 uartRead:
     ld bc, UART_GetStatus
     in a, (c)
@@ -81,40 +80,43 @@ uartRead:
     ret
 
 ; ============================================
-; tryFastBaud - Temporarily switches UART to ~1152000 baud
-; For recovery if NextSync left the ESP at high speed.
-; After use, call init to restore 115200.
+; baudScan - Try common baud rates to find ESP
+; Returns: CF=0 found (UART at detected rate), CF=1 not found
 ; ============================================
-tryFastBaud:
-    ; Detect core type (same as init)
-    ld hl, .tableFast
-    ld bc, 9275
-    ld a, 17
-    out (c), a
-    ld bc, 9531
-    in a, (c)
-    ld e, a
-    rlc e
-    ld d, 0
-    add hl, de
-    ld e, (hl)
-    inc hl
-    ld d, (hl)
+baudScan:
+    ld hl, .scanPtrs
+    ld b, .scanEnd - .scanPtrs
+    srl b                       ; B = number of entries (ptr count / 2)
+.loop:
+    push bc, hl
+    ld e, (hl) : inc hl : ld d, (hl)
     ex de, hl
-    ; Set baud rate (same sequence as init)
-    ld bc, UART_SetBaud
-    ld a, l
-    and %01111111
-    out (c), a
-    ld a, h
-    rl l
-    rla
-    or %10000000
-    out (c), a
+    call setBaudFromTable       ; set UART to this baud rate
+    call Wifi.flushInput
+    ld hl, Wifi.S_AT : call Wifi.espSendZ
+    call Wifi.checkOkErr
+    pop hl, bc
+    ret nc                      ; CF=0 — ESP responded
+    inc hl : inc hl
+    djnz .loop
+    ; Not found — restore 115200 before giving up
+    ld hl, baudTable
+    call setBaudFromTable
+    scf                         ; CF=1 — not found at any rate
     ret
 
-; Prescaler for ~1152000 baud (115200 table / 10)
-.tableFast
+.scanPtrs:
+    dw baudTableFast            ; 1152000 (NextSync)
+    dw baudTable9600            ; 9600 (factory default)
+    dw baudTable57600           ; 57600 (some firmwares)
+.scanEnd:
+
+; Prescaler tables (8 entries = ZX48,ZX128,Pentagon,+2A/+3,HDMI,VGA0,VGA1,VGA2)
+baudTableFast:                  ; 1152000
     dw 24,25,26,26,27,28,29,23
+baudTable9600:
+    dw 2917,2976,3069,3125,3229,3333,3438,2813
+baudTable57600:
+    dw 486,496,512,521,538,556,573,469
 
     endmodule

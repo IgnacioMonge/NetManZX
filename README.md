@@ -29,21 +29,25 @@ NetManZX is based on the original [netman-zx](https://github.com/nihirash/netman
 
 ### User Interface
 - **Double-height rendering**: Banner, status bar, input fields, and messages all rendered in flicker-free double-height text using a custom pixel-level renderer
-- **Network Detail screen**: When selecting a network, a detail view shows SSID (double-height), security type, WiFi channel, and signal strength bars before prompting for password
+- **Network Detail screen**: Detail view shows SSID (double-height), security type, WiFi channel with band indicator (2.4/5 GHz), and signal strength bars before prompting for password
+- **Connection progress screen**: "Connecting to..." shows the SSID in double-height yellow text with attempt counter
 - **Rainbow badge**: Decorative dither-triangle with color transitions on the banner
 - **8-level RSSI signal bars**: Visual WiFi signal strength indicator for each network, with custom lock/open circle glyphs
 - **Anti-flicker status bar**: Direct-overwrite rendering with batched updates eliminates visual flickering
 - **Scroll indicators**: Visual arrows showing when more networks are available
+- **Audible key click**: Clear audible feedback on every keypress during text input
 
 ### Network Management
-- **Network Scanning**: Automatically discovers available WiFi networks with sorting by signal strength
+- **Network Scanning**: Automatically discovers available WiFi networks with extended scan parameters for better coverage, sorted by signal strength
 - **Hidden Network Support**: Manually enter SSID for networks that do not broadcast their name
-- **Smart Connection Detection**: On startup, detects if already connected and offers to keep or reconfigure
-- **Password Entry**: Full keyboard support with show/hide toggle, double-height input with cursor editing
-- **WPS Support**: Push-button WPS connection (W key), with confirmation dialog if already connected
-- **Disconnect Option**: Disconnect from current network without exiting the application
-- **Real-time Status Monitoring**: Automatically detects connection drops and reconnections
-- **Detailed Error Messages**: Specific feedback for connection failures (wrong password, AP not found, timeout, etc.)
+- **Smart Connection Detection**: On startup, detects if already connected and offers to keep or reconfigure (with direct access to diagnostics)
+- **Connection info screen**: Press ENTER on the already-connected network to view full connection details: IP address, gateway, netmask, and MAC address
+- **Save & Reconnect** (C key, UNO/NEXT only): Save WiFi credentials to SD card (`/SYS/CONFIG/NETMAN.CFG`). Press C from the main menu to reconnect to the saved network with one keypress. Save prompt also appears after successful connection (S key)
+- **Password Entry**: Full keyboard support with show/hide toggle, double-height input with cursor editing (left/right arrow keys)
+- **WPS Support**: Push-button WPS connection (W key), with 120-second timeout and BREAK cancellation
+- **Disconnect Option**: Disconnect from current network with confirmation dialog, without exiting the application
+- **Real-time Status Monitoring**: Automatically detects connection drops and reconnections via async ESP event parsing
+- **Connection failure diagnostics**: Specific error messages for connection failures: wrong password, AP not found, timeout, or connection refused
 - **BREAK cancellation**: Near-instant cancellation (~5ms response) during any AT command or connection attempt
 
 ### Diagnostics Menu
@@ -53,14 +57,15 @@ NetManZX is based on the original [netman-zx](https://github.com/nihirash/netman
 4. **UART baud rate** - Display current communication speed
 5. **Static IP** - Configure static IP address, gateway, and subnet mask
 6. **Hostname** - Set a custom hostname for the ESP module
-7. **Config summary** - View all current WiFi settings at a glance (SSID, IP, MAC, hostname, firmware, app version)
+7. **Config summary** - View all current WiFi settings at a glance (SSID, IP, MAC, hostname, firmware, saved network, app version)
 
 ### Other
 - **About screen** (I key): Shows version, build date, author, GitHub URL, and license
 - **UART Debug Log**: Toggle live UART log display with L key (works globally). Red indicator dot in log area when active
 - **Compressed font**: Built-in nibble-packed font system (no external font.bin dependency)
 - **Three UART backends**: Supports ZX-Uno, AY-UART (ZX-Badaloc), and ZX Spectrum Next hardware
-- **NextSync baud recovery** (Next build only): Automatically detects and recovers if ESP was left at wrong baud rate by NextSync
+- **Baud rate auto-detection** (Next only): Scans common baud rates (1152000, 9600, 57600) if ESP doesn't respond at 115200, and permanently fixes it via `AT+UART_DEF`. Handles NextSync leftovers, factory ESPs, and user misconfigurations with zero overhead on normal boot
+- **NEX format** (Next only): Native `.nex` binary for direct launch without mode selection menu
 - **Build date**: Automatically embedded at assembly time via Lua
 
 ## Requirements
@@ -101,7 +106,7 @@ make all
 |--------|------|-------------|
 | UNO | `netmanzx-uno.tap` | ZX-Uno / DivMMC |
 | AY | `netmanzx-ay.tap` | AY-UART / ZX-Badaloc |
-| NEXT | `netmanzx-next.tap` | ZX Spectrum Next |
+| NEXT | `netmanzx-next.nex` | ZX Spectrum Next (native NEX) |
 
 ### Loading
 
@@ -135,6 +140,8 @@ Put NETMANZX.BAS file loader and netmanzx.cod in the same directory. Run NETMANZ
 | R | Rescan networks |
 | L | Toggle UART debug log |
 | W | WPS push-button connect |
+| C | Save config / Reconnect (UNO/NEXT) |
+| S | Save credentials after connection (UNO/NEXT) |
 | I | About screen |
 | ESC | Exit program |
 
@@ -148,7 +155,7 @@ Put NETMANZX.BAS file loader and netmanzx.cod in the same directory. Run NETMANZ
 - **IP Retry on Connect**: 3 attempts with 1-second intervals after successful WiFi association
 - **Automatic State Recovery**: On link loss, UI transitions to Disconnected and schedules a safe rescan. Auto-rescan preserves previous network list on scan failure
 - **Bounded Buffer Searches**: All CPIR-based string searches bounded to actual buffer sizes
-- **NextSync Recovery** (Next build only): Detects ESP left at 1152000 baud by NextSync and auto-resets to correct speed
+- **Baud Rate Auto-Detection** (Next only): Scans 1152000, 9600, 57600 baud if ESP doesn't respond at 115200. Permanently fixes to 115200 via `AT+UART_DEF`
 
 ## Version History
 

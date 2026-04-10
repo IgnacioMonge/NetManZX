@@ -39,4 +39,20 @@ inKeyNoWait:
     ld (hl), 0          ; Clear immediately
     ret
 
+; Audible click for key feedback (~3.4 kHz, ~2.3 ms)
+; Preserves all registers
+keyClick:
+    push af, bc
+    ld b, 8
+.kc:
+    ld a, #10 : out (#FE), a
+    ld c, 32
+.on: dec c : jr nz, .on
+    xor a : out (#FE), a
+    ld c, 32
+.off: dec c : jr nz, .off
+    djnz .kc
+    pop bc, af
+    ret
+
     endmodule
