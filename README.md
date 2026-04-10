@@ -76,7 +76,7 @@ NetManZX is based on the original [netman-zx](https://github.com/nihirash/netman
   - **ZX-Uno**: Built-in UART (default target)
   - **AY-UART**: ZX-Badaloc or similar bit-banged AY-3-8912 implementations
   - **ZX Spectrum Next**: Hardware UART with FIFO
-- +3DOS compatible system for loading (or tap2wav for tape loading)
+- TAP-compatible loading method (divMMC, esxDOS, emulator, or tap2wav for tape)
 
 ## Building
 
@@ -114,8 +114,8 @@ make all
 **TAP (tape/emulators):**
 Simply load the TAP file - the BASIC loader will auto-run and load the program automatically.
 
-**+3DOS:**
-Put NETMANZX.BAS file loader and netmanzx.cod in the same directory. Run NETMANZX.BAS from the esxDOS file browser.
+**NEX (Next):**
+Copy `netmanzx-next.nex` to your SD card and run it directly from the file browser or command line (`.netmanzx-next`).
 
 ## Usage
 

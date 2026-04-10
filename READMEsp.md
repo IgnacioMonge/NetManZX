@@ -76,7 +76,7 @@ NetManZX esta basado en el proyecto original [netman-zx](https://github.com/nihi
   - **ZX-Uno**: UART integrado (target por defecto)
   - **AY-UART**: ZX-Badaloc o implementaciones similares bit-banged AY-3-8912
   - **ZX Spectrum Next**: UART hardware con FIFO
-- Sistema compatible con +3DOS para carga (o tap2wav para carga desde cinta)
+- Metodo de carga compatible con TAP (divMMC, esxDOS, emulador, o tap2wav para cinta)
 
 ## Compilacion
 
@@ -114,8 +114,8 @@ make all
 **TAP (cinta/emuladores):**
 Simplemente carga el archivo TAP - el cargador BASIC se ejecutara automaticamente y cargara el programa.
 
-**+3DOS:**
-Pon el fichero NETMANZX.BAS y netmanzx.cod en el mismo directorio. Ejecuta NETMANZX.BAS desde el navegador de ficheros de esxDOS.
+**NEX (Next):**
+Copia `netmanzx-next.nex` a la tarjeta SD y ejecutalo directamente desde el navegador de ficheros o la linea de comandos (`.netmanzx-next`).
 
 ## Uso
 
