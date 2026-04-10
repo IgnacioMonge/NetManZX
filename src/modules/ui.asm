@@ -2803,8 +2803,11 @@ connectAndReturn:
     ld a, (conn_retries) : dec a : ld (conn_retries), a
     jp z, .carFailed
 
-    ; Show "Retry..." briefly
+    ; Show "Retry..." briefly (clear residual "Press BREAK to cancel" after it)
     ld a, 8 : call Display.gotoXY0 : ld hl, msg_retry_big : call Display.putStrBig
+    ld b, 14
+.clrRetry
+    push bc : ld a, ' ' : call Display.putC : pop bc : djnz .clrRetry
     ld a, 8 : ld c, Display.ATTR_ALERT : call Display.setAttr
     ld a, 9 : ld c, Display.ATTR_ALERT : res 6, c : call Display.setAttr
     ld b, 100
