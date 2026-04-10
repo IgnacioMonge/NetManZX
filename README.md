@@ -27,18 +27,9 @@ NetManZX is based on the original [netman-zx](https://github.com/nihirash/netman
 
 ## Features
 
-### User Interface
-- **Double-height rendering**: Banner, status bar, input fields, and messages all rendered in flicker-free double-height text using a custom pixel-level renderer
-- **Network Detail screen**: Detail view shows SSID (double-height), security type, WiFi channel with band indicator (2.4/5 GHz), and signal strength bars before prompting for password
-- **Connection progress screen**: "Connecting to..." shows the SSID in double-height yellow text with attempt counter
-- **Rainbow badge**: Decorative dither-triangle with color transitions on the banner
-- **8-level RSSI signal bars**: Visual WiFi signal strength indicator for each network, with custom lock/open circle glyphs
-- **Anti-flicker status bar**: Direct-overwrite rendering with batched updates eliminates visual flickering
-- **Scroll indicators**: Visual arrows showing when more networks are available
-- **Audible key click**: Clear audible feedback on every keypress during text input
-
 ### Network Management
-- **Network Scanning**: Automatically discovers available WiFi networks with extended scan parameters for better coverage, sorted by signal strength
+- **Network Scanning**: Automatically discovers available WiFi networks using extended scan parameters (`AT+CWLAP` with 200-1500ms dwell time) for better coverage. Retry with fallback on scan failure. Sorted by signal strength
+- **Robust startup detection**: Disables ESP echo early (ATE0) to prevent scan parser failures on cold boot. Multiple scan attempts with diagnostic messages on timeout or empty results
 - **Hidden Network Support**: Manually enter SSID for networks that do not broadcast their name
 - **Smart Connection Detection**: On startup, detects if already connected and offers to keep or reconfigure (with direct access to diagnostics)
 - **Connection info screen**: Press ENTER on the already-connected network to view full connection details: IP address, gateway, netmask, and MAC address
@@ -58,6 +49,16 @@ NetManZX is based on the original [netman-zx](https://github.com/nihirash/netman
 5. **Static IP** - Configure static IP address, gateway, and subnet mask
 6. **Hostname** - Set a custom hostname for the ESP module
 7. **Config summary** - View all current WiFi settings at a glance (SSID, IP, MAC, hostname, firmware, saved network, app version)
+
+### User Interface
+- **Double-height rendering**: Banner, status bar, input fields, and messages all rendered in flicker-free double-height text using a custom pixel-level renderer
+- **Network Detail screen**: Detail view shows SSID (double-height), security type, WiFi channel with band indicator (2.4/5 GHz), and signal strength bars before prompting for password
+- **Connection progress screen**: "Connecting to..." shows the SSID in double-height yellow text with attempt counter
+- **Rainbow badge**: Decorative dither-triangle with color transitions on the banner
+- **8-level RSSI signal bars**: Visual WiFi signal strength indicator for each network, with custom lock/open circle glyphs
+- **Anti-flicker status bar**: Direct-overwrite rendering with batched updates eliminates visual flickering
+- **Scroll indicators**: Visual arrows showing when more networks are available
+- **Audible key click**: Clear audible feedback on every keypress during text input
 
 ### Other
 - **About screen** (I key): Shows version, build date, author, GitHub URL, and license

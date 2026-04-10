@@ -27,18 +27,9 @@ NetManZX esta basado en el proyecto original [netman-zx](https://github.com/nihi
 
 ## Caracteristicas
 
-### Interfaz de Usuario
-- **Renderizado en doble altura**: Banner, barra de estado, campos de entrada y mensajes renderizados en texto de doble altura sin parpadeo mediante un renderizador a nivel de pixel
-- **Pantalla de Detalle de Red**: Vista de detalle con SSID (doble altura), tipo de seguridad, canal WiFi con indicador de banda (2.4/5 GHz) y barras de intensidad de senal
-- **Pantalla de conexion**: "Connecting to..." muestra el SSID en doble altura amarillo con contador de intentos
-- **Badge arcoiris**: Triangulo decorativo con transiciones de color en el banner
-- **Barras de senal RSSI de 8 niveles**: Indicador visual de intensidad de senal WiFi para cada red, con glifos personalizados de circulo cerrado/abierto
-- **Barra de estado anti-parpadeo**: Renderizado por sobreescritura directa con actualizaciones agrupadas que elimina el parpadeo visual
-- **Indicadores de scroll**: Flechas visuales que indican cuando hay mas redes disponibles
-- **Click de tecla audible**: Feedback sonoro claro en cada pulsacion durante la entrada de texto
-
 ### Gestion de Redes
-- **Escaneo de Redes**: Descubre automaticamente las redes WiFi disponibles con parametros de escaneo extendidos para mejor cobertura, ordenadas por intensidad de senal
+- **Escaneo de Redes**: Descubre automaticamente las redes WiFi disponibles usando parametros de escaneo extendidos (`AT+CWLAP` con 200-1500ms de permanencia por canal) para mejor cobertura. Reintento con fallback en caso de fallo. Ordenadas por intensidad de senal
+- **Deteccion robusta al inicio**: Desactiva el echo del ESP (ATE0) antes del primer escaneo para prevenir fallos del parser. Multiples intentos de escaneo con mensajes diagnosticos en caso de timeout o resultados vacios
 - **Soporte de Redes Ocultas**: Introduce manualmente el SSID de redes que no emiten su nombre
 - **Deteccion Inteligente de Conexion**: Al iniciar, detecta si ya esta conectado y ofrece mantener o reconfigurar (con acceso directo a diagnosticos)
 - **Pantalla de informacion de conexion**: Pulsa ENTER sobre la red ya conectada para ver IP, gateway, mascara de subred y direccion MAC
@@ -58,6 +49,16 @@ NetManZX esta basado en el proyecto original [netman-zx](https://github.com/nihi
 5. **Static IP** - Configurar direccion IP estatica, gateway y mascara de subred
 6. **Hostname** - Establecer un nombre de host personalizado para el modulo ESP
 7. **Config summary** - Ver todos los ajustes WiFi actuales de un vistazo (SSID, IP, MAC, hostname, firmware, red guardada, version de la app)
+
+### Interfaz de Usuario
+- **Renderizado en doble altura**: Banner, barra de estado, campos de entrada y mensajes renderizados en texto de doble altura sin parpadeo mediante un renderizador a nivel de pixel
+- **Pantalla de Detalle de Red**: Vista de detalle con SSID (doble altura), tipo de seguridad, canal WiFi con indicador de banda (2.4/5 GHz) y barras de intensidad de senal
+- **Pantalla de conexion**: "Connecting to..." muestra el SSID en doble altura amarillo con contador de intentos
+- **Badge arcoiris**: Triangulo decorativo con transiciones de color en el banner
+- **Barras de senal RSSI de 8 niveles**: Indicador visual de intensidad de senal WiFi para cada red, con glifos personalizados de circulo cerrado/abierto
+- **Barra de estado anti-parpadeo**: Renderizado por sobreescritura directa con actualizaciones agrupadas que elimina el parpadeo visual
+- **Indicadores de scroll**: Flechas visuales que indican cuando hay mas redes disponibles
+- **Click de tecla audible**: Feedback sonoro claro en cada pulsacion durante la entrada de texto
 
 ### Otros
 - **Pantalla Acerca de** (tecla I): Muestra version, fecha de compilacion, autor, URL de GitHub y licencia
