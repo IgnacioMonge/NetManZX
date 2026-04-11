@@ -594,9 +594,9 @@ topCleanAlertMsg:
     ld c, Display.ATTR_ALERT
     jp showBigMessage
 
-; Copy zero-terminated string from HL to DE (max MAX_SSID_LEN+1 bytes)
+; Copy zero-terminated string from HL to DE (max MAX_SSID_LEN bytes + null)
 copyStringZ:
-    ld b, MAX_SSID_LEN + 1
+    ld b, MAX_SSID_LEN
 .loop
     ld a, (hl)
     ld (de), a
@@ -715,6 +715,27 @@ renderNetworksCommon:
     call Display.setAttrPartial
     pop hl
 
+    ; Highlight saved/known network (before connected, so connected takes priority)
+    IFDEF HAS_ESXDOS
+    ld a, (cfg_valid)
+    and a
+    jr z, .noSavedAttr
+    ld a, (hl)
+    and a
+    jr z, .noSavedAttr              ; Empty SSID -> skip
+    push hl
+    ld de, Config.cfg_buffer + Config.CFG_SSID_OFF
+    call Display.compareStringZ
+    pop hl
+    jr nz, .noSavedAttr
+    push hl
+    ld a, (current_line)
+    ld c, Display.ATTR_SAVED
+    call Display.setAttrPartial
+    pop hl
+.noSavedAttr
+    ENDIF
+
     ; Highlight connected SSID if applicable
     ld a, (Wifi.is_connected)
     and a
@@ -779,7 +800,8 @@ renderNetworksCommon:
     inc hl : inc (hl)
 
     pop bc
-    djnz .showLoop
+    dec b
+    jp nz, .showLoop
     ret
 
 .noNetworks
@@ -1083,9 +1105,18 @@ showConnectedDialog:
 ; ============================================
 hideCursor:
     call cursorIsConnectedRow
+    jr nc, .hideNotConn
+    ld c, Display.ATTR_CONNECTED
+    jr cursor
+.hideNotConn
+    IFDEF HAS_ESXDOS
+    call cursorIsSavedRow
+    jr nc, .hideNormal
+    ld c, Display.ATTR_SAVED
+    jr cursor
+.hideNormal
+    ENDIF
     ld c, Display.ATTR_NORMAL
-    jr nc, cursor
-    ld c, Display.ATTR_CONNECTED  ; Connected row: yellow on black
     jr cursor
 showCursor:
     call cursorIsConnectedRow
@@ -1125,6 +1156,35 @@ cursorIsConnectedRow:
     ret nz              ; No match -> CF=0
     scf                 ; Match -> CF=1
     ret
+
+; ============================================
+; cursorIsSavedRow
+;   CF=1 if cursor is on the saved/known SSID (from config file)
+;   CF=0 otherwise
+; Destroys: AF,BC,DE,HL
+; ============================================
+    IFDEF HAS_ESXDOS
+cursorIsSavedRow:
+    ld a, (cfg_valid)
+    and a
+    ret z                       ; No valid config -> CF=0
+
+    ld a, (cursor_position)
+    ld hl, offset
+    add a, (hl)
+    ld d, a
+    call findRow                ; HL = SSID pointer
+
+    ld a, (hl)
+    and a
+    ret z                       ; Empty SSID -> CF=0
+
+    ld de, Config.cfg_buffer + Config.CFG_SSID_OFF
+    call Display.compareStringZ
+    ret nz                      ; No match -> CF=0
+    scf                         ; Match -> CF=1
+    ret
+    ENDIF
 
 ; ============================================
 ; invalidateConnectedIfMissing
@@ -2896,6 +2956,9 @@ connSuccessScreen:
     call showPressKey
     jr .cssWait
 .cssSaveOk
+    ; Mark config as valid (enables saved network highlight)
+    ld a, 1
+    ld (cfg_valid), a
     ; Refresh log indicator (file I/O may corrupt printer buffer)
     call updateLogIndicator
     ; Success: double-height green on rows 8-9, pause, auto-return
@@ -4480,23 +4543,17 @@ checkAsyncWifi:
     jr z, .canRead
     xor a                       ; A = ASYNC_EVENT_NONE
     ret
-    
+
 .canRead
-    ; Try to read a byte from UART (non-blocking)
+    ; Drain all pending UART bytes into circular buffer
+.drainLoop
     call UartImpl.uartRead
-    jr c, .gotByte
-    xor a                       ; A = ASYNC_EVENT_NONE
-    ret
-    
-.gotByte
-    ; A = byte read
+    jr nc, .drainDone           ; CF=0 means no more data
+
     ; Ignore control characters (CR, LF, etc)
     cp 32
-    jr nc, .validChar
-    xor a                       ; A = ASYNC_EVENT_NONE
-    ret
-    
-.validChar
+    jr c, .drainLoop            ; Skip control chars, keep draining
+
     ; Add to circular buffer
     ld c, a                     ; Save byte in C
     ld hl, async_buf_idx
@@ -4505,7 +4562,7 @@ checkAsyncWifi:
     ld hl, async_buffer
     add hl, de
     ld (hl), c                  ; Store byte
-    
+
     ; Increment circular index
     ld a, e
     inc a
@@ -4514,22 +4571,23 @@ checkAsyncWifi:
     xor a                       ; Wrap to 0
 .storeIdx
     ld (async_buf_idx), a
-    
+
     ; Increment received bytes counter (up to ASYNC_BUF_SIZE)
     ld a, (async_buf_count)
     cp ASYNC_BUF_SIZE
-    jr nc, .checkPatterns       ; Already full, don't increment more
+    jr nc, .drainLoop           ; Already full, keep draining but don't increment
     inc a
     ld (async_buf_count), a
-    
-.checkPatterns
-    ; Check if we have enough characters
+    jr .drainLoop
+
+.drainDone
+    ; Check if we have enough characters for pattern match
     ld a, (async_buf_count)
     cp 6                        ; Minimum for "GOT IP" or "DISCON"
     jr nc, .enoughChars
     xor a                       ; A = ASYNC_EVENT_NONE
     ret
-    
+
 .enoughChars
     ; Search for patterns
     call .checkDisconnect

@@ -6,6 +6,7 @@
 ; ============================================
 ATTR_HIGHLIGHT   = 160o   ; Black on bright white (cursor)
 ATTR_CONNECTED   = 106o   ; Bright yellow on black (connected network)
+ATTR_SAVED       = 105o   ; Bright cyan on black (saved/known network)
 ATTR_CONN_CURSOR = 061o   ; Blue on yellow (cursor on connected network)
 ATTR_STATUSBAR   = 170o   ; Black on bright white (status bar)
 ATTR_LOG         = 014o   ; Green on blue (log window)
@@ -407,22 +408,13 @@ clrListOnly:
     pop bc
     djnz .loopT0
 
-    ; Third 1: lines 8-15 (8 lines)
-    ld hl, #4800            ; Scanline 0, line 8
-    ld b, 8
-.loopT1
-    push bc
-    push hl
-    ld d, h : ld e, l : inc de
-    ld bc, 255              ; 256 bytes (8 lines * 32)
+    ; Third 1: lines 8-15 (full middle third, contiguous $4800-$4FFF)
+    ld hl, #4800
+    ld de, #4801
+    ld bc, 2047             ; 2048 bytes - 1
     xor a : ld (hl), a
     ldir
-    pop hl
-    ld bc, #100
-    add hl, bc
-    pop bc
-    djnz .loopT1
-    
+
     ; Third 2: lines 16-17 (2 lines)
     ld hl, #5000            ; Scanline 0, line 16
     ld b, 8
@@ -458,21 +450,12 @@ clrNetworksOnly:
     pop bc
     djnz .loopN0
 
-    ; Third 1: lines 8-15 (8 lines = full PER_PAGE coverage)
+    ; Third 1: lines 8-15 (full middle third, contiguous $4800-$4FFF)
     ld hl, #4800
-    ld b, 8
-.loopN1
-    push bc
-    push hl
-    ld d, h : ld e, l : inc de
-    ld bc, 255              ; 256 bytes (8 lines * 32)
+    ld de, #4801
+    ld bc, 2047             ; 2048 bytes - 1
     xor a : ld (hl), a
     ldir
-    pop hl
-    ld bc, #100
-    add hl, bc
-    pop bc
-    djnz .loopN1
 
     ; Clear network area attrs (lines 6-15) to avoid residual colors after rescan
     ld a, ATTR_NORMAL

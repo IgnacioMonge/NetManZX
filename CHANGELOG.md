@@ -1,5 +1,20 @@
 # NetManZX Development Changelog
 
+## v1.4.3.1 (2026-04-11)
+Changes from v1.4.3:
+
+### Bugs Fixed (from Gemini 2.5 Pro audit, validated by Claude)
+- **`copyStringZ` off-by-one buffer overflow**: Loop counter was `MAX_SSID_LEN + 1` (33), so a 32-char string without null terminator would write a safety null at byte 34, overflowing the 33-byte `manual_ssid_buffer` into the next RTVAR. Fixed counter to `MAX_SSID_LEN` (32)
+- **`checkAsyncWifi` missed async events on ZX-Uno**: Read only 1 byte per call (every ~80ms), but at 115200 baud full messages arrive in ~1.5ms. On backends without FIFO (ZX-Uno, AY), intermediate bytes were lost and DISCONNECT/GOT IP patterns never matched. Now drains all pending bytes in a loop on each call
+
+### Enhancements
+- **Baud scan uses `AT+UART_CUR` instead of `AT+UART_DEF` (Next)**: No longer permanently modifies the ESP's flash-stored baud rate. Sets 115200 for the current session only, respecting existing ESP configuration. Eliminates the 3-second `AT+RST` reboot wait
+- **MAX_NETWORKS raised from 20 to 25**: Reduces the chance of missing networks in dense environments (apartment buildings, offices). Each network costs 37 bytes; total increase ~185 bytes in runtime buffers
+- **Saved network highlighted in list (UNO/NEXT)**: If a config file exists, the saved SSID is shown in cyan in the network list. Connected network (yellow) takes priority if it's the same. Config is loaded once at startup and also marked valid after saving
+
+### Code Size Optimization
+- **`clrNetworksOnly` / `clrListOnly` monolithic LDIR**: The middle screen third (lines 8-15, $4800-$4FFF) is contiguous in memory. Replaced 8-iteration push/pop/ldir scanline loop with a single 2048-byte LDIR in both routines
+
 ## v1.4.3 (2026-04-10)
 Changes from v1.4.2:
 

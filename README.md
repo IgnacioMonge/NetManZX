@@ -28,12 +28,12 @@ NetManZX is based on the original [netman-zx](https://github.com/nihirash/netman
 ## Features
 
 ### Network Management
-- **Network Scanning**: Automatically discovers available WiFi networks using extended scan parameters (`AT+CWLAP` with 200-1500ms dwell time) for better coverage. Retry with fallback on scan failure. Sorted by signal strength
+- **Network Scanning**: Automatically discovers up to 25 WiFi networks using extended scan parameters (`AT+CWLAP` with 200-1500ms dwell time) for better coverage. Retry with fallback on scan failure. Sorted by signal strength
 - **Robust startup detection**: Disables ESP echo early (ATE0) to prevent scan parser failures on cold boot. Multiple scan attempts with diagnostic messages on timeout or empty results
 - **Hidden Network Support**: Manually enter SSID for networks that do not broadcast their name
 - **Smart Connection Detection**: On startup, detects if already connected and offers to keep or reconfigure (with direct access to diagnostics)
 - **Connection info screen**: Press ENTER on the already-connected network to view full connection details: IP address, gateway, netmask, and MAC address
-- **Save & Reconnect** (C key, UNO/NEXT only): Save WiFi credentials to SD card (`/SYS/CONFIG/NETMAN.CFG`). Press C from the main menu to reconnect to the saved network with one keypress. Save prompt also appears after successful connection (S key)
+- **Save & Reconnect** (C key, UNO/NEXT only): Save WiFi credentials to SD card (`/SYS/CONFIG/NETMAN.CFG`). Press C from the main menu to reconnect to the saved network with one keypress. Save prompt also appears after successful connection (S key). Saved network is highlighted in cyan in the network list
 - **Password Entry**: Full keyboard support with show/hide toggle, double-height input with cursor editing (left/right arrow keys)
 - **WPS Support**: Push-button WPS connection (W key), with 120-second timeout and BREAK cancellation
 - **Disconnect Option**: Disconnect from current network with confirmation dialog, without exiting the application
@@ -65,7 +65,7 @@ NetManZX is based on the original [netman-zx](https://github.com/nihirash/netman
 - **UART Debug Log**: Toggle live UART log display with L key (works globally). Red indicator dot in log area when active
 - **Compressed font**: Built-in nibble-packed font system (no external font.bin dependency)
 - **Three UART backends**: Supports ZX-Uno, AY-UART (ZX-Badaloc), and ZX Spectrum Next hardware
-- **Baud rate auto-detection** (Next only): Scans common baud rates (1152000, 2000000, 9600, 57600) if ESP doesn't respond at 115200, and permanently fixes it via `AT+UART_DEF`. Falls back to hardware ESP reset if no known rate matches. Handles NextSync/NextSync-fast leftovers, factory ESPs, and user misconfigurations with zero overhead on normal boot
+- **Baud rate auto-detection** (Next only): Scans common baud rates (1152000, 2000000, 9600, 57600) if ESP doesn't respond at 115200, and sets 115200 for the current session via `AT+UART_CUR` (does not modify ESP flash). Falls back to hardware ESP reset if no known rate matches. Handles NextSync/NextSync-fast leftovers, factory ESPs, and user misconfigurations with zero overhead on normal boot
 - **NEX format** (Next only): Native `.nex` binary for direct launch without mode selection menu
 - **Build date**: Automatically embedded at assembly time via Lua
 
@@ -156,7 +156,7 @@ Copy `netmanzx-next.nex` to your SD card and run it directly from the file brows
 - **IP Retry on Connect**: 3 attempts with 1-second intervals after successful WiFi association
 - **Automatic State Recovery**: On link loss, UI transitions to Disconnected and schedules a safe rescan. Auto-rescan preserves previous network list on scan failure
 - **Bounded Buffer Searches**: All CPIR-based string searches bounded to actual buffer sizes
-- **Baud Rate Auto-Detection** (Next only): Scans 1152000, 2000000, 9600, 57600 baud if ESP doesn't respond at 115200. Permanently fixes to 115200 via `AT+UART_DEF`. Hardware ESP reset as fallback
+- **Baud Rate Auto-Detection** (Next only): Scans 1152000, 2000000, 9600, 57600 baud if ESP doesn't respond at 115200. Sets 115200 for the session via `AT+UART_CUR`. Hardware ESP reset as fallback
 
 ## Version History
 

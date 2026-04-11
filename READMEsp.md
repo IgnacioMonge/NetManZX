@@ -28,12 +28,12 @@ NetManZX esta basado en el proyecto original [netman-zx](https://github.com/nihi
 ## Caracteristicas
 
 ### Gestion de Redes
-- **Escaneo de Redes**: Descubre automaticamente las redes WiFi disponibles usando parametros de escaneo extendidos (`AT+CWLAP` con 200-1500ms de permanencia por canal) para mejor cobertura. Reintento con fallback en caso de fallo. Ordenadas por intensidad de senal
+- **Escaneo de Redes**: Descubre automaticamente hasta 25 redes WiFi usando parametros de escaneo extendidos (`AT+CWLAP` con 200-1500ms de permanencia por canal) para mejor cobertura. Reintento con fallback en caso de fallo. Ordenadas por intensidad de senal
 - **Deteccion robusta al inicio**: Desactiva el echo del ESP (ATE0) antes del primer escaneo para prevenir fallos del parser. Multiples intentos de escaneo con mensajes diagnosticos en caso de timeout o resultados vacios
 - **Soporte de Redes Ocultas**: Introduce manualmente el SSID de redes que no emiten su nombre
 - **Deteccion Inteligente de Conexion**: Al iniciar, detecta si ya esta conectado y ofrece mantener o reconfigurar (con acceso directo a diagnosticos)
 - **Pantalla de informacion de conexion**: Pulsa ENTER sobre la red ya conectada para ver IP, gateway, mascara de subred y direccion MAC
-- **Guardar y Reconectar** (tecla C, solo UNO/NEXT): Guarda las credenciales WiFi en la tarjeta SD (`/SYS/CONFIG/NETMAN.CFG`). Pulsa C desde el menu principal para reconectar a la red guardada. Tambien ofrece guardar tras una conexion exitosa (tecla S)
+- **Guardar y Reconectar** (tecla C, solo UNO/NEXT): Guarda las credenciales WiFi en la tarjeta SD (`/SYS/CONFIG/NETMAN.CFG`). Pulsa C desde el menu principal para reconectar a la red guardada. Tambien ofrece guardar tras una conexion exitosa (tecla S). La red guardada se resalta en cyan en la lista de redes
 - **Entrada de Contrasena**: Soporte completo de teclado con opcion de mostrar/ocultar, entrada en doble altura con edicion de cursor (flechas izquierda/derecha)
 - **Soporte WPS**: Conexion WPS por pulsacion de boton (tecla W), con timeout de 120 segundos y cancelacion con BREAK
 - **Opcion de Desconexion**: Desconecta de la red actual con dialogo de confirmacion, sin salir de la aplicacion
@@ -65,7 +65,7 @@ NetManZX esta basado en el proyecto original [netman-zx](https://github.com/nihi
 - **Log de Depuracion UART**: Muestra/oculta el log UART en tiempo real con la tecla L (funciona globalmente). Indicador rojo en el area de log cuando esta activo
 - **Fuente comprimida**: Sistema de fuente comprimida por nibbles integrado (sin dependencia de archivo font.bin externo)
 - **Tres backends UART**: Soporta hardware ZX-Uno, AY-UART (ZX-Badaloc) y ZX Spectrum Next
-- **Auto-deteccion de baud rate** (solo Next): Si el ESP no responde a 115200, escanea 1152000, 2000000, 9600 y 57600 baudios y corrige permanentemente via `AT+UART_DEF`. Si ninguna tasa funciona, resetea el ESP por hardware. Maneja restos de NextSync/NextSync-fast, ESPs de fabrica y configuraciones erroneas sin overhead en arranques normales
+- **Auto-deteccion de baud rate** (solo Next): Si el ESP no responde a 115200, escanea 1152000, 2000000, 9600 y 57600 baudios y establece 115200 para la sesion via `AT+UART_CUR` (no modifica la flash del ESP). Si ninguna tasa funciona, resetea el ESP por hardware. Maneja restos de NextSync/NextSync-fast, ESPs de fabrica y configuraciones erroneas sin overhead en arranques normales
 - **Formato NEX** (solo Next): Binario nativo `.nex` para arranque directo sin menu de seleccion de modo
 - **Fecha de compilacion**: Incrustada automaticamente en tiempo de ensamblado via Lua
 
@@ -156,7 +156,7 @@ Copia `netmanzx-next.nex` a la tarjeta SD y ejecutalo directamente desde el nave
 - **Reintento de IP al Conectar**: 3 intentos con intervalos de 1 segundo tras la asociacion WiFi exitosa
 - **Recuperacion Automatica de Estado**: Al perder conexion, la interfaz pasa a Disconnected y programa un rescaneo seguro. El auto-rescan preserva la lista anterior en caso de fallo
 - **Busquedas de Buffer Acotadas**: Todas las busquedas CPIR limitadas al tamano real del buffer
-- **Auto-deteccion de baud rate** (solo Next): Escanea 1152000, 2000000, 9600, 57600 baudios si el ESP no responde a 115200. Corrige permanentemente a 115200 via `AT+UART_DEF`. Reset hardware del ESP como fallback
+- **Auto-deteccion de baud rate** (solo Next): Escanea 1152000, 2000000, 9600, 57600 baudios si el ESP no responde a 115200. Establece 115200 para la sesion via `AT+UART_CUR`. Reset hardware del ESP como fallback
 
 ## Historial de Versiones
 

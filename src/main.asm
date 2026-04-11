@@ -14,7 +14,9 @@
     ; V = Mmp...  (M=major, m=minor, p=patch)
     ; Examples: V=12  -> 1.2
     ;           V=121 -> 1.2.1
+    ; Optional: VSUB for sub-patch (e.g., V=143 + VSUB=1 -> 1.4.3.1)
     DEFINE V 143
+    DEFINE VSUB 1
 
 ; Platforms with esxDOS (SD card file I/O)
     IFDEF UNO
@@ -30,7 +32,7 @@ stack_top = #FFF0
 
 ; Runtime data area: uninitialized buffers placed after the SSID buffer
 ; to keep them out of the binary. Use RTVAR to allocate.
-MAX_NETWORKS    = 20
+MAX_NETWORKS    = 25
 MAX_SSID_LEN    = 32
 BUFFER_SIZE     = (MAX_NETWORKS * (MAX_SSID_LEN + 1))
 BUFFER_END      = buffer + BUFFER_SIZE
@@ -41,9 +43,12 @@ name? = @rt_ptr
 @rt_ptr = @rt_ptr + size?
     ENDM
 
-text 
+text
     jp start
-    
+
+; Config valid flag — MUST be in bank 2 (#8000-#BFFF), not paged memory
+cfg_valid        db 0
+
     include "modules/display.asm"
     include "modules/wifi.asm"
     include "modules/version.asm"    ; generates VERSION_STRING from V
@@ -92,6 +97,15 @@ start:
 
     call UI.init            ; Initialize full screen (IP: Scanning...)
 
+    IFDEF HAS_ESXDOS
+    ; Pre-load saved config (enables saved network highlight in list)
+    call Config.load
+    jr c, .noCfg
+    ld a, 1
+    ld (cfg_valid), a
+.noCfg
+    ENDIF
+
     ; Show log message
     ld hl, .msg_checking
     call Display.putStrLog
@@ -114,19 +128,13 @@ start:
     call UartImpl.baudScan
     jr c, .baudScanFail
 
-    ; Found ESP at wrong baud — fix permanently and reboot
+    ; Found ESP at wrong baud — switch to 115200 for this session only
     ld hl, .msg_baud_fix
     call Display.putStrLog
     call Wifi.flushInput
-    ld hl, .at_uart_def : call Wifi.espSendZ
+    ld hl, .at_uart_cur : call Wifi.espSendZ
     call Wifi.checkOkErr        ; OK at detected baud
-    call Wifi.flushInput
-    ld hl, Wifi.S_AT_RST : call Wifi.espSendZ
-    ld b, 150                   ; Wait ~3s for ESP reboot
-.baudWait:
-    halt
-    djnz .baudWait
-    call Uart.init              ; Back to 115200
+    call Uart.init              ; Switch local UART to 115200
     call Wifi.flushInput
     jr .baudOk
 
@@ -333,9 +341,9 @@ start:
 .msg_preparing  db "UART init...", 13, 0
     IFDEF NEXT
 .msg_baud_scan  db "Scanning baud rates...", 13, 0
-.msg_baud_fix   db "Fixing ESP baud to 115200...", 13, 0
+.msg_baud_fix   db "Setting ESP to 115200...", 13, 0
 .msg_hw_reset   db "Resetting ESP module...", 13, 0
-.at_uart_def    db "AT+UART_DEF=115200,8,1,0,0", 13, 10, 0
+.at_uart_cur    db "AT+UART_CUR=115200,8,1,0,0", 13, 10, 0
     ENDIF
 .msg_query_status db "Checking WiFi status...", 13, 0
 .ssid_unknown     db "(unknown)", 0
