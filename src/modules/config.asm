@@ -271,6 +271,7 @@ createPath:
     ex de, hl
     push de
     push hl
+    ld iy, #5C3A              ; reload IY for M_P3DOS
     ld a, $02                 ; make path
     exx
     ld de, IDE_PATH

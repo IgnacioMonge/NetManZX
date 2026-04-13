@@ -69,18 +69,28 @@ readTimeoutMedium:
 
 ; Read with long timeout (for WiFi connection)
 ; Out: A = byte read, CF=1 success, CF=0 timeout or BREAK pressed
+; Side effect: sets break_hit=1 if BREAK detected (caller latch)
 readTimeoutLong:
     push bc, de, hl
+    xor a
+    ld (break_hit), a
     ld b, LONG_TIMEOUT_REPS
 .outer
     ld de, LONG_TIMEOUT_BLOCK
     call poll_block
     jr c, got_byte
+    ; Did poll_block exit via BREAK?
+    ld a, (break_hit)
+    and a
+    jr nz, readTimeoutFail
     ; Check BREAK between blocks (~370ms each)
     call Keyboard.checkBreak
-    jr z, .breakAbort
+    jr nz, .nextBlock
+    ld a, 1
+    ld (break_hit), a
+    jr readTimeoutFail
+.nextBlock
     djnz .outer
-.breakAbort
     jr readTimeoutFail
 
 ; ============================================
@@ -108,8 +118,10 @@ poll_block:
     or a
     jr z, .done
     call Keyboard.checkBreak
-    jr z, .done
-    jr .loop
+    jr nz, .loop
+    ; BREAK detected: latch it so caller can tell apart from timeout
+    ld a, 1
+    ld (break_hit), a
 .done
     or a
     ret
@@ -186,6 +198,10 @@ logReset:
 ; Disabled by default; toggled at runtime with L key.
 log_enabled  db 0
 log_ptr      dw 0
+; BREAK latch: set by poll_block/readTimeoutLong, checked by caller.
+; Distinguishes genuine BREAK-cancel from plain timeout across the
+; checkOkErr layer, which collapses both into CF=1.
+break_hit    = #5B13
     RTVAR log_buf, LOG_BUF_SIZE
 
     endmodule

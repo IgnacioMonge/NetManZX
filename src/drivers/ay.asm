@@ -134,7 +134,6 @@ transmitNext:
     or a
     rra 
     djnz transmitBit
-    exx
     ei
     pop bc, de, hl
     ret
@@ -281,7 +280,7 @@ waitStartBitSecondByte:
     jr nz, waitStartBitSecondByte
     
     ; No second byte
-    ; No need to restore border here, it's already black.
+    exx              ; Restore main register set (balance exx count)
     pop af
     ei
     ret
@@ -334,12 +333,12 @@ secondZeroReceived:
 secondByteFinished:
     ld hl, _isSecondByteAvail
     ld (hl), 1
-    inc hl 
+    inc hl
     ld (hl), a              ; Store in _secondByte
 
-    ; No need to restore border here, it's already black.
-    pop af 
-    ei 
+    exx              ; Restore main register set (balance exx count)
+    pop af
+    ei
     ret
 
 _baud dw 11 ; 54 - 2400 --- 25 - 4800 --- 11 - 9600

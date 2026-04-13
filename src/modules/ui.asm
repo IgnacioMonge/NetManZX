@@ -428,14 +428,14 @@ passwordInput:
 ; EI + jp .piWait (shared tail for incremental handlers)
 .piStretchWait
     ei
-    jp .piWait
+    jr .piWait
 
 ; Max length reached: red border flash feedback
 .piMaxLen
     ld a, 2 : out (#FE), a
     halt : halt
     xor a : out (#FE), a
-    jp .piWait
+    jr .piWait
 
 ; --- Key wait loop ---
 .piWait
@@ -455,7 +455,7 @@ passwordInput:
 
     ; --- Insert character ---
     ld c, a
-    ld a, (pass_len) : cp MAX_PASS_LEN : jp nc, .piMaxLen
+    ld a, (pass_len) : cp MAX_PASS_LEN : jr nc, .piMaxLen
     ld a, (pass_cursor) : ld b, a : ld a, (pass_len) : cp b
     jr nz, .piInsMid                ; Cursor in middle -> full redraw
 
@@ -471,7 +471,7 @@ passwordInput:
     call .piDrawCurAt
     ld a, (pass_cursor) : inc a : ld b, a      ; B = next pos (clear)
     call .piDrawSpcAt
-    jp .piWait
+    jr .piWait
 
     ; Insert in middle -> shift + full redraw
 .piInsMid
@@ -1082,13 +1082,14 @@ showConnectedDialog:
 
 .waitKey
     halt
-    call Keyboard.inKey
+    call Keyboard.checkBreak
+    jr z, .keepConfig
+    call Keyboard.inKeyNoWait
     and a : jr z, .waitKey
     cp 'y' : jr z, .reconfigure
     cp 'Y' : jr z, .reconfigure
     cp 'n' : jr z, .keepConfig
     cp 'N' : jr z, .keepConfig
-    cp 15  : jr z, .keepConfig
     jr .waitKey
 
 .reconfigure
@@ -1259,7 +1260,7 @@ uiLoop:
     
 uiLoopMain:
     halt
-    
+
     ; Increment auto-rescan counter
     ld hl, (autoscan_counter)
     inc hl
@@ -1421,7 +1422,6 @@ uiLoopMain:
     cp 'C' : jp z, doReconnect
     ENDIF
 
-    cp 15  : jp z, exitProgram     ; ESC
     cp 13  : jp z, selectItem      ; ENTER
 
     jp uiLoopMain
@@ -1621,7 +1621,10 @@ doDisconnect:
 
     ; Wait for OK/ERROR response
     call Wifi.checkOkErr
+    push af                     ; save CF for post-flush branch
     call Wifi.flushInput
+    pop af
+    jr c, .discFailed
 
     ; Pause so "Disconnecting..." is visible (~1.5s)
     ld b, 75
@@ -1645,9 +1648,22 @@ doDisconnect:
     call waitAnyKey
     jp renderListAndLoop
 
+.discFailed
+    ; ESP did not ack CWQAP (timeout/ERROR). Leave local state as-is:
+    ; another code path (async events, next checkConnection) will resync.
+    ld a, 3 : call clearRowPixels
+    ld a, 4 : call clearRowPixels
+    ld hl, .msg_disc_failed
+    ld c, Display.ATTR_ALERT
+    call showBigMessage
+    call showPressKey
+    call waitAnyKey
+    jp renderListAndLoop
+
 .msg_disc_confirm   db "Disconnect from WiFi?", 0
 .msg_disconnecting  db "Disconnecting...", 0
 .msg_disconnected   db "Disconnected.", 0
+.msg_disc_failed    db "Disconnect failed.", 0
 
 ; ============================================
 ; manualSSID - Enter SSID manually
@@ -2029,6 +2045,7 @@ manual_ssid_cursor = #5B2F
 doReconnect:
     call hideCursor : call topClean
     call Config.load
+    call restoreAfterFileIo     ; rearm printer-buffer state (both branches)
     jr c, .rcNoFile
 
     ; --- Config exists: show saved SSID ---
@@ -2144,6 +2161,27 @@ toggleLogQuiet:
 ; Uses bottom 4 bits only (safe: drawC at col 41 only touches top 4 bits).
 LOG_IND_ATTR_ON  = 012o     ; Red ink on blue paper
 LOG_IND_ATTR_OFF = 014o     ; Green ink on blue paper (normal ATTR_LOG)
+    IFDEF HAS_ESXDOS
+; Re-initialize volatile printer-buffer state that esxDOS rst $08 can
+; scribble over during file I/O. Must be called on every return path
+; from Config.load/Config.save before any display render or uiLoop tick
+; that relies on these. Preserves AF so callers can branch on the file
+; I/O result after invoking.
+restoreAfterFileIo:
+    push af
+    call updateLogIndicator
+    xor a
+    ld (Display.putLogC_coord), a   ; log X cursor (row 23 column)
+    ld (autoscan_counter), a
+    ld (autoscan_counter + 1), a
+    ld (health_counter), a
+    ld (health_counter + 1), a
+    ld (async_buf_idx), a
+    ld (async_buf_count), a
+    pop af
+    ret
+    ENDIF
+
 updateLogIndicator:
     ld a, (Wifi.debug_log)
     and a
@@ -2743,13 +2781,14 @@ selectItem:
     ld a, 13 : ld hl, .msg_connect_yn : call printAt0
 .openWait
     halt
-    call Keyboard.inKey
+    call Keyboard.checkBreak
+    jr z, .cancel
+    call Keyboard.inKeyNoWait
     and a : jr z, .openWait
     cp 'y' : jr z, .connectDirect
     cp 'Y' : jr z, .connectDirect
-    cp 'n' : jp z, .cancel
-    cp 'N' : jp z, .cancel
-    cp 15  : jp z, .cancel             ; ESC
+    cp 'n' : jr z, .cancel
+    cp 'N' : jr z, .cancel
     jr .openWait
 
 .connectDirect
@@ -2855,7 +2894,12 @@ connectAndReturn:
     and a
     jr z, .carSuccess
 
-    ; Check BREAK
+    ; Check BREAK: latched during readTimeoutLong (caught even if user
+    ; released key before we got here), plus live re-read for the edge
+    ; case of BREAK pressed AFTER the long read returned.
+    ld a, (Uart.break_hit)
+    and a
+    jr nz, .carCancelled
     call Keyboard.checkBreak
     jr z, .carCancelled
 
@@ -2925,7 +2969,9 @@ connSuccessScreen:
     ENDIF
     call showPressKey
 .cssWait
-    halt : call Keyboard.inKeyNoWait : and a : jr z, .cssWait
+    halt
+    call Keyboard.checkBreak : jp z, exitProgram
+    call Keyboard.inKeyNoWait : and a : jr z, .cssWait
     call Keyboard.keyClick
     cp 'l' : jr z, .cssLog : cp 'L' : jr z, .cssLog
     IFDEF HAS_ESXDOS
@@ -2937,7 +2983,6 @@ connSuccessScreen:
 .cssNoSave
     ld a, c                 ; restore key from C
     ENDIF
-    cp 15 : jp z, exitProgram
     ret
 .cssLog
     call toggleLogQuiet : jr .cssWait
@@ -2947,6 +2992,7 @@ connSuccessScreen:
     ld a, 17 : call clearRowPixels
     ld a, 17 : ld c, Display.ATTR_NORMAL : call Display.setAttr
     call Config.save
+    call restoreAfterFileIo     ; rearm printer-buffer state (both branches)
     jr nc, .cssSaveOk
     ; Error: double-height red on rows 8-9, then press any key
     ld a, 8 : call Display.gotoXY0
@@ -2959,8 +3005,6 @@ connSuccessScreen:
     ; Mark config as valid (enables saved network highlight)
     ld a, 1
     ld (cfg_valid), a
-    ; Refresh log indicator (file I/O may corrupt printer buffer)
-    call updateLogIndicator
     ; Success: double-height green on rows 8-9, pause, auto-return
     ld a, 8 : call Display.gotoXY0
     ld hl, msg_save_ok : call Display.putStrBig
@@ -3424,7 +3468,7 @@ doPing:
     
     ; Manual dot
     cp '.'
-    jp z, .ipTryAddDot
+    jr z, .ipTryAddDot
     
     ; Only allow digits (0-9)
     cp '0'
@@ -3436,7 +3480,7 @@ doPing:
     ld b, a                     ; Save digit
     ld a, (ping_ip_len)
     cp MAX_IP_LEN
-    jp nc, .waitIPKey           ; Buffer full
+    jr nc, .waitIPKey           ; Buffer full
     
     ; Count digits in current octet
     push bc
@@ -3451,12 +3495,12 @@ doPing:
     call .countDots
     pop bc
     cp 3
-    jp nc, .waitIPKey           ; Already 3 dots, no more digits
+    jr nc, .waitIPKey           ; Already 3 dots, no more digits
     
     ; Check room for 2 characters (dot + digit)
     ld a, (ping_ip_len)
     cp MAX_IP_LEN - 1
-    jp nc, .waitIPKey           ; No room for 2 chars
+    jr nc, .waitIPKey           ; No room for 2 chars
     
     ; Add automatic dot
     push bc
@@ -3474,7 +3518,7 @@ doPing:
     ; Don't allow dot at start
     ld a, (ping_ip_len)
     and a
-    jp z, .waitIPKey
+    jr z, .waitIPKey
     
     ; Don't allow consecutive dots
     ld hl, ping_ip_buffer
@@ -3484,19 +3528,19 @@ doPing:
     dec hl                      ; Last character
     ld a, (hl)
     cp '.'
-    jp z, .waitIPKey            ; Last is dot, don't add another
+    jr z, .waitIPKey            ; Last is dot, don't add another
     
     ; Check max 3 dots
     push bc
     call .countDots
     pop bc
     cp 3
-    jp nc, .waitIPKey           ; Already 3 dots
+    jr nc, .waitIPKey           ; Already 3 dots
     
     ; Check room
     ld a, (ping_ip_len)
     cp MAX_IP_LEN
-    jp nc, .waitIPKey
+    jr nc, .waitIPKey
     
     ; Add dot
     ld a, '.'
@@ -3822,7 +3866,7 @@ doNetworkInfo:
     ld (diag_line), a
 
     call flushUartBuffer
-    ld hl, .cmd_cifsr
+    ld hl, Wifi.S_AT_CIFSR
     call Wifi.espSendZ
     ld c, 20
     ld b, 100
@@ -3888,7 +3932,6 @@ doNetworkInfo:
     inc hl
     jr .printUntilQuote
 
-.cmd_cifsr     db "AT+CIFSR", 13, 10, 0
 .lbl_ip        db "IP:  ", 0
 .lbl_mac       db "MAC: ", 0
 .ni_ssid_lbl   db "Connected: ", 0
@@ -3904,134 +3947,35 @@ doBaudRate:
     ld a, 6
     ld (diag_line), a
     xor a
-    ld (baud_tried_def), a
-    ld (baud_tried_plain), a
     ld (baud_have_value), a
     ld (baud_saw_error), a
     ld (baud_recover_tried), a
 
-    
     ; Drain buffer before sending command
     call flushUartBuffer
-	
-	; Ensure the ESP is in AT command mode (not in pass-through/data mode)
-	call Wifi.ensureCommandMode
-	jp nc, doBaudRate_cmode_ok
-	ld a, 6 : ld hl, msg_no_at : call printAt0
-	jp waitKeyReturnDiag
+
+    ; Ensure the ESP is in AT command mode (not in pass-through/data mode)
+    call Wifi.ensureCommandMode
+    jp nc, doBaudRate_cmode_ok
+    ld a, 6 : ld hl, msg_no_at : call printAt0
+    jp waitKeyReturnDiag
 
 doBaudRate_cmode_ok:
-    
-    ; Send AT+UART_CUR?
     ld hl, cmd_uart_cur
-    call Wifi.espSendZ
-    
-    ; Read responses
-    ld c, 4                     ; Max 4 timeouts (each one is long)
-    ld b, 100                   ; Absolute limit: 100 lines
-.baudLoop
-    push bc
-    call readDiagLineLong
-    pop bc
-    jp nc, .baudTimeout         ; CF=0 = timeout real
-    
-    ; Decrement absolute limit
-    dec b
-    jp z, .baudDone             ; Limit reached
-    
-    ; CF=1 = got line
-    ld a, (diag_buffer)
-    and a
-    jp z, .baudLoop             ; Empty line, doesn't count
-    
-    ; Check if it is "OK" -> end
-    cp 'O'
-    jp z, .baudDone
-    cp 'E'                      ; ERROR -> try alternative commands
-    jp nz, .noErrLine
-    ; Record that we saw ERROR (if nothing obtained, we'll show it)
-    ld a, 1
-    ld (baud_saw_error), a
+    ld de, lbl_baud_cur
+    call baudQueryValue
 
-    ; First ERROR: try to recover by ensuring AT command mode, then retry CUR once
-    ld a, (baud_recover_tried)
-    and a
-    jp nz, .skipRecover
-    ld a, 1
-    ld (baud_recover_tried), a
-    call Wifi.ensureCommandMode
-    call flushUartBuffer
-    xor a
-    ld (baud_tried_def), a
-    ld (baud_tried_plain), a
-    ld hl, cmd_uart_cur
-    call Wifi.espSendZ
-    jp .baudRestart
-.skipRecover
-
-    ; 1) Try AT+UART_DEF? (some firmwares don't support CUR)
-    ld a, (baud_tried_def)
-    and a
-    jp nz, .tryPlain
-    ld a, 1
-    ld (baud_tried_def), a
-    call flushUartBuffer
     ld hl, cmd_uart_def
-    call Wifi.espSendZ
-    jp .baudRestart
+    ld de, lbl_baud_def
+    call baudQueryValue
 
-.tryPlain
-    ; 2) Try AT+UART? (old firmwares)
-    ld a, (baud_tried_plain)
+    ld a, (baud_have_value)
     and a
-    jp nz, .baudDone
-    ld a, 1
-    ld (baud_tried_plain), a
-    call flushUartBuffer
+    jr nz, .baudDone
+
     ld hl, cmd_uart_plain
-    call Wifi.espSendZ
-.baudRestart
-    ld c, 4
-    ld b, 100
-    jp .baudLoop
-.noErrLine
-    
-    ; Filter noise and echo
-    cp 'A' : jp z, .baudLoop    ; Ignore echo AT...
-    cp '0' : jp z, .baudLoop
-    cp 'C' : jp z, .baudLoop
-    
-    ; If starts with +, check it is not +IPD
-    cp '+'
-    jp nz, .baudLoop            ; Does not start with +, ignore
-    ld a, (diag_buffer + 1)
-    cp 'I'                      ; +IPD -> ignore
-    jp z, .baudLoop
-    cp 'U'                      ; Check +UART
-    jp nz, .baudLoop
-
-    ; --- BAUD RATE FORMATTING ---
-    ; String: +UART_CUR:9600,8,1,0,0
-    ; Header length (+UART_CUR:) is 10 chars, not 11
-    
-    ld a, (diag_line) : ld h, a : ld l, 0 : ld (Display.coords), hl
-    
-    ld hl, lbl_baud
-    call Display.putStr
-    
-    ld hl, diag_buffer
-    call .skipToColon           ; Skip to ':' (supports +UART and +UART_CUR)
-    call .printUntilComma       ; Print only the number
-
-    ld a, 1
-    ld (baud_have_value), a
-
-    ld a, (diag_line) : inc a : ld (diag_line), a
-    jp .baudLoop                ; Continue without decrementing
-
-.baudTimeout
-    dec c
-    jp nz, .baudLoop
+    ld de, lbl_baud_plain
+    call baudQueryValue
 
 .baudDone
     ; If no +UART line could be obtained, warn
@@ -4058,18 +4002,18 @@ doBaudRate_cmode_ok:
     jp z, .waitBaudKey
     jp showDiagnostics
 
-.skipToColon
+baudSkipToColon:
     ld a, (hl)
     and a : ret z
     cp ':' : jr z, .gotColon
     inc hl
-    jr .skipToColon
+    jr baudSkipToColon
 .gotColon
     inc hl
     ret
 
 
-.printUntilComma
+baudPrintUntilComma:
     ld a, (hl)
     and a : ret z
     cp ',' : ret z
@@ -4078,23 +4022,103 @@ doBaudRate_cmode_ok:
     call Display.putC
     pop hl
     inc hl
-    jr .printUntilComma
+    jr baudPrintUntilComma
+
+baudQueryValue:
+    ld (baud_cmd_ptr), hl
+    ex de, hl
+    ld (baud_lbl_ptr), hl
+    ld hl, (baud_cmd_ptr)
+    call flushUartBuffer
+    call Wifi.espSendZ
+    ld c, 4                     ; Max 4 timeouts (each one is long)
+    ld b, 100                   ; Absolute limit: 100 lines
+.loop
+    push bc
+    call readDiagLineLong
+    pop bc
+    jr nc, .timeout             ; CF=0 = timeout real
+
+    dec b
+    jr z, .done                 ; Limit reached
+
+    ld a, (diag_buffer)
+    and a
+    jr z, .loop                 ; Empty line, doesn't count
+
+    cp 'O'
+    jr z, .done
+    cp 'E'
+    jr nz, .checkLine
+
+    ld a, 1
+    ld (baud_saw_error), a
+
+    ; Retry once after forcing AT command mode again.
+    ld a, (baud_recover_tried)
+    and a
+    jr nz, .done
+    ld a, 1
+    ld (baud_recover_tried), a
+    call Wifi.ensureCommandMode
+    call flushUartBuffer
+    ld hl, (baud_cmd_ptr)
+    call Wifi.espSendZ
+    ld c, 4
+    ld b, 100
+    jr .loop
+
+.checkLine
+    ; Filter noise and echo.
+    cp 'A' : jr z, .loop        ; Ignore echo AT...
+    cp '0' : jr z, .loop
+    cp 'C' : jr z, .loop
+
+    ; If starts with +, check it is not +IPD.
+    cp '+'
+    jr nz, .loop
+    ld a, (diag_buffer + 1)
+    cp 'I'                      ; +IPD -> ignore
+    jr z, .loop
+    cp 'U'                      ; Check +UART
+    jr nz, .loop
+
+    ld a, (diag_line) : ld h, a : ld l, 0 : ld (Display.coords), hl
+    ld hl, (baud_lbl_ptr)
+    call Display.putStr
+    ld hl, diag_buffer
+    call baudSkipToColon        ; Skip to ':' (supports +UART and +UART_CUR)
+    call baudPrintUntilComma
+    ld a, 1
+    ld (baud_have_value), a
+    ld a, (diag_line) : inc a : ld (diag_line), a
+    scf
+    ret
+
+.timeout
+    dec c
+    jr nz, .loop
+.done
+    and a
+    ret
 
 msg_baud_title db "UART BAUD RATE", 0
 msg_no_at      db "No AT response (still in data mode?)", 0
 cmd_uart_cur   db "AT+UART_CUR?", 13, 10, 0
 cmd_uart_def   db "AT+UART_DEF?", 13, 10, 0
 cmd_uart_plain db "AT+UART?", 13, 10, 0
-lbl_baud       db "Baud Rate: ", 0
+lbl_baud_cur   db "CUR: ", 0
+lbl_baud_def   db "DEF: ", 0
+lbl_baud_plain db "UART: ", 0
 msg_uart_none db "No UART info (no response).", 0
 msg_uart_error db "UART query returned ERROR.", 0
 
 ; In printer buffer (set before use in doBaudRate)
-baud_tried_def  = #5B21
-baud_tried_plain = #5B22
-baud_have_value = #5B23
-baud_saw_error  = #5B24
-baud_recover_tried = #5B25
+baud_have_value = #5B21
+baud_saw_error  = #5B22
+baud_recover_tried = #5B23
+baud_cmd_ptr    = #5B24
+baud_lbl_ptr    = #5B26
 
 ; ============================================
 ; doStaticIP - Static IP configuration (option 5)
@@ -4464,9 +4488,14 @@ doConfigSummary:
 .cs_fw_done
 
     IFDEF HAS_ESXDOS
-    ; Saved network
-    ld a, 15 : ld hl, .cs_saved_lbl : call printAt0
+    ; Saved network. Do file I/O FIRST, then rearm printer-buffer state,
+    ; then print label + SSID. Order matters: esxDOS can scribble over
+    ; Display.coords (#5B37), log indicator and uiLoop tick counters.
     call Config.load
+    call restoreAfterFileIo
+    push af
+    ld a, 15 : ld hl, .cs_saved_lbl : call printAt0
+    pop af
     jr c, .cs_no_saved
     call Config.getSavedSSID
     call Display.putStr
@@ -4595,49 +4624,65 @@ checkAsyncWifi:
     jp .checkGotIP              ; A has the result (0 or 2)
 
 .checkDisconnect:
-    ; Search for "DISCON" (6 chars)
-    ; Calculate start position considering wrap-around
-    ld a, (async_buf_idx)
-    sub 6
-    jr nc, .discNoWrap
-    add a, ASYNC_BUF_SIZE       ; Wrap: idx + (SIZE - 6)
-.discNoWrap
-    ; A = pattern start position
     ld de, .pat_discon
-    call .comparePattern
-    jr nz, .notFoundDisc
-    
-    ; Found DISCONNECT!
-    xor a
-    ld (async_buf_idx), a       ; Reset buffer
-    ld (async_buf_count), a
     ld a, ASYNC_EVENT_DISCONNECT
-    ret                         ; NZ because A != 0
-    
-.notFoundDisc
-    xor a                       ; Z, A = 0
-    ret
+    jr .checkPatternCommon
 
 .checkGotIP:
-    ; Search "GOT IP" (6 chars)
-    ld a, (async_buf_idx)
-    sub 6
-    jr nc, .gotNoWrap
-    add a, ASYNC_BUF_SIZE
-.gotNoWrap
     ld de, .pat_gotip
-    call .comparePattern
-    jr nz, .notFoundGot
-    
-    ; Found GOT IP!
+    ld a, ASYNC_EVENT_GOTIP
+
+; Shared: scan buffer for pattern DE, return event code A if found
+.checkPatternCommon:
+    ld (.eventCode), a       ; save event code (SMC)
+    call .scanBuffer
+    jr nz, .patNotFound
+    ; Found: reset buffer and return event
     xor a
     ld (async_buf_idx), a
     ld (async_buf_count), a
-    ld a, ASYNC_EVENT_GOTIP
+    ld a, 0
+.eventCode = $ - 1
+    ret                      ; NZ (A != 0)
+.patNotFound
+    xor a                    ; Z, A = 0
     ret
-    
-.notFoundGot
-    xor a                       ; A = ASYNC_EVENT_NONE
+
+; Scan circular buffer for 6-byte pattern at any valid position
+; Input: DE = pattern
+; Output: Z if found, NZ if not found
+.scanBuffer:
+    ld a, (async_buf_count)
+    sub 5
+    jr c, .sbFail
+    jr z, .sbFail
+    ld b, a                  ; B = valid start positions (1-11)
+    ; C = first valid position = (idx - count) mod SIZE
+    push de
+    ld a, (async_buf_idx)
+    ld c, a
+    ld a, (async_buf_count)
+    ld e, a
+    ld a, c
+    sub e
+    and ASYNC_BUF_SIZE - 1
+    ld c, a
+    pop de                   ; DE = pattern
+.sbLoop:
+    push bc
+    push de
+    ld a, c
+    call .comparePattern     ; Z if match
+    pop de
+    pop bc
+    ret z                    ; Found
+    inc c
+    ld a, c
+    and ASYNC_BUF_SIZE - 1
+    ld c, a
+    djnz .sbLoop
+.sbFail:
+    or 1                     ; NZ (not found)
     ret
 
 ; Compare 6 bytes from circular buffer with pattern

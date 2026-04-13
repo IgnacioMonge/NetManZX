@@ -16,7 +16,7 @@
     ;           V=121 -> 1.2.1
     ; Optional: VSUB for sub-patch (e.g., V=143 + VSUB=1 -> 1.4.3.1)
     DEFINE V 143
-    DEFINE VSUB 1
+    DEFINE VSUB 2
 
 ; Platforms with esxDOS (SD card file I/O)
     IFDEF UNO
@@ -98,8 +98,13 @@ start:
     call UI.init            ; Initialize full screen (IP: Scanning...)
 
     IFDEF HAS_ESXDOS
-    ; Pre-load saved config (enables saved network highlight in list)
+    ; Pre-load saved config (enables saved network highlight in list).
+    ; esxDOS rst $08 can scribble over printer buffer #5Bxx scratch;
+    ; restoreAfterFileIo rearms log indicator, autoscan/health tick
+    ; counters and async buffer indices so the subsequent putStrLog
+    ; calls and uiLoop start from a clean state.
     call Config.load
+    call UI.restoreAfterFileIo
     jr c, .noCfg
     ld a, 1
     ld (cfg_valid), a
@@ -159,6 +164,13 @@ start:
     call Wifi.flushInput
     ld hl, Wifi.S_ATE0 : call Wifi.espSendZ
     call Wifi.checkOkErr
+
+    ; Ensure station mode — CWMODE=2 (AP mode, e.g. after AT+RESTORE)
+    ; blocks scanning. Must be set before any connection check.
+    ld hl, Wifi.S_AT_CWMODE : call Wifi.espSendZCheckOk
+    jr nc, .cwmodeOk
+    ld hl, Wifi.S_AT_CWMODE_DEF : call Wifi.espSendZCheckOk
+.cwmodeOk
 
     ; Check if already connected
     ld hl, .msg_query_status

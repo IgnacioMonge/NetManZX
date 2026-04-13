@@ -1,5 +1,30 @@
 # NetManZX Development Changelog
 
+## v1.4.3.2 (2026-04-12 → 2026-04-13)
+Changes from v1.4.3.1:
+
+### Bugs Fixed
+- **Extended scan hangs on old ESP firmware**: `AT+CWLAP=,,,,200,1500` on ESP firmware v1.5.4 (and similar) returns `OK` with no `+CWLAP` lines instead of `ERROR`. The code ignored the first OK and waited for scan results that never came, causing a long timeout. Now detects OK-without-results during extended scan and immediately falls back to basic `AT+CWLAP` (reported by johnyo)
+- **CWMODE=2 after AT+RESTORE blocks scanning**: If the ESP was in AP mode (CWMODE=2, e.g. after `AT+RESTORE`), `getIP` detected the soft-AP IP (192.168.4.1) as a valid connection, skipping initialization. Now forces `AT+CWMODE=1` early in startup before any connection check, with `AT+CWMODE_DEF=1` fallback for old firmware (reported by Hood)
+- **ESC key (CS+4) never worked**: All `cp 15` checks relied on BASIC_KEY, which doesn't capture control key codes from the keyboard handler. Replaced with `Keyboard.checkBreak` (CAPS SHIFT+SPACE) in dialogs. No exit key from main menu — reset to leave (reported by Hood)
+- **Async DISCONNECT pattern never matched**: `checkAsyncWifi` only compared the last 6 bytes in the circular buffer against "DISCON", but "WIFI DISCONNECT" ends with "ONNECT". Pattern was never found; health-check was the sole disconnect detector (~10s delay). Now scans all valid buffer positions via shared `scanBuffer` routine
+- **AY UART exx imbalance**: `uartRead` returned with shadow registers active (5 unbalanced `exx`), corrupting `poll_block`'s timeout counter. External timeout values (`DEFAULT_TIMEOUT`, `MEDIUM_TIMEOUT`, `LONG_TIMEOUT`) were non-functional on AY. Added `exx` at both return paths to restore main register set
+- **AY `write()` push/pop restored wrong registers**: `exx` before `pop bc, de, hl` at end of transmit loop sent pops to shadow set instead of main. Removed the stray `exx`
+- **Missing IY reload before M_P3DOS in `createPath`**: `rst $08` / `F_OPEN` may corrupt IY on divMMC. Subsequent `M_P3DOS` call for directory creation used potentially invalid IY. Added `ld iy, #5C3A` before the call (Next only)
+- **esxDOS corrupts printer buffer counters**: `Config.save` via `rst $08` may corrupt printer buffer variables. `autoscan_counter`, `health_counter`, and async buffer state are now reset after save
+- **BREAK during AT+CWJAP racy** (from Codex audit): `readTimeoutLong` collapsed BREAK and timeout into a single CF=0 exit, so `checkOkErrLong` could not tell them apart. `connectAndReturn` re-read the physical key port afterwards, but the window between read return and check was long enough (log flush, register restore, display output) that users who released BREAK mid-delay got a silent retry instead of a cancel. Fixed with a dedicated `Uart.break_hit` latch set by `poll_block` / `readTimeoutLong` and consumed in `connectAndReturn` before the live re-read. Cancel is now reliable regardless of key release timing
+- **`doDisconnect` ignored `AT+CWQAP` result** (from Codex audit): Local state (`Wifi.is_connected`) was cleared and screen redrawn as "Disconnected" even on ESP timeout or ERROR. Now branches to a new "Disconnect failed." red screen on fail and keeps the old state; next `checkConnection` resyncs
+- **Empty basic scan misreported as timeout** (from Codex audit): After fallback from extended to basic `AT+CWLAP`, the first OK was skipped as a "stray echo from prior command" and the routine waited for a second OK that never came (0 networks → timeout). ATE0 is sent at boot so the stray-OK skip was dead code. Removed `ok_ignored` entirely; a basic-scan OK without prior `+CWLAP` is now accepted as a valid empty result
+- **Volatile `#5Bxx` state not rearmed across all file-I/O paths** (from Codex audit): The `Config.save` success path already restored `autoscan_counter` / `health_counter` / `async_buf_idx` / `async_buf_count` inline, but the save-failure path, `doReconnect`'s `Config.load`, `main.asm`'s startup `Config.load`, and the Connection Status screen's `Config.load` all skipped it — and none of them restored `Display.putLogC_coord` (#5B36) or re-ran `updateLogIndicator`. esxDOS `rst $08` can scribble any of these. Introduced a shared `UI.restoreAfterFileIo` helper (preserves AF so callers can `jr c`) and called it after every `Config.load` / `Config.save` return. Helper also resets the log cursor column so subsequent `Display.putStrLog` starts clean
+
+### Code Size Optimization
+- **`jp` → `jr` sweep** (quick-win pass, no behavior/layout change): converted short-range local jumps in `ui.asm` (`passwordInput` rejects and `.piWait` returns, ping IP input rejects and `.waitIPKey` returns, open-network confirm `.cancel` branches) and in `wifi.asm` (`checkOkErr` dispatcher plus OK/ERROR/FAIL sub-paths where targets fit in ±127). Verified by letting sjasmplus flag out-of-range and reverting only the ones that overflowed
+- **Dedup `cmd_cifsr`**: Removed UI-local `.cmd_cifsr db "AT+CIFSR",13,10,0`; network-info path now reuses `Wifi.S_AT_CIFSR` (-11 bytes)
+- **Net: -47 bytes per target** (AY/UNO/NEXT all identical, changes are in shared code). NEXT free code space: 93 → 140 bytes
+
+### Enhancements
+- **Baud diagnostics distinguish current vs default speed**: The diagnostics screen no longer shows a single ambiguous "Baud Rate" value. It now queries and prints `CUR` and `DEF` separately when supported, with legacy `AT+UART?` fallback on older firmware. This makes the Next-only session override (`AT+UART_CUR=115200`) visible without implying that flash-stored defaults were changed
+
 ## v1.4.3.1 (2026-04-11)
 Changes from v1.4.3:
 

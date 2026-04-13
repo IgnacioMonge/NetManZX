@@ -304,7 +304,6 @@ getList:
     ; Don't clear buffers yet — preserve old data until scan succeeds
     xor a
     ld (seen_cwlap), a
-    ld (ok_ignored), a
 
     ; Try extended scan with longer dwell time per channel
     ld a, 1
@@ -390,17 +389,22 @@ loadList:
     call Uart.readTimeout : jp nc, .scanTimeout
     cp 13  : jp nz, loadList
 
-    ; Some firmwares (or prior commands) may leave a stray OK in the RX stream.
-    ; Ignore the first OK if we have not seen any +CWLAP lines yet.
+    ; OK received. If +CWLAP lines were seen, scan is complete.
     ld a, (seen_cwlap)
     and a
     jr nz, .okReturn
 
-    ld a, (ok_ignored)
+    ; No +CWLAP. If extended scan, firmware may not support the params
+    ; (older ESP returns OK with no results instead of ERROR).
+    ; Fall back to basic AT+CWLAP immediately instead of waiting.
+    ld a, (scan_extended)
     and a
-    jr nz, .okReturn
-    ld a, 1
-    ld (ok_ignored), a
+    jr z, .okReturn             ; Basic scan: OK w/o +CWLAP == 0 networks
+    xor a
+    ld (scan_extended), a
+    ld (seen_cwlap), a
+    call flushInput
+    ld hl, S_AT_CWLAP : call espSendZ
     jp loadList
 
 .okReturn
@@ -430,7 +434,6 @@ loadList:
     xor a
     ld (scan_extended), a
     ld (seen_cwlap), a
-    ld (ok_ignored), a
     call flushInput
     ld hl, S_AT_CWLAP : call espSendZ
     jp loadList
@@ -712,11 +715,11 @@ checkOkErrCommon:
     ld (byte_limit), hl
 
     call .doRead
-    jp nc, .timeout
-    cp 'O' : jp z, .okStart 
-    cp 'E' : jp z, .errStart 
-    cp 'F' : jp z, .failStart
-    cp '+' : jp z, .plusStart   ; Detect +CWJAP:X
+    jr nc, .timeout
+    cp 'O' : jr z, .okStart
+    cp 'E' : jr z, .errStart
+    cp 'F' : jr z, .failStart
+    cp '+' : jr z, .plusStart   ; Detect +CWJAP:X
     ; Ignore async messages
     jr .mainLoop
 
@@ -724,31 +727,31 @@ checkOkErrCommon:
     jp uartUnlockFail
 
 .okStart
-    call .doRead : jp nc, .timeout
-    cp 'K' : jp nz, .mainLoop
-    call .doRead : jp nc, .timeout
-    cp 13  : jp nz, .mainLoop
+    call .doRead : jr nc, .timeout
+    cp 'K' : jr nz, .mainLoop
+    call .doRead : jr nc, .timeout
+    cp 13  : jr nz, .mainLoop
     call .flushToLF
     ld hl, dbg_rx_ok : call logIfEnabled
     jp uartUnlock
 .errStart
-    call .doRead : jp nc, .timeout
-    cp 'R' : jp nz, .mainLoop
-    call .doRead : jp nc, .timeout
-    cp 'R' : jp nz, .mainLoop
-    call .doRead : jp nc, .timeout
-    cp 'O' : jp nz, .mainLoop
-    call .doRead : jp nc, .timeout
-    cp 'R' : jp nz, .mainLoop
+    call .doRead : jr nc, .timeout
+    cp 'R' : jr nz, .mainLoop
+    call .doRead : jr nc, .timeout
+    cp 'R' : jr nz, .mainLoop
+    call .doRead : jr nc, .timeout
+    cp 'O' : jr nz, .mainLoop
+    call .doRead : jr nc, .timeout
+    cp 'R' : jr nz, .mainLoop
     call .flushToLF
     ld hl, dbg_rx_error : call logIfEnabled
     jp uartUnlockFail
 .failStart
-    call .doRead : jp nc, .timeout
-    cp 'A' : jp nz, .mainLoop
-    call .doRead : jp nc, .timeout
+    call .doRead : jr nc, .timeout
+    cp 'A' : jr nz, .mainLoop
+    call .doRead : jr nc, .timeout
     cp 'I' : jp nz, .mainLoop
-    call .doRead : jp nc, .timeout
+    call .doRead : jr nc, .timeout
     cp 'L' : jp nz, .mainLoop
     call .flushToLF
     ld hl, dbg_rx_fail : call logIfEnabled
@@ -1193,7 +1196,7 @@ chan_ptr         dw channel_buffer
 ; Flags in printer buffer (all set before first read)
 networks_count  = #5B11
 seen_cwlap      = #5B12
-ok_ignored      = #5B13
+; #5B13 owned by Uart.break_hit
 scan_extended   = #5B14
 old_fw          = #5B15
 retry_count     = #5B16
