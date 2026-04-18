@@ -33,11 +33,11 @@ NetManZX is based on the original [netman-zx](https://github.com/nihirash/netman
 - **Network Scanning**: Automatically discovers up to 25 WiFi networks using extended scan parameters (`AT+CWLAP` with 200-1500ms dwell time) for better coverage. Retry with fallback on scan failure. Sorted by signal strength
 - **Robust startup detection**: Disables ESP echo early (ATE0) to prevent scan parser failures on cold boot. Multiple scan attempts with diagnostic messages on timeout or empty results
 - **Hidden Network Support**: Manually enter SSID for networks that do not broadcast their name
-- **Smart Connection Detection**: On startup, detects if already connected and offers to keep or reconfigure (with direct access to diagnostics)
+- **Smart Connection Detection**: On startup, detects if already connected to a WiFi and updates the status bar accordingly; cold boot goes straight to the main menu + first scan in all cases. If the "already connected" network is selected from the list, a detail screen shows its info with an `Already connected to this network!` warning in red
 - **Connection info screen**: Press ENTER on the already-connected network to view full connection details: IP address, gateway, netmask, and MAC address
-- **Save & Reconnect** (C key, UNO/NEXT only): Save WiFi credentials to SD card (`/SYS/CONFIG/NETMAN.CFG`). Press C from the main menu to reconnect to the saved network with one keypress. Save prompt also appears after successful connection (S key). Saved network is highlighted in cyan in the network list
+- **Save & Reconnect** (C key, UNO/NEXT only): Save WiFi credentials to SD card (`/SYS/CONFIG/NETMAN.CFG` on divMMC, `c:/sys/config/netman.cfg` on Next). Press C from the main menu to reconnect to the saved network with one keypress. Save prompt also appears after successful connection (S key). Saved network is highlighted in cyan in the network list
 - **Password Entry**: Full keyboard support with show/hide toggle, double-height input with cursor editing (left/right arrow keys)
-- **WPS Support**: Push-button WPS connection (W key), with 120-second timeout and BREAK cancellation
+- **WPS Support**: Push-button WPS connection (W key), with a real ~60 second polling window, BREAK cancellation, and no side-effects on ESP flash (wrapped in `SYSSTORE=0` + `CWAUTOCONN=0` to prevent background autoreconnect from spoofing success)
 - **Disconnect Option**: Disconnect from current network with confirmation dialog, without exiting the application
 - **Real-time Status Monitoring**: Automatically detects connection drops and reconnections via async ESP event parsing
 - **Connection failure diagnostics**: Specific error messages for connection failures: wrong password, AP not found, timeout, or connection refused
@@ -47,7 +47,7 @@ NetManZX is based on the original [netman-zx](https://github.com/nihirash/netman
 1. **Ping test** - Test connectivity with configurable target IP (default: 8.8.8.8)
 2. **Module info** - Display ESP8266 firmware version and AT command set
 3. **Network info** - Show current IP address and MAC address
-4. **UART baud rate** - Display current communication speed
+4. **UART baud rate** - Display `Current:` and `Default:` ESP baud rates separately, so the Next-only session override (`AT+UART_CUR=115200`) is visible without implying that flash was changed
 5. **Static IP** - Configure static IP address, gateway, and subnet mask
 6. **Hostname** - Set a custom hostname for the ESP module
 7. **Config summary** - View all current WiFi settings at a glance (SSID, IP, MAC, hostname, firmware, saved network, app version)
@@ -63,6 +63,7 @@ NetManZX is based on the original [netman-zx](https://github.com/nihirash/netman
 - **Audible key click**: Clear audible feedback on every keypress during text input
 
 ### Other
+- **Boot splash screen**: Logo painted before the main UI. On Spectrum Next, a 48 KB Layer 2 image with a custom 9-bit palette is loaded by the NEX loader; ULA row 20 displays init status messages (`Configuring ESP...`, `Scanning baud rates...`, etc.) under a Layer 2 clip window. On UNO / AY, a 6912 B SCR logo is loaded from the TAP before the code, with the BASIC `Bytes: ...` messages suppressed for a clean load
 - **About screen** (I key): Shows version, build date, author, GitHub URL, and license
 - **UART Debug Log**: Toggle live UART log display with L key (works globally). Red indicator dot in log area when active
 - **Compressed font**: Built-in nibble-packed font system (no external font.bin dependency)
@@ -146,7 +147,8 @@ Copy `netmanzx-next.nex` to your SD card and run it directly from the file brows
 | C | Save config / Reconnect (UNO/NEXT) |
 | S | Save credentials after connection (UNO/NEXT) |
 | I | About screen |
-| ESC | Exit program |
+
+There is no "exit program" key — the program is a standalone tool, not a TSR. To leave, reset the machine.
 
 ### Connection Robustness
 

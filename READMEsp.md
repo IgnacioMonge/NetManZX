@@ -33,11 +33,11 @@ NetManZX esta basado en el proyecto original [netman-zx](https://github.com/nihi
 - **Escaneo de Redes**: Descubre automaticamente hasta 25 redes WiFi usando parametros de escaneo extendidos (`AT+CWLAP` con 200-1500ms de permanencia por canal) para mejor cobertura. Reintento con fallback en caso de fallo. Ordenadas por intensidad de senal
 - **Deteccion robusta al inicio**: Desactiva el echo del ESP (ATE0) antes del primer escaneo para prevenir fallos del parser. Multiples intentos de escaneo con mensajes diagnosticos en caso de timeout o resultados vacios
 - **Soporte de Redes Ocultas**: Introduce manualmente el SSID de redes que no emiten su nombre
-- **Deteccion Inteligente de Conexion**: Al iniciar, detecta si ya esta conectado y ofrece mantener o reconfigurar (con acceso directo a diagnosticos)
+- **Deteccion Inteligente de Conexion**: Al iniciar, detecta si ya esta conectado a una WiFi y actualiza la barra de estado; el arranque en frio va directo al menu principal + primer escaneo en todos los casos. Si la red "ya conectada" se selecciona desde la lista, una pantalla de detalle muestra su informacion con un aviso en rojo `Already connected to this network!`
 - **Pantalla de informacion de conexion**: Pulsa ENTER sobre la red ya conectada para ver IP, gateway, mascara de subred y direccion MAC
-- **Guardar y Reconectar** (tecla C, solo UNO/NEXT): Guarda las credenciales WiFi en la tarjeta SD (`/SYS/CONFIG/NETMAN.CFG`). Pulsa C desde el menu principal para reconectar a la red guardada. Tambien ofrece guardar tras una conexion exitosa (tecla S). La red guardada se resalta en cyan en la lista de redes
+- **Guardar y Reconectar** (tecla C, solo UNO/NEXT): Guarda las credenciales WiFi en la tarjeta SD (`/SYS/CONFIG/NETMAN.CFG` en divMMC, `c:/sys/config/netman.cfg` en Next). Pulsa C desde el menu principal para reconectar a la red guardada. Tambien ofrece guardar tras una conexion exitosa (tecla S). La red guardada se resalta en cyan en la lista de redes
 - **Entrada de Contrasena**: Soporte completo de teclado con opcion de mostrar/ocultar, entrada en doble altura con edicion de cursor (flechas izquierda/derecha)
-- **Soporte WPS**: Conexion WPS por pulsacion de boton (tecla W), con timeout de 120 segundos y cancelacion con BREAK
+- **Soporte WPS**: Conexion WPS por pulsacion de boton (tecla W), con ventana real de sondeo ~60 segundos, cancelacion con BREAK y sin efectos secundarios sobre la flash del ESP (envuelto en `SYSSTORE=0` + `CWAUTOCONN=0` para evitar que una autoreconexion en segundo plano simule un exito falso)
 - **Opcion de Desconexion**: Desconecta de la red actual con dialogo de confirmacion, sin salir de la aplicacion
 - **Monitorizacion de Estado en Tiempo Real**: Detecta automaticamente caidas y reconexiones mediante parseo asincrono de eventos del ESP
 - **Diagnostico de fallos de conexion**: Mensajes especificos de error: contrasena incorrecta, AP no encontrado, timeout o conexion rechazada
@@ -47,7 +47,7 @@ NetManZX esta basado en el proyecto original [netman-zx](https://github.com/nihi
 1. **Ping test** - Probar conectividad con IP configurable (por defecto: 8.8.8.8)
 2. **Module info** - Mostrar version del firmware del ESP8266 y conjunto de comandos AT
 3. **Network info** - Mostrar direccion IP y direccion MAC actual
-4. **UART baud rate** - Mostrar velocidad de comunicacion actual
+4. **UART baud rate** - Muestra por separado `Current:` y `Default:` del ESP, haciendo visible el override de sesion (solo Next, `AT+UART_CUR=115200`) sin dar a entender que la flash ha sido modificada
 5. **Static IP** - Configurar direccion IP estatica, gateway y mascara de subred
 6. **Hostname** - Establecer un nombre de host personalizado para el modulo ESP
 7. **Config summary** - Ver todos los ajustes WiFi actuales de un vistazo (SSID, IP, MAC, hostname, firmware, red guardada, version de la app)
@@ -63,6 +63,7 @@ NetManZX esta basado en el proyecto original [netman-zx](https://github.com/nihi
 - **Click de tecla audible**: Feedback sonoro claro en cada pulsacion durante la entrada de texto
 
 ### Otros
+- **Pantalla de arranque (splash)**: Logo pintado antes de que aparezca la interfaz principal. En Spectrum Next se carga una imagen Layer 2 de 48 KB con paleta personalizada de 9 bits via el cargador NEX; la fila ULA 20 muestra mensajes de estado de inicializacion (`Configuring ESP...`, `Scanning baud rates...`, etc.) bajo una ventana de clip Layer 2. En UNO / AY se carga un logo SCR de 6912 B desde el TAP antes del codigo, suprimiendo los mensajes `Bytes: ...` de BASIC para una carga limpia
 - **Pantalla Acerca de** (tecla I): Muestra version, fecha de compilacion, autor, URL de GitHub y licencia
 - **Log de Depuracion UART**: Muestra/oculta el log UART en tiempo real con la tecla L (funciona globalmente). Indicador rojo en el area de log cuando esta activo
 - **Fuente comprimida**: Sistema de fuente comprimida por nibbles integrado (sin dependencia de archivo font.bin externo)
@@ -146,7 +147,8 @@ Copia `netmanzx-next.nex` a la tarjeta SD y ejecutalo directamente desde el nave
 | C | Reconectar a red guardada / Guardar config (UNO/NEXT) |
 | S | Guardar credenciales tras conexion exitosa (UNO/NEXT) |
 | I | Pantalla Acerca de |
-| ESC | Salir del programa |
+
+No existe una tecla "salir del programa" — la aplicacion es una herramienta independiente, no un TSR. Para abandonarla, resetea la maquina.
 
 ### Robustez de Conectividad
 
