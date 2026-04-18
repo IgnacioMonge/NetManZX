@@ -16,14 +16,16 @@ NetManZX is based on the original [netman-zx](https://github.com/nihirash/netman
 
 ## Screenshots
 
+*Screenshots from v1.4.4. SSIDs in captures have been blurred for privacy.*
+
 | | | |
 |:---:|:---:|:---:|
-| [![Startup](images/screenshot_startup.png)](images/screenshot_startup.png) | [![Network List](images/screenshot_network_list.png)](images/screenshot_network_list.png) | [![Connected Prompt](images/screenshot_connected_prompt.png)](images/screenshot_connected_prompt.png) |
-| *Startup and scanning* | *Network list with RSSI bars* | *Already connected prompt* |
-| [![Network Detail](images/screenshot_password_masked.png)](images/screenshot_password_masked.png) | [![Password Visible](images/screenshot_password_visible.png)](images/screenshot_password_visible.png) | [![Hidden Network](images/screenshot_hidden_network.png)](images/screenshot_hidden_network.png) |
-| *Network detail and password* | *Password revealed* | *Hidden network (manual SSID)* |
-| [![Diagnostics](images/screenshot_diagnostics.png)](images/screenshot_diagnostics.png) | [![Config Summary](images/screenshot_config_summary.png)](images/screenshot_config_summary.png) | [![About](images/screenshot_about.png)](images/screenshot_about.png) |
-| *Diagnostics menu (7 options)* | *Config summary* | *About screen* |
+| [![Splash Next](images/1.4.4/release/01_splash_next.png)](images/1.4.4/release/01_splash_next.png) | [![Network list](images/1.4.4/release/03_network_list.png)](images/1.4.4/release/03_network_list.png) | [![Already connected](images/1.4.4/release/04_already_connected.png)](images/1.4.4/release/04_already_connected.png) |
+| *Boot splash (Spectrum Next, Layer 2)* | *Network list with RSSI bars* | *"Already connected" warning (v1.4.4)* |
+| [![Connected](images/1.4.4/release/10_connected.png)](images/1.4.4/release/10_connected.png) | [![Diagnostics](images/1.4.4/release/06_diagnostics_menu.png)](images/1.4.4/release/06_diagnostics_menu.png) | [![Ping test](images/1.4.4/release/07_ping_test.png)](images/1.4.4/release/07_ping_test.png) |
+| *Successful connection* | *Diagnostics menu (7 options)* | *Ping test* |
+| [![UART baud rate](images/1.4.4/release/08_uart_baud.png)](images/1.4.4/release/08_uart_baud.png) | [![Config summary](images/1.4.4/release/09_config_summary.png)](images/1.4.4/release/09_config_summary.png) | [![About](images/1.4.4/release/11_about.png)](images/1.4.4/release/11_about.png) |
+| *UART baud (current / default)* | *Configuration summary* | *About screen* |
 
 ## Features
 
