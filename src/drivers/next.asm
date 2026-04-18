@@ -21,11 +21,13 @@ init:
 
 ; Shared baud rate setup (HL = prescaler table)
 setBaudFromTable:
+    di
     ld bc, 9275
     ld a, 17
     out (c), a
     ld bc, 9531
-    in a, (c)
+    in a, (c)            ; atomic NextReg select+read pair
+    ei
     ld e, a
     rlc e
     ld d, 0

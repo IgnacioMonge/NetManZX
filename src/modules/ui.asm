@@ -143,7 +143,7 @@ statusBarFinalize:
 ; Show "IP: Scanning..."
 ipShowScanning:
     ld hl, msg_ip_scanning
-    jp ipSetStatusbar
+    jr ipSetStatusbar
 
 ; Show "IP:Disconnected" in red
 ipShowNotConnected:
@@ -151,14 +151,14 @@ ipShowNotConnected:
     call ipSetFromZ
     ld a, Display.ATTR_STATUS_DISC
     ld (ip_value_color), a
-    jp statusBarFinalize
+    jr statusBarFinalize
 
 ; Set IP from Z-string + default status bar color + render
 ipSetStatusbar:
     call ipSetFromZ
     ld a, Display.ATTR_STATUSBAR
     ld (ip_value_color), a
-    jp statusBarFinalize
+    jr statusBarFinalize
 
 ; Show "IP: x.x.x.x" in blue, or "IP: ---" if query fails
 ipShowConnected:
@@ -173,7 +173,7 @@ ipShowConnected:
     jp statusBarFinalize
 .ipUnknown
     ld hl, msg_ip_unknown
-    jp ipSetStatusbar
+    jr ipSetStatusbar
 
 ; Color IP value area (cells 3-17) on both rows 18-19
 colorIpValueBothRows:
@@ -341,6 +341,7 @@ clearPassBuffer:
 ; ============================================
 PASS_LINE_DEFAULT = 7
 pass_line   db PASS_LINE_DEFAULT   ; Line where password is drawn
+pass_no_warn db 0                  ; 1 = force blue even when show_password=1 (hostname, no secret)
 
 passwordInput:
     ; Debounce: wait for previous key release
@@ -354,6 +355,8 @@ passwordInput:
     ld a, (show_password) : and a
     ld c, Display.ATTR_PASS_INPUT
     jr z, .piAttrOk
+    ld a, (pass_no_warn) : and a
+    jr nz, .piAttrOk
     ld c, Display.ATTR_PASS_EXPOSED
 .piAttrOk
     ld a, (pass_line) : ld b, 2 : call setRowsColor
@@ -450,8 +453,8 @@ passwordInput:
     cp 9 : jp z, .piRight
     cp Keyboard.KEY_BS : jp z, .piDel
     cp 13 : jp z, .piEnter
-    cp 32 : jp c, .piWait
-    cp 127 : jp nc, .piWait
+    cp 32 : jr c, .piWait
+    cp 127 : jr nc, .piWait
 
     ; --- Insert character ---
     ld c, a
@@ -569,12 +572,13 @@ debounce15:
     djnz .loop
     ret
 
+
 ; Set rows 8-9 to password input color
 setPassRows8:
     ld a, 8
     ld b, 2
     ld c, Display.ATTR_PASS_INPUT
-    jp setRowsColor
+    jr setRowsColor
 
 ; HL = &manual_ssid_buffer[cursor] (preserves BC)
 getSSIDAtCursor:
@@ -619,6 +623,14 @@ setRowsColor:
     inc a
     djnz setRowsColor
     ret
+
+; Set row A with BRIGHT color C, row A+1 with same color minus BRIGHT
+; (double-height text convention). Destroys: all.
+setDoubleAttr:
+    call Display.setAttr        ; row A, BRIGHT
+    inc a
+    res 6, c                    ; remove BRIGHT
+    jp Display.setAttr          ; row A+1, no BRIGHT (tail call)
 
 ; Clear pixel rows with LDIR
 ; Input: D = start row, C = bytes per scanline - 1
@@ -1060,46 +1072,6 @@ rssi_value = #5B2A             ; In printer buffer (set in renderList)
 current_line = #5B2B
 current_screen_idx = #5B2C
 conn_row_found = #5B2D
-
-; ============================================
-; showConnectedDialog
-; ============================================
-showConnectedDialog:
-    call topClean
-    ld a, 3 : ld hl, .msg_network : call printAt0
-    ; SSID in green double-height (rows 4-5)
-    ld a, 4 : call Display.gotoXY0
-    ld hl, Wifi.connected_ssid
-    call Display.putStrBig
-    ld a, 4 : ld b, 2 : ld c, Display.ATTR_SSID_INPUT : call setRowsColor
-    ; Questions
-    ld a, 7 : ld hl, .msg_question : call printAt0
-    ld a, 9 : ld hl, .msg_options : call printAt0
-
-    ; Debounce: drain stale keys for 15 frames (~300ms)
-    ; Needed because ROM key repeat can leave residual values in BASIC_KEY
-    call debounce15
-
-.waitKey
-    halt
-    call Keyboard.checkBreak
-    jr z, .keepConfig
-    call Keyboard.inKeyNoWait
-    and a : jr z, .waitKey
-    cp 'y' : jr z, .reconfigure
-    cp 'Y' : jr z, .reconfigure
-    cp 'n' : jr z, .keepConfig
-    cp 'N' : jr z, .keepConfig
-    jr .waitKey
-
-.reconfigure
-    or a : ret          ; CF=0 -> reconfigure
-.keepConfig
-    scf : ret           ; CF=1 -> diagnostics
-
-.msg_network   db "Connected to network:", 0
-.msg_question  db "Do you want to reconfigure?", 0
-.msg_options   db "(Y)es reconfigure / (N)o diagnostics", 0
 
 ; ============================================
 ; Cursor and navigation
@@ -1817,26 +1789,26 @@ manualSSID:
     call Keyboard.keyClick
 
     ; Cursor left
-    cp 8 : jp z, .ssidCursorLeft
+    cp 8 : jr z, .ssidCursorLeft
 
     ; Cursor right
-    cp 9 : jp z, .ssidCursorRight
+    cp 9 : jr z, .ssidCursorRight
 
     ; Delete
-    cp Keyboard.KEY_BS : jp z, .removeSSIDChar
+    cp Keyboard.KEY_BS : jr z, .removeSSIDChar
 
     ; Enter = proceed to password
     cp 13 : jp z, .ssidEntered
     
     ; Filter valid characters (32-126)
-    cp 32 : jp c, .waitSSIDKey
-    cp 127 : jp nc, .waitSSIDKey
+    cp 32 : jr c, .waitSSIDKey
+    cp 127 : jr nc, .waitSSIDKey
     
     ; === Insert character ===
     ld c, a                         ; Save char
     ld a, (manual_ssid_len)
     cp 32                           ; Max 32 chars
-    jp nc, .ssidMaxLen
+    jr nc, .ssidMaxLen
     
     ; Check if inserting at end or in the middle
     ld a, (manual_ssid_cursor)
@@ -1989,8 +1961,7 @@ manualSSID:
     ; SSID in double-height green (rows 4-5)
     ld a, 4 : ld hl, manual_ssid_buffer : call printAt0
     call Display.stretchRows45
-    ld a, 4 : ld c, Display.ATTR_SSID_INPUT : call Display.setAttr
-    ld a, 5 : ld c, Display.ATTR_SSID_INPUT : res 6, c : call Display.setAttr
+    ld a, 4 : ld c, Display.ATTR_SSID_INPUT : call setDoubleAttr
 
     ; Prepare password input
     xor a
@@ -2006,7 +1977,7 @@ manualSSID:
 
     ; Password input using shared routine (pass_line=7 = default)
     call passwordInput
-    jp c, .cancelManual
+    jr c, .cancelManual
 
 .connectManual
     ; Show final asterisks
@@ -2263,56 +2234,90 @@ doWPS:
 
 .wpsStart
     call topClean
-    gotoXY 1, 4
     ld hl, .msg_wps_prompt
-    call Display.putStr
+    ld c, Display.ATTR_CONNECTED    ; Bright yellow on black
+    call showBigMessage
     gotoXY 1, 6
-    ld hl, .msg_wps_wait
+    ld hl, msg_break_cancel
     call Display.putStr
 
+    ; Pre-WPS: wrap in SYSSTORE=0 so temporary state changes stay in
+    ; RAM only (flash SSID is preserved if WPS is cancelled/fails).
+    ; Then kill autoconnect so checkConnection during poll can't be
+    ; fooled by a silent ESP auto-rejoin.
+    call flushUartBuffer
+    ld hl, cmd_sysstore_off : call Wifi.espSendZ
+    call Wifi.checkOkErr
+    ld hl, cmd_autoconn_off : call Wifi.espSendZ
+    call Wifi.checkOkErr
+    xor a : ld (Wifi.is_connected), a
+    call flushUartBuffer
+
 .wpsSend
-    ; Send AT+WPS=1
-    call flushUartBuffer
-    ld hl, .cmd_wps
-    call Wifi.espSendZ
-    ; Wait for WPS response (can take ~120s, much longer than normal)
-    ld b, 4                     ; 4 rounds × ~21s each = ~85s total
-.wpsWaitLoop
-    push bc
-    call Wifi.checkOkErrLong
-    pop bc
-    jr nc, .wpsGotOk            ; OK received
-    ; Check BREAK between rounds
-    call Keyboard.checkBreak
-    jr z, .wpsFail
-    djnz .wpsWaitLoop
-    jr .wpsFail                 ; All rounds exhausted
-.wpsGotOk
-    ; Flush post-WPS (residual async messages)
-    call flushUartBuffer
-    ; Check connection
-    call Wifi.checkConnection
+    ; Send AT+WPS=1 (ESP acks OK fast, then does WPS async)
+    ld hl, .cmd_wps : call Wifi.espSendZ
+    call Wifi.checkOkErr
     jr c, .wpsFail
-    ; Success
-    call updateWifiStatus_q
-    call ipShowConnected
-    gotoXY 1, 8
-    ld hl, .msg_wps_ok
-    call Display.putStr
-    jr .wpsExit
-.wpsFail
-    ; WPS failure leaves the ESP in bad state: reset to recover
-    call flushUartBuffer
-    call Wifi.reset
-    ; Wait for ESP to stabilize after reset
-    ld b, 125
-.wpsResetWait
+    ; Poll connection until WPS completes or timeout.
+    ; 40 rounds × ~1.5s = ~60s window (user has to press router button).
+    ld b, 40
+.wpsPollLoop
+    push bc
+    ; ~1.5s wait between polls on Next (75 frames)
+    ld b, 75
+.wpsPollWait
     halt
-    djnz .wpsResetWait
+    call Keyboard.checkBreak : jr z, .wpsPollBrk
+    djnz .wpsPollWait
     call flushUartBuffer
-    gotoXY 1, 8
-    ld hl, .msg_wps_fail
-    call Display.putStr
+    call Wifi.checkConnection
+    pop bc
+    jr nc, .wpsGotConn
+    djnz .wpsPollLoop
+    jr .wpsFail
+.wpsPollBrk
+    pop bc
+    jr .wpsCancel
+
+.wpsGotConn
+    ; Success: restore autoconnect + SYSSTORE so next boot rejoins the new AP
+    call flushUartBuffer
+    ld hl, cmd_autoconn_on : call Wifi.espSendZ
+    call Wifi.checkOkErr
+    ld hl, Wifi.S_AT_SYSSTORE : call Wifi.espSendZ
+    call Wifi.checkOkErr
+    call updateWifiStatus_q
+    ; Suppress save-prompt: WPS has no local password, only ESP flash does.
+    ld a, 1 : ld (is_reconnect), a
+    call connSuccessScreen
+    xor a : ld (is_reconnect), a
+    jp renderListAndLoop
+.wpsCancel
+    ; User BREAK: exit WPS mode cleanly, no ESP reset.
+    call flushUartBuffer
+    ld hl, .cmd_wps_off : call Wifi.espSendZ
+    call Wifi.checkOkErr
+    ld hl, cmd_autoconn_on : call Wifi.espSendZ
+    call Wifi.checkOkErr
+    ld hl, Wifi.S_AT_SYSSTORE : call Wifi.espSendZ
+    call Wifi.checkOkErr
+    call flushUartBuffer
+    xor a : ld (Wifi.is_connected), a
+    call ipShowNotConnected
+    call updateWifiStatus_q
+    jp showCancelledScreen
+
+.wpsFail
+    ; Real timeout: ESP may be stuck, full re-init.
+    call Wifi.init
+    call flushUartBuffer
+    xor a : ld (Wifi.is_connected), a
+    call ipShowNotConnected
+    call updateWifiStatus_q
+    call topClean
+    ld hl, .msg_wps_timeout
+    ld c, Display.ATTR_ALERT
+    call showBigMessage
 .wpsExit
     call showPressKey
 .wpsWaitKey
@@ -2325,21 +2330,19 @@ doWPS:
 .wpsLog
     call toggleLogQuiet : jr .wpsWaitKey
 .wpsKeyOk
-    ; Wait before scanning (ESP may need time after WPS)
     ld b, 100
 .wpsScanWait
     halt
     djnz .wpsScanWait
     call flushUartBuffer
-    ; Rescan to recover network list
     call Wifi.getList
     jp renderListAndLoop
-.msg_wps_warn   db "WPS requires disconnecting first.", 0
-.msg_wps_prompt db "Press WPS button on router", 0
-.msg_wps_wait   db "Waiting for WPS...", 0
-.msg_wps_ok     db "WPS connected!", 0
-.msg_wps_fail   db "WPS failed", 0
-.cmd_wps        db "AT+WPS=1", 13, 10, 0
+
+.msg_wps_warn    db "WPS requires disconnecting first.", 0
+.msg_wps_prompt  db "Press WPS button on router...", 0
+.msg_wps_timeout db "WPS timeout!", 0
+.cmd_wps         db "AT+WPS=1", 13, 10, 0
+.cmd_wps_off     db "AT+WPS=0", 13, 10, 0
 
 cursorDown:
     call hideCursor
@@ -2350,7 +2353,7 @@ cursorDown:
     inc a                       ; Next absolute position
     ld hl, Wifi.networks_count
     cp (hl)                     ; More networks?
-    jp nc, .atEnd               ; No more, don't move
+    jr nc, .atEnd               ; No more, don't move
     
     ld a, (cursor_position)
     inc a
@@ -2460,7 +2463,7 @@ pageUp:
     call hideCursor
     ld a, (offset)
     and a
-    jp z, .firstItem            ; Already on first page
+    jr z, .firstItem            ; Already on first page
     sub PER_PAGE
     jr nc, .setOffset
     xor a                       ; Clamp to 0
@@ -2517,7 +2520,7 @@ drawSignalLine:
     ld hl, Wifi.rssi_buffer
     ld d, 0 : ld e, a : add hl, de
     ld a, (hl) : and #7F
-    jp drawRssiBars
+    jr drawRssiBars
 
 ; Shared routine: calculate and draw RSSI bars
 ; Input: A = RSSI (0-127). Coords already positioned.
@@ -2739,8 +2742,9 @@ selectItem:
     ; Set attrs for rows 10-13
     ld a, 10 : ld b, 4 : ld c, Display.ATTR_NORMAL : call setRowsColor
 
-    ; Row 15: message
+    ; Row 15: message (bright red for visibility)
     ld a, 15 : ld hl, .msg_already_conn : call printAt0
+    ld a, 15 : ld b, 1 : ld c, Display.ATTR_ALERT : call setRowsColor
     call pressKeyReturnList
 
 .ci_retrieving db "Retrieving information...", 0
@@ -2749,14 +2753,14 @@ selectItem:
 .ci_mask_lbl db "Mask:     ", 0
 .ci_mac_lbl  db "MAC:      ", 0
 .ci_na       db "-", 0
-.msg_already_conn db "Already connected to this network", 0
+.msg_already_conn db "Already connected to this network!", 0
 .msg_connect_yn   db "(Y)es connect / (N)o cancel", 0
 
 .notConnectedYet
     call hideCursor : call topClean
     call showNetDetail
 
-    ld a, (is_open_network) : and a : jp nz, .openConfirm
+    ld a, (is_open_network) : and a : jr nz, .openConfirm
     call clearPassBuffer
     ld a, 11 : ld hl, msg_pass : call printAt0
     ld a, 12 : ld b, 2 : ld c, Display.ATTR_PASS_INPUT : call setRowsColor
@@ -2804,7 +2808,7 @@ selectItem:
     ld de, manual_ssid_buffer
     call copyStringZ
     xor a : ld (is_reconnect), a
-    jp connectAndReturn
+    jr connectAndReturn
 
 ; ============================================
 ; connectAndReturn - Full WiFi connection cycle with retries
@@ -2905,15 +2909,14 @@ connectAndReturn:
 
     ; Retry?
     ld a, (conn_retries) : dec a : ld (conn_retries), a
-    jp z, .carFailed
+    jr z, .carFailed
 
     ; Show "Retry..." briefly (clear residual "Press BREAK to cancel" after it)
     ld a, 8 : call Display.gotoXY0 : ld hl, msg_retry_big : call Display.putStrBig
     ld b, 14
 .clrRetry
     push bc : ld a, ' ' : call Display.putC : pop bc : djnz .clrRetry
-    ld a, 8 : ld c, Display.ATTR_ALERT : call Display.setAttr
-    ld a, 9 : ld c, Display.ATTR_ALERT : res 6, c : call Display.setAttr
+    ld a, 8 : ld c, Display.ATTR_ALERT : call setDoubleAttr
     ld b, 100
 .carRetryWait
     halt
@@ -2970,7 +2973,10 @@ connSuccessScreen:
     call showPressKey
 .cssWait
     halt
-    call Keyboard.checkBreak : jp z, exitProgram
+    ; Ignore BREAK here: connection succeeded, user just landed on the
+    ; "Connected!" screen. Exiting to BASIC with CAPS+SPACE held would
+    ; leave the BREAK latch set and BASIC would raise "L BREAK into
+    ; program 50:1" on the next line.
     call Keyboard.inKeyNoWait : and a : jr z, .cssWait
     call Keyboard.keyClick
     cp 'l' : jr z, .cssLog : cp 'L' : jr z, .cssLog
@@ -2997,8 +3003,7 @@ connSuccessScreen:
     ; Error: double-height red on rows 8-9, then press any key
     ld a, 8 : call Display.gotoXY0
     ld hl, msg_save_fail : call Display.putStrBig
-    ld a, 8 : ld c, Display.ATTR_ALERT : call Display.setAttr
-    ld a, 9 : ld c, Display.ATTR_ALERT : res 6, c : call Display.setAttr
+    ld a, 8 : ld c, Display.ATTR_ALERT : call setDoubleAttr
     call showPressKey
     jr .cssWait
 .cssSaveOk
@@ -3008,8 +3013,7 @@ connSuccessScreen:
     ; Success: double-height green on rows 8-9, pause, auto-return
     ld a, 8 : call Display.gotoXY0
     ld hl, msg_save_ok : call Display.putStrBig
-    ld a, 8 : ld c, Display.ATTR_SSID_INPUT : call Display.setAttr
-    ld a, 9 : ld c, Display.ATTR_SSID_INPUT : res 6, c : call Display.setAttr
+    ld a, 8 : ld c, Display.ATTR_SSID_INPUT : call setDoubleAttr
     ld b, 75                    ; ~1.5s pause
 .cssPause
     halt
@@ -3111,26 +3115,6 @@ diagHeader:
 
 showDiagnostics:
     call topClean
-
-    ; Check if connected
-    ld a, (Wifi.is_connected)
-    and a
-    jr nz, .showMenu
-
-    ; Not connected - show error
-    ld a, 3 : ld hl, .msg_not_conn : call printAt0
-    call showPressKey
-.waitNotConn
-    halt
-    call Keyboard.inKey
-    and a
-    jr z, .waitNotConn
-    cp 'l' : jr z, .wncLog : cp 'L' : jr z, .wncLog
-    jp renderListAndLoop
-.wncLog
-    call toggleLogQuiet : jr .waitNotConn
-
-.showMenu
     ld hl, .msg_diag_title
     call diagHeader
     ; Options via loop + pointer table
@@ -3172,6 +3156,7 @@ showDiagnostics:
     call Keyboard.checkBreak : jp z, .exitDiag
     call Keyboard.inKeyNoWait
     and a : jr z, .diagLoop
+    call Keyboard.keyClick
     cp Keyboard.KEY_UP : jr z, .diagUp
     cp 'q' : jr z, .diagUp
     cp 'Q' : jr z, .diagUp
@@ -3241,7 +3226,6 @@ showDiagnostics:
     jp renderListAndLoop
 
 .diag_cursor    = #5B59  ; In printer buffer (set before use)
-.msg_not_conn   db "Connect to a network first!", 0
 .msg_diag_title db "DIAGNOSTICS", 0
 .msg_diag_opt1  db "Ping test", 0
 .msg_diag_opt2  db "Module info (firmware)", 0
@@ -3253,7 +3237,7 @@ showDiagnostics:
 .diagPtrs:
     dw .msg_diag_opt1, .msg_diag_opt2, .msg_diag_opt3, .msg_diag_opt4
     dw .msg_diag_opt5, .msg_diag_opt6, .msg_diag_opt7
-.msg_diag_exit  db "Q/A:Move ENTER:Select BREAK:Exit", 0
+.msg_diag_exit  db "ENTER:Select BREAK:Exit", 0
 
 ; Buffer for diagnostic responses
     RTVAR diag_buffer, 64
@@ -3399,16 +3383,15 @@ initPingIP:
 .default_ip db "8.8.8.8", 0
 
 doPing:
+    ; Disable UART log during diagnostics
+    xor a
+    ld (Uart.log_enabled), a
     ; Initialize default IP if empty
     ld a, (ping_ip_len)
     and a
     jr nz, .skipInit
     call initPingIP
 .skipInit
-    
-    ; Disable UART log during diagnostics
-    xor a
-    ld (Uart.log_enabled), a
     
     ld hl, .msg_ping_title
     call diagHeader
@@ -3788,6 +3771,7 @@ doModuleInfo:
     ld c, 20                    ; Max 20 timeouts
     ld b, 100                   ; Absolute limit: 100 lines
 .gmrLoop
+    call Keyboard.checkBreak : jp z, showDiagnostics
     call readDiagLineBC
     jr nc, .gmrTimeout          ; CF=0 = timeout real
     
@@ -3871,6 +3855,7 @@ doNetworkInfo:
     ld c, 20
     ld b, 100
 .cifsrLoop
+    call Keyboard.checkBreak : jp z, showDiagnostics
     call readDiagLineBC
     jr nc, .cifsrTimeout
     dec b
@@ -3940,6 +3925,8 @@ doNetworkInfo:
 ; UART Baud rate
 ; ============================================
 doBaudRate:
+    xor a
+    ld (Uart.log_enabled), a
     ld hl, msg_baud_title
     call diagHeader
 
@@ -3956,7 +3943,7 @@ doBaudRate:
 
     ; Ensure the ESP is in AT command mode (not in pass-through/data mode)
     call Wifi.ensureCommandMode
-    jp nc, doBaudRate_cmode_ok
+    jr nc, doBaudRate_cmode_ok
     ld a, 6 : ld hl, msg_no_at : call printAt0
     jp waitKeyReturnDiag
 
@@ -3981,14 +3968,14 @@ doBaudRate_cmode_ok:
     ; If no +UART line could be obtained, warn
     ld a, (baud_have_value)
     and a
-    jp nz, .baudDoneHasValue
+    jr nz, .baudDoneHasValue
     ld a, 6 : call Display.gotoXY0
     ld a, (baud_saw_error)
     and a
-    jp z, .noErrMsg
+    jr z, .noErrMsg
     ld hl, msg_uart_error
     call Display.putStr
-    jp .afterErrMsg
+    jr .afterErrMsg
 .noErrMsg
     ld hl, msg_uart_none
     call Display.putStr
@@ -3999,7 +3986,7 @@ doBaudRate_cmode_ok:
     halt
     call Keyboard.inKey
     and a
-    jp z, .waitBaudKey
+    jr z, .waitBaudKey
     jp showDiagnostics
 
 baudSkipToColon:
@@ -4107,13 +4094,16 @@ msg_no_at      db "No AT response (still in data mode?)", 0
 cmd_uart_cur   db "AT+UART_CUR?", 13, 10, 0
 cmd_uart_def   db "AT+UART_DEF?", 13, 10, 0
 cmd_uart_plain db "AT+UART?", 13, 10, 0
-lbl_baud_cur   db "CUR: ", 0
-lbl_baud_def   db "DEF: ", 0
+lbl_baud_cur   db "Current: ", 0
+lbl_baud_def   db "Default: ", 0
 lbl_baud_plain db "UART: ", 0
 msg_uart_none db "No UART info (no response).", 0
 msg_uart_error db "UART query returned ERROR.", 0
 
-; In printer buffer (set before use in doBaudRate)
+; In printer buffer (set before use in doBaudRate).
+; baud_have_value deliberately unions with conn_result (#5B21): the two
+; code paths (connectAndReturn vs doBaudRate) are mutually exclusive modal
+; screens, so the byte is always reinitialized before use in each flow.
 baud_have_value = #5B21
 baud_saw_error  = #5B22
 baud_recover_tried = #5B23
@@ -4124,6 +4114,8 @@ baud_lbl_ptr    = #5B26
 ; doStaticIP - Static IP configuration (option 5)
 ; ============================================
 doStaticIP:
+    xor a
+    ld (Uart.log_enabled), a
     ld hl, .sip_title
     call diagHeader
     ld a, 6 : ld hl, .sip_prompt : call printAt0
@@ -4218,7 +4210,7 @@ ipTextInput:
 .itiBS  ld a, (sti_len) : and a : jr z, .itiWait
     dec a : ld (sti_len), a
     ld hl, (sti_buf) : ld d, 0 : ld e, a : add hl, de : ld (hl), 0
-    jp .itiRedraw
+    jr .itiRedraw
 .itiEnter or a : ret
 .itiCancel scf : ret
 
@@ -4283,6 +4275,8 @@ validateIP:
 ; doHostname - Set hostname (option 6)
 ; ============================================
 doHostname:
+    xor a
+    ld (Uart.log_enabled), a
     ld hl, .hn_title
     call diagHeader
     ld a, 6 : ld hl, .hn_prompt : call printAt0
@@ -4291,9 +4285,11 @@ doHostname:
 
     call clearPassBuffer
     ld a, 1 : ld (show_password), a     ; Show text (not asterisks)
+    ld (pass_no_warn), a                ; Blue, not red (not a secret)
     ld a, 8 : ld (pass_line), a
     call passwordInput
     ld a, PASS_LINE_DEFAULT : ld (pass_line), a
+    xor a : ld (pass_no_warn), a
     jp c, showDiagnostics
 
     ld a, (pass_len) : and a : jp z, showDiagnostics
@@ -4327,8 +4323,7 @@ doHostname:
     ; Hostname in double-height green (rows 4-5)
     ld a, 4 : ld hl, hn_buf : call printAt0
     call Display.stretchRows45
-    ld a, 4 : ld c, Display.ATTR_SSID_INPUT : call Display.setAttr
-    ld a, 5 : ld c, Display.ATTR_SSID_INPUT : res 6, c : call Display.setAttr
+    ld a, 4 : ld c, Display.ATTR_SSID_INPUT : call setDoubleAttr
     call showPressKey
     jr .hn_wait
 
@@ -4351,6 +4346,8 @@ doHostname:
 ; doConfigSummary - Show all config (option 7)
 ; ============================================
 doConfigSummary:
+    xor a
+    ld (Uart.log_enabled), a
     ld hl, .cs_title
     call diagHeader
 
@@ -4420,6 +4417,7 @@ doConfigSummary:
     ld hl, .cs_mac_cmd : call Wifi.espSendZ
     ld b, 8
 .cs_mac_loop
+    call Keyboard.checkBreak : jp z, showDiagnostics
     call readDiagLineBC
     jr nc, .cs_mac_done
     ld a, (diag_buffer) : cp 'O' : jr z, .cs_mac_done
@@ -4445,6 +4443,7 @@ doConfigSummary:
     ld hl, .cs_hn_cmd : call Wifi.espSendZ
     ld b, 6
 .cs_hn_loop
+    call Keyboard.checkBreak : jp z, showDiagnostics
     call readDiagLineBC
     jr nc, .cs_hn_done
     ld a, (diag_buffer) : cp '+' : jr nz, .cs_hn_skip
@@ -4468,6 +4467,7 @@ doConfigSummary:
     ld hl, doModuleInfo.cmd_gmr : call Wifi.espSendZ
     ld b, 10
 .cs_fw_loop
+    call Keyboard.checkBreak : jp z, showDiagnostics
     call readDiagLineBC
     jr nc, .cs_fw_done
     ld a, (diag_buffer) : cp 'O' : jr z, .cs_fw_done
@@ -4550,8 +4550,14 @@ doConfigSummary:
 .cs_hn_cmd  db "AT+CWHOSTNAME?", 13, 10, 0
 
 conn_retries = #5B20            ; In printer buffer (set before use)
+; conn_result unions with baud_have_value (#5B21). Safe: connectAndReturn
+; and doBaudRate are mutually exclusive modal flows that both reinit the
+; byte on entry.
 conn_result  = #5B21            ; Connection result: 0=OK, 1=fail (temp)
 cmd_disconnect db "AT+CWQAP", 13, 10, 0
+cmd_autoconn_off db "AT+CWAUTOCONN=0", 13, 10, 0
+cmd_autoconn_on  db "AT+CWAUTOCONN=1", 13, 10, 0
+cmd_sysstore_off db "AT+SYSSTORE=0", 13, 10, 0
 
 ; ============================================
 ; checkAsyncWifi - Detect async WiFi events
@@ -4621,7 +4627,7 @@ checkAsyncWifi:
     ; Search for patterns
     call .checkDisconnect
     ret nz                      ; If NZ, A already has ASYNC_EVENT_DISCONNECT
-    jp .checkGotIP              ; A has the result (0 or 2)
+    jr .checkGotIP              ; A has the result (0 or 2)
 
 .checkDisconnect:
     ld de, .pat_discon
@@ -4643,7 +4649,8 @@ checkAsyncWifi:
     ld (async_buf_count), a
     ld a, 0
 .eventCode = $ - 1
-    ret                      ; NZ (A != 0)
+    or a                     ; set NZ (event code != 0); ld a,imm doesn't touch flags
+    ret
 .patNotFound
     xor a                    ; Z, A = 0
     ret
@@ -4713,9 +4720,12 @@ checkAsyncWifi:
 
 ASYNC_BUF_SIZE = 16
     RTVAR async_buffer, ASYNC_BUF_SIZE
-; In printer buffer (set before use)
-async_buf_idx   = #5B26
-async_buf_count = #5B27             ; Byte count in buffer (for correct wrap)
+; In printer buffer. Moved to #5B08/#5B09 (was #5B26/#5B27) to avoid collision
+; with baud_lbl_ptr (dw at #5B26). After doBaudRate the ptr's high byte made
+; async_buf_count ~128, which let checkAsyncWifi enter scanBuffer with garbage
+; state and could fire spurious DISCONNECT / GOT IP events.
+async_buf_idx   = #5B08
+async_buf_count = #5B09             ; Byte count in buffer (for correct wrap)
 
 ; ============================================--------------
 ; waitAnyKey

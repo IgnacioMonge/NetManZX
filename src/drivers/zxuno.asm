@@ -77,8 +77,8 @@ uartRead:
     or a
     ret
 .retBuff
-    ld a, 0 : ld (poked_byte), a : ld a, (byte_buff)
-    scf 
+    xor a : ld (poked_byte), a : ld a, (byte_buff)
+    scf
     ret
 
 retReadByte:

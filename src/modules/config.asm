@@ -284,7 +284,7 @@ createPath:
     ld (hl), '/'              ; Restore '/'
 .cpNotSlash
     inc hl
-    jp .cpLoop
+    jr .cpLoop
 .cpPathDone
     ex de, hl
     push hl : pop ix

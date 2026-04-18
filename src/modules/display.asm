@@ -106,12 +106,17 @@ putStrBig:
     jr putStrBig
 
 putStrLog:
+    ld a, (splash_mode)
+    and a
+    ret nz                      ; splash active: suppress log-area writes
     ld a, (hl) : and a : ret z
     push hl
     call putLogC
     pop hl
     inc hl
     jr putStrLog
+
+splash_mode db 0                ; 1 while splash messages own rows 22-23
 
 putC:
     cp 13 : jr z, .cr
@@ -745,7 +750,7 @@ font_packed:
     db #00, #F8, #20, #00  ; '{' → down arrow (scroll indicator)
     db #33, #33, #33, #30  ; '|'
     db #00, #28, #F0, #00  ; '}' → up arrow (scroll indicator)
-    db #00, #80, #08, #00  ; '~' → hollow circle (open network)
+    db #08, #00, #00, #80  ; '~' → hollow circle (open network, 6 rows)
     db #FF, #FF, #FF, #FF  ; DEL → cursor block (0x7C solid)
 
 font_exceptions:
@@ -760,8 +765,10 @@ font_exceptions:
     db 77, 2, #68  ; 'm' line 2
     db 82, 3, #70  ; 'r' line 3
     db 87, 6, #44  ; 'w' line 6
+    db 94, 2, #44  ; '~' line 2 (hollow circle)
     db 94, 3, #44  ; '~' line 3 (hollow circle)
     db 94, 4, #44  ; '~' line 4 (hollow circle)
+    db 94, 5, #44  ; '~' line 5 (hollow circle)
     db #FF          ; end of table
 
 ; ============================================
@@ -847,15 +854,15 @@ draw_hline_only:
 ; ============================================
 stretchRows01:
     ld hl, #4700
-    jp stretchRowPair
+    jr stretchRowPair
 
 stretchRows1819:
     ld hl, #5740
-    jp stretchRowPair
+    jr stretchRowPair
 
 stretchRows45:
     ld hl, #4780
-    jp stretchRowPair
+    jr stretchRowPair
 
 stretchRows34:
     ld hl, #4760

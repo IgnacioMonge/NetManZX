@@ -114,35 +114,37 @@ checkConnection:
     ret
 
 .plusFound
-    ; Expect CWJAP (possibly with _CUR/_DEF suffix)
-    call Uart.readTimeout : jr nc, .fail
+    ; Expect CWJAP (possibly with _CUR/_DEF suffix).
+    ; All ".fail" jumps use jp nc (3 B) instead of jr nc (2 B): the block
+    ; is long enough that future edits could trip jr's ±127 B limit.
+    call Uart.readTimeout : jp nc, .fail
     cp 'C' : jr nz, .loop
-    call Uart.readTimeout : jr nc, .fail
+    call Uart.readTimeout : jp nc, .fail
     cp 'W' : jr nz, .loop
-    call Uart.readTimeout : jr nc, .fail
+    call Uart.readTimeout : jp nc, .fail
     cp 'J' : jr nz, .loop
-    call Uart.readTimeout : jr nc, .fail
+    call Uart.readTimeout : jp nc, .fail
     cp 'A' : jr nz, .loop
-    call Uart.readTimeout : jr nc, .fail
+    call Uart.readTimeout : jp nc, .fail
     cp 'P' : jr nz, .loop
 
     ; Accept ':' directly, or skip suffix until ':'
 .readUntilColon
-    call Uart.readTimeout : jr nc, .fail
+    call Uart.readTimeout : jp nc, .fail
     cp ':' : jr z, .afterColon
     jr .readUntilColon
 
 .afterColon
     ; Find opening quote
 .findQuote
-    call Uart.readTimeout : jr nc, .fail
+    call Uart.readTimeout : jp nc, .fail
     cp '"' : jr nz, .findQuote
 
     ; Read SSID until closing quote (bounded)
     ld hl, connected_ssid
     ld b, MAX_SSID_LEN
 .readSSID
-    call Uart.readTimeout : jr nc, .fail
+    call Uart.readTimeout : jp nc, .fail
     cp '"' : jr z, .gotSSID
     ld (hl), a
     inc hl
@@ -150,7 +152,7 @@ checkConnection:
 
     ; Buffer full: only accept if the very next char closes the quote
 .waitClosingQuote
-    call Uart.readTimeout : jr nc, .fail
+    call Uart.readTimeout : jp nc, .fail
     cp '"' : jr z, .gotSSID
     ; SSID too long or malformed line: avoid buffer overrun
     xor a
@@ -203,14 +205,19 @@ exitTransparent:
 .etp_wait
     halt
     djnz .etp_wait
-    jp flushInput           ; Discard response (may be "NO CHANGE" etc.)
+    jr flushInput           ; Discard response (may be "NO CHANGE" etc.)
 
 init:
     call flushInput
 
+    ; Reset old-firmware flag so SYSSTORE probe re-runs on every init
+    ; (WPS recovery, ESP hot-swap, etc.)
+    xor a
+    ld (old_fw), a
+
     ld a, MAX_RETRIES
     ld (retry_count), a
-    
+
 .retryReset
     call reset
     jr nc, .resetOk
@@ -312,14 +319,12 @@ getList:
     ; fall through to loadList
     jr loadList
 
-; Clear SSID buffer, reset pointers and count (called on first +CWLAP)
-clearScanBuffers:
-    ld hl, buffer
-    ld de, buffer + 1
-    ld bc, BUFFER_SIZE - 1
-    xor a
-    ld (hl), a
-    ldir
+; Reset scan pointers + count ONLY. Old SSID bytes remain in buffer but
+; are masked by networks_count; as new APs arrive they overwrite slot 0,
+; 1, ... If the scan fails partway, partial data shows (better than the
+; previous behavior of wiping old data on first +CWLAP, which left the
+; list empty on mid-scan timeout).
+resetScanPointers:
     ld hl, buffer
     ld (buff_ptr), hl
     ld hl, rssi_buffer
@@ -331,6 +336,17 @@ clearScanBuffers:
     xor a
     ld (networks_count), a
     ret
+
+; Full wipe: LDIR-clear SSID buffer + reset pointers. Used only on the
+; confirmed 0-networks success path (OK with no +CWLAP).
+clearScanBuffers:
+    ld hl, buffer
+    ld de, buffer + 1
+    ld bc, BUFFER_SIZE - 1
+    xor a
+    ld (hl), a
+    ldir
+    jr resetScanPointers
 
 loadList:
     ; First wait with long timeout (scan can take 5-15 seconds)
@@ -368,16 +384,18 @@ loadList:
 
 .plusStart
     call Uart.readTimeout : jp nc, .scanTimeout
-    cp 'C' : jp nz, loadList
+    cp 'C' : jr nz, loadList
     call Uart.readTimeout : jp nc, .scanTimeout
-    cp 'W' : jp nz, loadList
+    cp 'W' : jr nz, loadList
     call Uart.readTimeout : jp nc, .scanTimeout
-    cp 'L' : jp nz, loadList
-    ; First +CWLAP: clear buffers now that scan is producing results
+    cp 'L' : jr nz, loadList
+    ; First +CWLAP: reset pointers only (don't wipe buffer). Old SSID
+    ; bytes beyond networks_count stay put; new APs overwrite from slot 0.
+    ; On mid-scan timeout, partial new data is shown instead of a wipe.
     ld a, (seen_cwlap)
     and a
     jr nz, .skipClear
-    call clearScanBuffers
+    call resetScanPointers
 .skipClear
     ld a, 1
     ld (seen_cwlap), a
@@ -385,7 +403,7 @@ loadList:
 
 .okStart
     call Uart.readTimeout : jp nc, .scanTimeout
-    cp 'K' : jp nz, loadList
+    cp 'K' : jr nz, loadList
     call Uart.readTimeout : jp nc, .scanTimeout
     cp 13  : jp nz, loadList
 
@@ -419,13 +437,13 @@ loadList:
     jp uartUnlock
 
 .errStart
-    call Uart.readTimeout : jp nc, .scanTimeout
+    call Uart.readTimeout : jr nc, .scanTimeout
     cp 'R' : jp nz, loadList
-    call Uart.readTimeout : jp nc, .scanTimeout
+    call Uart.readTimeout : jr nc, .scanTimeout
     cp 'R' : jp nz, loadList
-    call Uart.readTimeout : jp nc, .scanTimeout
+    call Uart.readTimeout : jr nc, .scanTimeout
     cp 'O' : jp nz, loadList
-    call Uart.readTimeout : jp nc, .scanTimeout
+    call Uart.readTimeout : jr nc, .scanTimeout
     cp 'R' : jp nz, loadList
     ; Extended scan not supported? Fallback to basic AT+CWLAP
     ld a, (scan_extended)
@@ -457,16 +475,16 @@ loadList:
     ; Flush rest of line before returning (prevents desync)
 .flushMax
     call Uart.readTimeout
-    jp nc, .scanTimeout
+    jr nc, .scanTimeout
     cp 10
     jr nz, .flushMax
     jp loadList
 
 .skipToEcn
-    call Uart.readTimeout : jp nc, .scanTimeout
+    call Uart.readTimeout : jr nc, .scanTimeout
     cp '(' : jr nz, .skipToEcn
     
-    call Uart.readTimeout : jp nc, .scanTimeout
+    call Uart.readTimeout : jr nc, .scanTimeout
     sub '0'
     ; Save ECN to its own buffer and also to rssi_ptr (open flag, overwritten later)
     ld hl, (ecn_ptr)
@@ -475,13 +493,13 @@ loadList:
     ld (hl), a
 
 .findQuote
-    call Uart.readTimeout : jp nc, .scanTimeout
+    call Uart.readTimeout : jr nc, .scanTimeout
     cp '"' : jr nz, .findQuote
 
     ld c, 0
 
 .loadName
-    call Uart.readTimeout : jp nc, .scanTimeout
+    call Uart.readTimeout : jr nc, .scanTimeout
     cp '"' : jr z, .loadedName
     
     ld b, a             
@@ -581,9 +599,6 @@ loadList:
     jr .readChanDigit
 .chanDone
     ld a, e
-    jr .saveChannel
-.noChannel
-    xor a               ; Channel unknown = 0
 .saveChannel
     ld hl, (chan_ptr)
     ld (hl), a
@@ -759,7 +774,7 @@ checkOkErrCommon:
 
 ; Detect +CWJAP:X error codes
 .plusStart
-    call .doRead : jp nc, .timeout
+    call .doRead : jr nc, .timeout
     cp 'C' : jp nz, .mainLoop   ; Not +CWJAP
     call .doRead : jp nc, .timeout
     cp 'W' : jp nz, .mainLoop
@@ -819,13 +834,13 @@ getIP:
     or c
     jr z, .timeout              ; Limit reached
     call Uart.readTimeout
-    jp nc, .timeout
+    jr nc, .timeout
     cp 'P' : jr z, .infoStart
     jr .loop
 .infoStart
-    call Uart.readTimeout : jp nc, .timeout
+    call Uart.readTimeout : jr nc, .timeout
     cp ',' : jr nz, .loop
-    call Uart.readTimeout : jp nc, .timeout
+    call Uart.readTimeout : jr nc, .timeout
     cp '"' : jr nz, .loop
     ld hl, ip_buffer
     ld b, 16                    ; IP char limit
@@ -835,7 +850,7 @@ getIP:
     call Uart.readTimeout
     pop bc
     pop hl
-    jp nc, .timeout
+    jr nc, .timeout
     cp '"' : jr z, .finish
     ld (hl), a
     inc hl
@@ -1165,7 +1180,7 @@ sortNetworks:
 
 .unsort
     ; Restore original order
-    jp initDisplayIndices
+    jr initDisplayIndices
 
 ; ============================================
 ; getDisplayIndex - Gets actual network index
