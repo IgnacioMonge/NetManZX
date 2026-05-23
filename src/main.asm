@@ -57,8 +57,6 @@ cfg_valid        db 0
     include "modules/display.asm"
     include "modules/wifi.asm"
     include "modules/version.asm"    ; generates VERSION_STRING from V
-version_string:
-    db VERSION_STRING, 0
     include "modules/ui.asm"
     include "modules/uart-common.asm"
     include "modules/keyboard.asm"
@@ -135,12 +133,15 @@ splashInit:
     ldir
     IFDEF NEXT
     ; L2 clip window uses NextReg $18 with 4 sequential writes (X1,X2,Y1,Y2).
-    ; Reg $1C bit 0 resets the write index.
+    ; Reg $1C bit 0 resets the write index. DI/EI wraps the 5-write sequence
+    ; so a future IM 1 handler that touches $18 cannot desync the index.
+    di
     nextreg $1C, 1
     nextreg $18, 0              ; X1
     nextreg $18, 255            ; X2
     nextreg $18, 0              ; Y1
     nextreg $18, SPLASH_L2_Y2   ; hide L2 for pixel rows 160..191
+    ei
     ENDIF
     ret
 
@@ -158,7 +159,10 @@ splashMsg:
 .lenDone:
     pop hl
     ld a, 42
-    sub b                       ; A = 42 - len (unsigned)
+    sub b                       ; A = 42 - len
+    jr nc, .startOk
+    xor a                       ; Overlong messages start at column 0
+.startOk:
     srl a                       ; /2
     ld c, a                     ; C = start column
     push hl
@@ -197,11 +201,13 @@ splashEnd:
     xor a
     ld (Display.splash_mode), a ; Display.putStrLog resumes normal logging
     IFDEF NEXT
+    di                          ; protect 5-write clip sequence
     nextreg $1C, 1              ; reset L2 clip index
     nextreg $18, 0              ; X1
     nextreg $18, 255            ; X2
     nextreg $18, 0              ; Y1
     nextreg $18, 191            ; Y2 (full L2 visible)
+    ei
     ld bc, $123B
     xor a
     out (c), a                  ; clear Layer 2 visible bit
@@ -210,12 +216,21 @@ splashEnd:
 
 start:
     ; Zero printer buffer (128K/Next ROM leaves garbage that corrupts
-    ; our variables stored there: debug_log, log_ind_data, etc.)
+    ; our variables stored there: log_ind_data, putLogC_coord, etc.)
     ld hl, #5B00
     ld de, #5B01
     ld (hl), 0
     ld bc, 255
     ldir
+
+    ; Zero RTVAR state migrated out of the printer buffer (esxDOS-safe).
+    ; RTVAR space is uninitialised at boot, so do this explicitly.
+    xor a
+    ld (Wifi.networks_count), a
+    ld (Wifi.is_connected), a
+    ld (Wifi.debug_log), a
+    ld (UI.cursor_position), a
+    ld (UI.offset), a
 
     ld (saved_sp), sp
     ld sp, stack_top
@@ -531,8 +546,7 @@ start:
     ld (cfg_valid), a
 .emNoCfg
     ENDIF
-    call UI.init                ; draw main UI while L2 still covering
-    ret
+    jp UI.init                  ; draw main UI while L2 still covering
 
 ; String constants
 .msg_checking   db "Checking...", 13, 0

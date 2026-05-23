@@ -25,6 +25,8 @@ init:
 
 badge_pattern:
     db #00, #01, #03, #07, #0F, #1F, #3F, #7F
+badge_attrs:
+    db 01000010b, 01010110b, 01110100b, 01100001b, 01001000b
 
 drawBadge:
     ; Pixels: row 0, 4 cells at bytes 28-31
@@ -37,24 +39,19 @@ drawBadge:
     call .drawCells
     ; Attributes row 0 (top): 4 cells BRIGHT
     ld hl, #581C            ; Row 0, cell 28
-    ld (hl), 01000010b      ; P=black I=red BRIGHT
-    inc hl
-    ld (hl), 01010110b      ; P=red I=yellow BRIGHT
-    inc hl
-    ld (hl), 01110100b      ; P=yellow I=green BRIGHT
-    inc hl
-    ld (hl), 01100001b      ; P=green I=blue BRIGHT
+    ld de, badge_attrs
+    ld b, 4
+    call .drawAttrs
     ; Attributes row 1 (bot): 5 cells BRIGHT
     ld hl, #583B            ; Row 1, cell 27
-    ld (hl), 01000010b      ; P=black I=red BRIGHT
+    ld de, badge_attrs
+    ld b, 5
+.drawAttrs:
+    ld a, (de)
+    ld (hl), a
     inc hl
-    ld (hl), 01010110b      ; P=red I=yellow BRIGHT
-    inc hl
-    ld (hl), 01110100b      ; P=yellow I=green BRIGHT
-    inc hl
-    ld (hl), 01100001b      ; P=green I=blue BRIGHT
-    inc hl
-    ld (hl), 01001000b      ; P=blue I=black BRIGHT (transition back)
+    inc de
+    djnz .drawAttrs
     ret
 
 ; Draw triangular dither pattern in C consecutive cells
@@ -103,6 +100,12 @@ clearRowPixels:
     djnz .crpLoop
     ret
 
+clearRows34Pixels:
+    ld a, 3
+    call clearRowPixels
+    ld a, 4
+    jp clearRowPixels
+
 ; ============================================
 ; statusBarFinalize - Render double-height status bar (rows 17-18)
 ; Reads: ip_line_buffer, status_text_ptr, ip_value_color, status_color
@@ -143,19 +146,19 @@ statusBarFinalize:
 ; Show "IP: Scanning..."
 ipShowScanning:
     ld hl, msg_ip_scanning
-    jr ipSetStatusbar
+    jr ipSetPrefixedStatusbar
 
 ; Show "IP:Disconnected" in red
 ipShowNotConnected:
-    ld hl, msg_ip_disconn
-    call ipSetFromZ
+    ld hl, status_disconn_data + 1
+    call ipSetPrefixed
     ld a, Display.ATTR_STATUS_DISC
     ld (ip_value_color), a
     jr statusBarFinalize
 
 ; Set IP from Z-string + default status bar color + render
-ipSetStatusbar:
-    call ipSetFromZ
+ipSetPrefixedStatusbar:
+    call ipSetPrefixed
     ld a, Display.ATTR_STATUSBAR
     ld (ip_value_color), a
     jr statusBarFinalize
@@ -164,16 +167,14 @@ ipSetStatusbar:
 ipShowConnected:
     call Wifi.getIP
     jr c, .ipUnknown
-    ld hl, msg_ip_prefix
-    call ipSetPrefix
     ld hl, Wifi.ip_buffer
-    call ipAppendZ
+    call ipSetPrefixed
     ld a, Display.ATTR_PASS_INPUT
     ld (ip_value_color), a
     jp statusBarFinalize
 .ipUnknown
     ld hl, msg_ip_unknown
-    jr ipSetStatusbar
+    jr ipSetPrefixedStatusbar
 
 ; Color IP value area (cells 3-17) on both rows 18-19
 colorIpValueBothRows:
@@ -205,18 +206,6 @@ ipSetFromZ:
     jr nz, .copy
     ret
 
-; Copy prefix "IP: " to ip_line_buffer (with null terminator for ipAppendZ)
-ipSetPrefix:
-    ld de, ip_line_buffer
-.copyP
-    ld a, (hl)
-    ld (de), a              ; Copy including the 0
-    and a
-    ret z                   ; Return after copying the 0
-    inc hl
-    inc de
-    jr .copyP
-
 ; Append Z-string (HL) to the end of ip_line_buffer
 ipAppendZ:
     ; find null terminator in buffer
@@ -237,11 +226,17 @@ ipAppendZ:
     jr nz, .copyA
     ret
 
+ipSetPrefixed:
+    push hl
+    ld hl, msg_ip_prefix
+    call ipSetFromZ
+    pop hl
+    jp ipAppendZ
+
 ; Buffers/messages
 msg_ip_prefix      db "IP: ", 0
-msg_ip_disconn     db "IP: Disconnected", 0
-msg_ip_unknown     db "IP: ---", 0
-msg_ip_scanning    db "IP: Scanning...", 0
+msg_ip_unknown     db "---", 0
+msg_ip_scanning    db "Scanning...", 0
     RTVAR ip_line_buffer, 40
 
 ; Color status area (cells 22-31) on both rows 18-19
@@ -260,21 +255,6 @@ colorStatusAreaBothRows:
     inc hl
     djnz .loop19
     ret
-
-; Set status "Scanning"
-setStatusScanning:
-    ld hl, status_scanning_data
-    jr setStatusCommon
-
-; Set status "Connected"
-setStatusConnected:
-    ld hl, status_connected_data
-    jr setStatusCommon
-
-; Set status "Disconnected"
-setStatusDisconnected:
-    ld hl, status_disconn_data
-    jr setStatusCommon
 
 ; Common routine for status (quiet: variables only, no render)
 setStatusCommon_q:
@@ -319,8 +299,10 @@ updateWifiStatus_q:
 updateWifiStatus:
     ld a, (Wifi.is_connected)
     and a
-    jr z, setStatusDisconnected
-    jr setStatusConnected
+    ld hl, status_disconn_data
+    jr z, setStatusCommon
+    ld hl, status_connected_data
+    jr setStatusCommon
 
 clearPassBuffer:
     ld hl, pass_buffer
@@ -627,7 +609,9 @@ setRowsColor:
 ; Set row A with BRIGHT color C, row A+1 with same color minus BRIGHT
 ; (double-height text convention). Destroys: all.
 setDoubleAttr:
+    push af, bc
     call Display.setAttr        ; row A, BRIGHT
+    pop bc, af
     inc a
     res 6, c                    ; remove BRIGHT
     jp Display.setAttr          ; row A+1, no BRIGHT (tail call)
@@ -686,8 +670,8 @@ renderNetworksCommon:
     ; Position at line 6 to start listing
     ld a, 6 : call Display.gotoXY0
 
-    ; Reset connected network found flag
-    xor a
+    ; No connected row highlighted on this page yet
+    ld a, #FF
     ld (conn_row_found), a
 
     ; Calculate how many networks to show on this page
@@ -753,9 +737,9 @@ renderNetworksCommon:
     and a
     jr z, .noConnAttr
     
-    ; If we already found the connected network, don't search further
+    ; If we already found the connected network on this page, don't search further
     ld a, (conn_row_found)
-    and a
+    cp #FF
     jr nz, .noConnAttr
     
     ld a, (hl)
@@ -767,8 +751,9 @@ renderNetworksCommon:
     pop hl
     jr nz, .noConnAttr
     
-    ; Mark that we found the connected network
-    ld a, 1
+    ; Store the cursor row (0..PER_PAGE-1) highlighted as connected
+    ld a, (current_line)
+    sub 6
     ld (conn_row_found), a
     
     push hl
@@ -872,10 +857,6 @@ showBigMessage:
     ld a, c : res 6, a : ld c, a
     ld a, 4
     jp Display.setAttr          ; Row 4: without BRIGHT
-
-; Connection success screen (legacy entry point)
-showConnectedSuccessScreen:
-    jp exitProgram
 
 ; ============================================
 ; Shorthand: renderListOnly + jp uiLoop (page navigation only)
@@ -1071,7 +1052,7 @@ rssi_value = #5B2A             ; In printer buffer (set in renderList)
 ; In printer buffer (set in renderList)
 current_line = #5B2B
 current_screen_idx = #5B2C
-conn_row_found = #5B2D
+conn_row_found = #5B2D         ; #FF = none on page, else cursor row of connected SSID
 
 ; ============================================
 ; Cursor and navigation
@@ -1111,23 +1092,18 @@ cursorIsConnectedRow:
     and a
     ret z
 
-    ; HL = SSID pointer for (offset + cursor_position), respecting display_indices
-    ld a, (cursor_position)
-    ld hl, offset
-    add a, (hl)
-    ld d, a
-    call findRow
-
-    ; Hidden/empty SSID can't be the connected one
-    ld a, (hl)
-    and a
+    ; Compare against the row actually highlighted by renderNetworksCommon
+    ld a, (conn_row_found)
+    cp #FF
     ret z
-
-    ; Compare selected SSID with connected_ssid
-    ld de, Wifi.connected_ssid
-    call Display.compareStringZ
-    ret nz              ; No match -> CF=0
-    scf                 ; Match -> CF=1
+    ld b, a
+    ld a, (cursor_position)
+    cp b
+    jr z, .connMatch
+    or a                        ; No match -> CF=0
+    ret
+.connMatch
+    scf
     ret
 
 ; ============================================
@@ -1154,7 +1130,10 @@ cursorIsSavedRow:
 
     ld de, Config.cfg_buffer + Config.CFG_SSID_OFF
     call Display.compareStringZ
-    ret nz                      ; No match -> CF=0
+    jr z, .savedMatch
+    or a                        ; No match -> CF=0
+    ret
+.savedMatch
     scf                         ; Match -> CF=1
     ret
     ENDIF
@@ -1269,19 +1248,25 @@ uiLoopMain:
     and a
     jr nz, .noHealthCheck
 
-    ; Mute UART log during health-check (avoids CWJAP? spam)
+    ; Mute UART log during health-check (avoids CWJAP? spam).
+    ; Mute BOTH log_enabled (RX log) and debug_log (TX log via logTxMasked):
+    ; the initial AT probe is not a CWJAP query, so logTxMasked would print
+    ; ">> AT" otherwise.
     call Uart.logReset
-    ld a, (Uart.log_enabled)
-    push af
+    ld a, (Uart.log_enabled) : ld b, a
+    ld a, (Wifi.debug_log)   : ld c, a
+    push bc
     xor a
     ld (Uart.log_enabled), a
+    ld (Wifi.debug_log), a
     call Wifi.checkConnection
-    pop af
-    ld (Uart.log_enabled), a
+    pop bc
+    ld a, b : ld (Uart.log_enabled), a
+    ld a, c : ld (Wifi.debug_log), a
+    push af
     call Uart.logReset
-    ld a, (Wifi.is_connected)
-    and a
-    jr nz, .hcOk
+    pop af
+    jr nc, .hcOk
     ; Fail: increment debounce counter, need 3 consecutive failures
     ld a, (hc_fail_count)
     inc a
@@ -1348,7 +1333,9 @@ uiLoopMain:
     call showPageInfo
     call showScrollIndicators
     call renderNetworksOnly
-    call showCursor
+    ld a, (Wifi.networks_count)
+    and a
+    call nz, showCursor
 .noForceRescan
 
     call Keyboard.inKeyNoWait
@@ -1468,7 +1455,7 @@ rescan:
     call nc, invalidateConnectedIfMissing  ; skip on scan timeout
     call renderListOnly         ; Only redraws the list, not the help
     jp uiLoop
-.scanning_msg = msg_ip_scanning + 4  ; "Scanning..." inside "IP: Scanning..."
+.scanning_msg = msg_ip_scanning
 
 ; ============================================
 ; doAutoRescan - Silent automatic rescan
@@ -1605,8 +1592,7 @@ doDisconnect:
     djnz .waitDisc
 
     ; Overwrite "Disconnecting..." with "Disconnected" (no full clear = no flicker)
-    ld a, 3 : call clearRowPixels
-    ld a, 4 : call clearRowPixels
+    call clearRows34Pixels
     ld hl, .msg_disconnected
     ld c, Display.ATTR_ALERT
     call showBigMessage
@@ -1623,9 +1609,8 @@ doDisconnect:
 .discFailed
     ; ESP did not ack CWQAP (timeout/ERROR). Leave local state as-is:
     ; another code path (async events, next checkConnection) will resync.
-    ld a, 3 : call clearRowPixels
-    ld a, 4 : call clearRowPixels
-    ld hl, .msg_disc_failed
+    call clearRows34Pixels
+    ld hl, msg_disc_failed
     ld c, Display.ATTR_ALERT
     call showBigMessage
     call showPressKey
@@ -1635,7 +1620,7 @@ doDisconnect:
 .msg_disc_confirm   db "Disconnect from WiFi?", 0
 .msg_disconnecting  db "Disconnecting...", 0
 .msg_disconnected   db "Disconnected.", 0
-.msg_disc_failed    db "Disconnect failed.", 0
+msg_disc_failed     db "Disconnect failed.", 0
 
 ; ============================================
 ; manualSSID - Enter SSID manually
@@ -2082,17 +2067,6 @@ doReconnect:
 
     ENDIF ; HAS_ESXDOS
 
-exitProgram:
-    call Display.clrscr
-    IFDEF NEXT
-        ei
-        rst 0               ; Return to NextZXOS
-    ELSE
-        ld sp, (saved_sp)
-        ei
-        ret                 ; Return to BASIC
-    ENDIF
-
 ; ============================================
 ; toggleDebugLog - Toggle UART debug log (L key)
 ; ============================================
@@ -2142,6 +2116,7 @@ restoreAfterFileIo:
     push af
     call updateLogIndicator
     xor a
+    ld (Wifi.uart_busy), a          ; async UART lock
     ld (Display.putLogC_coord), a   ; log X cursor (row 23 column)
     ld (autoscan_counter), a
     ld (autoscan_counter + 1), a
@@ -2222,8 +2197,8 @@ doWPS:
 .wpsDoDisc
     ; Disconnect first
     ld hl, cmd_disconnect
-    call Wifi.espSendZ
-    call Wifi.checkOkErr
+    call Wifi.espSendZCheckOk
+    jr c, .wpsDiscFailed
     xor a : ld (Wifi.is_connected), a
     call updateWifiStatus
     ld b, 75
@@ -2231,6 +2206,15 @@ doWPS:
     halt
     djnz .wpsDiscWait
     call flushUartBuffer
+    jr .wpsStart
+
+.wpsDiscFailed
+    call flushUartBuffer
+    call topClean
+    ld hl, msg_disc_failed
+    ld c, Display.ATTR_ALERT
+    call showBigMessage
+    jp .wpsExit
 
 .wpsStart
     call topClean
@@ -2246,17 +2230,14 @@ doWPS:
     ; Then kill autoconnect so checkConnection during poll can't be
     ; fooled by a silent ESP auto-rejoin.
     call flushUartBuffer
-    ld hl, cmd_sysstore_off : call Wifi.espSendZ
-    call Wifi.checkOkErr
-    ld hl, cmd_autoconn_off : call Wifi.espSendZ
-    call Wifi.checkOkErr
+    ld hl, cmd_sysstore_off : call Wifi.espSendZCheckOk
+    ld hl, cmd_autoconn_off : call Wifi.espSendZCheckOk
     xor a : ld (Wifi.is_connected), a
     call flushUartBuffer
 
 .wpsSend
     ; Send AT+WPS=1 (ESP acks OK fast, then does WPS async)
-    ld hl, .cmd_wps : call Wifi.espSendZ
-    call Wifi.checkOkErr
+    ld hl, .cmd_wps : call Wifi.espSendZCheckOk
     jr c, .wpsFail
     ; Poll connection until WPS completes or timeout.
     ; 40 rounds × ~1.5s = ~60s window (user has to press router button).
@@ -2282,10 +2263,7 @@ doWPS:
 .wpsGotConn
     ; Success: restore autoconnect + SYSSTORE so next boot rejoins the new AP
     call flushUartBuffer
-    ld hl, cmd_autoconn_on : call Wifi.espSendZ
-    call Wifi.checkOkErr
-    ld hl, Wifi.S_AT_SYSSTORE : call Wifi.espSendZ
-    call Wifi.checkOkErr
+    call wpsRestoreAutoStore
     call updateWifiStatus_q
     ; Suppress save-prompt: WPS has no local password, only ESP flash does.
     ld a, 1 : ld (is_reconnect), a
@@ -2295,12 +2273,8 @@ doWPS:
 .wpsCancel
     ; User BREAK: exit WPS mode cleanly, no ESP reset.
     call flushUartBuffer
-    ld hl, .cmd_wps_off : call Wifi.espSendZ
-    call Wifi.checkOkErr
-    ld hl, cmd_autoconn_on : call Wifi.espSendZ
-    call Wifi.checkOkErr
-    ld hl, Wifi.S_AT_SYSSTORE : call Wifi.espSendZ
-    call Wifi.checkOkErr
+    ld hl, .cmd_wps_off : call Wifi.espSendZCheckOk
+    call wpsRestoreAutoStore
     call flushUartBuffer
     xor a : ld (Wifi.is_connected), a
     call ipShowNotConnected
@@ -2343,6 +2317,10 @@ doWPS:
 .msg_wps_timeout db "WPS timeout!", 0
 .cmd_wps         db "AT+WPS=1", 13, 10, 0
 .cmd_wps_off     db "AT+WPS=0", 13, 10, 0
+
+wpsRestoreAutoStore:
+    ld hl, Wifi.S_AT_CWAUTOCONN : call Wifi.espSendZCheckOk
+    ld hl, Wifi.S_AT_SYSSTORE : jp Wifi.espSendZCheckOk
 
 cursorDown:
     call hideCursor
@@ -2532,9 +2510,8 @@ drawRssiBars:
     ld b, 0 : ld c, 6
 .div
     inc b : sub c : jr nc, .div
-    ld a, b : and a : jr nz, .cmax
-    inc a
-.cmax
+    ; B is always >= 1: inc b runs before the first sub.
+    ld a, b
     cp 11 : jr c, .bars
     ld a, 10
 .bars
@@ -2828,8 +2805,7 @@ connectAndReturn:
 .carSkipDisc
     call Wifi.flushInput
     ld hl, cmd_disconnect
-    call Wifi.espSendZ
-    call Wifi.checkOkErr
+    call Wifi.espSendZCheckOk
     call Wifi.flushInput
 
 .carRetry
@@ -2877,9 +2853,7 @@ connectAndReturn:
     ld hl, manual_ssid_buffer : call Wifi.espSendZ
     ld hl, at_middle : call Wifi.espSendZ
     ld hl, pass_buffer : call Wifi.espSendZ
-    ld a, '"' : call Uart.write
-    ld a, 13  : call Uart.write
-    ld a, 10  : call Uart.write
+    ld hl, at_quote_crlf : call Wifi.espSendZ
 
     call Wifi.checkOkErrLong
 
@@ -2893,7 +2867,7 @@ connectAndReturn:
     pop bc
     ld a, b : ld (Uart.log_enabled), a
     ld a, c : ld (Wifi.debug_log), a
-    ld hl, .car_log_nl : call Display.putStrLog
+    ld a, 13 : call Display.putLogC
     ld a, (conn_result)
     and a
     jr z, .carSuccess
@@ -2945,11 +2919,10 @@ connectAndReturn:
     jp showCancelledScreen
 
 .carFailed
-    call tryRecoverESP
+    call Wifi.ensureCommandMode
     jp showConnFailScreen
 
 .car_log_masked db ">> AT+CWJAP (hidden)", 13, 0
-.car_log_nl db 13, 0
 
 ; ============================================
 ; connSuccessScreen - Shared success screen for all connection routes
@@ -3079,9 +3052,6 @@ scf_reasons
 .scf_r4 db "Reason: Connection refused", 0
 msg_retry_big         db "Retry...", 0
 
-tryRecoverESP:
-    jp Wifi.ensureCommandMode
-
 ; ============================================
 ; Diagnostics
 ; ============================================
@@ -3114,9 +3084,8 @@ diagHeader:
     jp showBigMessage
 
 showDiagnostics:
-    call topClean
     ld hl, .msg_diag_title
-    call diagHeader
+    call diagHeader             ; diagHeader already calls topClean
     ; Options via loop + pointer table
     ld hl, .diagPtrs
     ld b, DIAG_ITEMS
@@ -3245,10 +3214,13 @@ diag_line       = #5B1E         ; In printer buffer (set before use)
 
 ; Drain UART buffer (fast, no HALT: avoids losing bytes at 115200)
 flushUartBuffer:
-    ; Read until no traffic for a short period
+    ; Read until silence or a hard byte cap prevents endless ESP noise.
+    ld bc, 2048
     ld de, #4000                ; ~0.2-0.3 s of "silence" depending on CPU
 .flushWait
+    push bc
     call UartImpl.uartRead      ; Read all available
+    pop bc
     jr c, .gotByte
     dec de
     ld a, d
@@ -3256,6 +3228,10 @@ flushUartBuffer:
     jr nz, .flushWait
     ret
 .gotByte
+    dec bc
+    ld a, b
+    or c
+    ret z
     ld de, #4000
     jr .flushWait
 
@@ -3889,7 +3865,7 @@ doNetworkInfo:
     call Display.putStr
     ld hl, diag_buffer
     call .findQuote
-    call .printUntilQuote
+    call printClean             ; CR/LF tolerated; IP/MAC values have neither
     ld a, (diag_line) : inc a : ld (diag_line), a
     jr .cifsrLoop
 
@@ -3908,14 +3884,6 @@ doNetworkInfo:
     jr .findQuote
 .foundQ
     inc hl : ret
-
-.printUntilQuote
-    ld a, (hl)
-    and a : ret z
-    cp '"' : ret z
-    push hl : call Display.putC : pop hl
-    inc hl
-    jr .printUntilQuote
 
 .lbl_ip        db "IP:  ", 0
 .lbl_mac       db "MAC: ", 0
@@ -4145,8 +4113,7 @@ doStaticIP:
     call flushUartBuffer
     ld hl, .sip_cmd : call Wifi.espSendZ
     ld hl, sip_buf : call Wifi.espSendZ
-    ld hl, at_quote_crlf : call Wifi.espSendZ
-    call Wifi.checkOkErr
+    ld hl, at_quote_crlf : call Wifi.espSendZCheckOk
     jr c, .sip_fail
     ; Update IP on screen
     call Wifi.getIP
@@ -4313,8 +4280,7 @@ doHostname:
     call flushUartBuffer
     ld hl, .hn_cmd : call Wifi.espSendZ
     ld hl, hn_buf : call Wifi.espSendZ
-    ld hl, at_quote_crlf : call Wifi.espSendZ
-    call Wifi.checkOkErr
+    ld hl, at_quote_crlf : call Wifi.espSendZCheckOk
     jr c, .hn_fail
 
     ; Success screen
@@ -4432,7 +4398,7 @@ doConfigSummary:
     ld a, (hl) : cp '"' : jr nz, .cs_mac_pr
     inc hl
 .cs_mac_pr
-    call .cs_printClean
+    call printClean
 .cs_mac_next
     djnz .cs_mac_loop
 .cs_mac_done
@@ -4454,7 +4420,7 @@ doConfigSummary:
     ld a, (hl) : cp '"' : jr nz, .cs_hn_pr
     inc hl
 .cs_hn_pr
-    call .cs_printClean
+    call printClean
     jr .cs_hn_done
 .cs_hn_skip
     ld a, (diag_buffer) : cp 'O' : jr z, .cs_hn_done
@@ -4523,15 +4489,6 @@ doConfigSummary:
 .cs_fc_found
     scf : ret
 
-; Helper: print string until 0, '"', CR or LF
-.cs_printClean
-    ld a, (hl) : and a : ret z
-    cp '"' : ret z
-    cp 13 : ret z
-    cp 10 : ret z
-    push hl : call Display.putC : pop hl
-    inc hl : jr .cs_printClean
-
 .cs_title   db "CONFIG SUMMARY", 0
 .cs_ssid    db "SSID: ", 0
 .cs_ip_lbl  db "IP:   ", 0
@@ -4556,8 +4513,18 @@ conn_retries = #5B20            ; In printer buffer (set before use)
 conn_result  = #5B21            ; Connection result: 0=OK, 1=fail (temp)
 cmd_disconnect db "AT+CWQAP", 13, 10, 0
 cmd_autoconn_off db "AT+CWAUTOCONN=0", 13, 10, 0
-cmd_autoconn_on  db "AT+CWAUTOCONN=1", 13, 10, 0
+; cmd_autoconn_on removed: identical to Wifi.S_AT_CWAUTOCONN.
 cmd_sysstore_off db "AT+SYSSTORE=0", 13, 10, 0
+
+; Module-scope helper: print string until 0, '"', CR or LF.
+; Shared by doConfigSummary and doNetworkInfo (IP/MAC values have no CR/LF).
+printClean:
+    ld a, (hl) : and a : ret z
+    cp '"' : ret z
+    cp 13 : ret z
+    cp 10 : ret z
+    push hl : call Display.putC : pop hl
+    inc hl : jr printClean
 
 ; ============================================
 ; checkAsyncWifi - Detect async WiFi events
@@ -4947,11 +4914,16 @@ msg_yes_anykey  db "(Y)es / any key = cancel", 0
 at_quote_crlf   db '"', 13, 10, 0
 
     RTVAR pass_buffer, MAX_PASS_LEN + 2
+    ; Cursor/page state survives esxDOS file I/O — kept out of the printer
+    ; buffer. Zero-initialised by main.asm start: before any read.
+    RTVAR cursor_position, 1
+    RTVAR offset, 1
 ; In printer buffer (set before use in respective handlers)
 pass_len        = #5B3C
 pass_cursor     = #5B3D
-cursor_position = #5B3E
-offset          = #5B3F
+; cursor_position and offset migrated to RTVAR (see RTVAR block below):
+; renderListAndLoop reads both right after Config.load/save in doReconnect
+; and connSuccessScreen save paths. esxDOS rst $08 corrupted them otherwise.
 is_open_network = #5B40
 show_password   = #5B41
 selected_ssid_ptr = #5B42  ; dw

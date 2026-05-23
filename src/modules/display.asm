@@ -26,9 +26,10 @@ ATTR_STATUS_DISC = 172o   ; Bright red on white (status: disconnected)
 ATTR_STATUS_CONN = 174o   ; Bright green on white (status: connected)
 ATTR_INPUT_LINE  = 071o   ; Blue on white (input field background)
 
-; Input: A = line number, C = color
-; Sets color for entire line (32 columns)
-setAttr:
+; Input: A = row number (0-23)
+; Output: HL = attribute address ($5800 + row*32)
+; Destroys: AF
+attrCalc:
 	rrca
 	rrca
 	rrca
@@ -39,10 +40,15 @@ setAttr:
 	ld	a,l
 	and	252
 	ld	l,a
+	ret
 
+; Input: A = line number, C = color
+; Sets color for entire line (32 columns)
+setAttr:
+    call attrCalc
+    ld (hl), c              ; store color before bc is clobbered
     ld de, hl
     inc de
-    ld a, c : ld (hl), a
     ld bc, #1f
     ldir
     ret
@@ -50,17 +56,7 @@ setAttr:
 ; Input: A = line number, C = color
 ; Sets color for first 22 cells only
 setAttrPartial:
-	rrca
-	rrca
-	rrca
-	ld	l,a
-	and	31
-	or	#58
-	ld	h,a
-	ld	a,l
-	and	252
-	ld	l,a
-
+    call attrCalc
     ld b, 22
     ld a, c
 .loop
@@ -376,22 +372,27 @@ drawCBig:
     srl h : rr l
     srl h : rr l
 .wShift0
-    ; First scanline
-    ld a, (ix + 1)
-    push hl : ld l, a : ld a, (dcb_m1) : and l : pop hl
+    ; First scanline — and (ix+d) masks screen byte directly, H:L preserved
+    ld a, (dcb_m1) : and (ix + 1)
     or l : ld (ix + 1), a
-    ld a, (ix)
-    push hl : ld l, a : ld a, (dcb_m2) : and l : pop hl
+    ld a, (dcb_m2) : and (ix + 0)
     or h : ld (ix), a
     inc ixh
     ; Second scanline (duplicate, H:L intact)
-    ld a, (ix + 1)
-    push hl : ld l, a : ld a, (dcb_m1) : and l : pop hl
+    ld a, (dcb_m1) : and (ix + 1)
     or l : ld (ix + 1), a
-    ld a, (ix)
-    push hl : ld l, a : ld a, (dcb_m2) : and l : pop hl
+    ld a, (dcb_m2) : and (ix + 0)
     or h : ld (ix), a
     inc ixh
+    ret
+
+; Clear third 1 ($4800-$4FFF, lines 8-15) — shared by clrListOnly / clrNetworksOnly
+clrThird1:
+    ld hl, #4800
+    ld de, #4801
+    ld bc, 2047             ; 2048 bytes - 1
+    xor a : ld (hl), a
+    ldir
     ret
 
 ; Clear list area (lines 2-17)
@@ -408,17 +409,12 @@ clrListOnly:
     xor a : ld (hl), a
     ldir
     pop hl
-    ld bc, #100             ; Next scanline (+256)
-    add hl, bc
+    inc h                   ; Next scanline (+256)
     pop bc
     djnz .loopT0
 
     ; Third 1: lines 8-15 (full middle third, contiguous $4800-$4FFF)
-    ld hl, #4800
-    ld de, #4801
-    ld bc, 2047             ; 2048 bytes - 1
-    xor a : ld (hl), a
-    ldir
+    call clrThird1
 
     ; Third 2: lines 16-17 (2 lines)
     ld hl, #5000            ; Scanline 0, line 16
@@ -431,8 +427,7 @@ clrListOnly:
     xor a : ld (hl), a
     ldir
     pop hl
-    ld bc, #100
-    add hl, bc
+    inc h                   ; Next scanline (+256)
     pop bc
     djnz .loopT2
     ret
@@ -450,17 +445,12 @@ clrNetworksOnly:
     xor a : ld (hl), a
     ldir
     pop hl
-    ld bc, #100
-    add hl, bc
+    inc h                   ; Next scanline (+256)
     pop bc
     djnz .loopN0
 
     ; Third 1: lines 8-15 (full middle third, contiguous $4800-$4FFF)
-    ld hl, #4800
-    ld de, #4801
-    ld bc, 2047             ; 2048 bytes - 1
-    xor a : ld (hl), a
-    ldir
+    call clrThird1
 
     ; Clear network area attrs (lines 6-15) to avoid residual colors after rescan
     ld a, ATTR_NORMAL
@@ -783,14 +773,12 @@ compareStringZ:
 .loop
     ld a, (de)
     cp (hl)
-    jr nz, .diff
+    jr nz, .done            ; mismatch -> cp already set Z=0
     and a
-    jr z, .done             ; both zero -> Z=1, CF=0
+    jr z, .done             ; both zero -> Z=1
     inc hl
     inc de
     jr .loop
-.diff
-    or 1                    ; Z=0, CF=0 (fixes false equality on prefix match)
 .done
     pop de
     pop hl
@@ -805,14 +793,9 @@ draw_hline:
     push de
     call draw_hline_only
     pop de
-    ; Attributes
+    ; Attributes — C = row (preserved by draw_hline_only), D = color
     ld a, c
-    ld l, 0
-    srl a : rr l
-    srl a : rr l
-    srl a : rr l
-    or #58
-    ld h, a
+    call attrCalc           ; HL = attr addr for row C
     ld a, d
     ld b, 32
 .attr
@@ -875,9 +858,9 @@ stretchRowPair:
     ld a, e : add a, #20 : ld e, a ; DE = HL + #20 (next row)
     push hl
     call stretchFour
-    pop hl
-    ld d, h : ld e, l              ; DE = original HL (destination)
-    ld a, h : sub 4 : ld h, a      ; HL -= #400 (scanline 3)
+    pop de                         ; DE = original HL (destination, scanline 7)
+    ld a, d : sub 4 : ld h, a      ; HL = DE - #400 (scanline 3)
+    ld l, e
     ; fall through
 
 stretchFour:

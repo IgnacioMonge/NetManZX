@@ -261,6 +261,10 @@ createPath:
 .cpOpenFail
     ld d, h
     ld e, l
+    ld a, (hl)
+    cp '/'
+    jr nz, .cpLoop
+    inc hl                     ; Skip root slash; it is not a directory name
 .cpLoop
     ld a, (hl)
     or a

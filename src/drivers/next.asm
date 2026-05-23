@@ -28,8 +28,9 @@ setBaudFromTable:
     ld bc, 9531
     in a, (c)            ; atomic NextReg select+read pair
     ei
+    and 7                ; Video timing lives in bits 0-2
+    add a, a
     ld e, a
-    rlc e
     ld d, 0
     add hl, de
     ld e, (hl)
@@ -87,8 +88,7 @@ uartRead:
 ; ============================================
 baudScan:
     ld hl, .scanPtrs
-    ld b, .scanEnd - .scanPtrs
-    srl b                       ; B = number of entries (ptr count / 2)
+    ld b, (.scanEnd - .scanPtrs) / 2
 .loop:
     push bc, hl
     ld e, (hl) : inc hl : ld d, (hl)
@@ -130,22 +130,26 @@ baudTable2M:                    ; 2000000 (NextSync fast)
 ; Last resort when baudScan can't find the ESP.
 ; ============================================
 espHardReset:
+    di                  ; Protect NextReg select+data pair from IM1 ISR
     ld bc, $243B        ; NextReg Select
     ld a, $02           ; Reset register
     out (c), a
     ld bc, $253B        ; NextReg Data
     ld a, 128           ; Bit 7 = ESP reset
     out (c), a
+    ei
     ld b, 25            ; ~500ms hold
 .rstWait:
     halt
     djnz .rstWait
+    di                  ; Protect release pair
     ld bc, $243B
     ld a, $02
     out (c), a
     ld bc, $253B
     xor a               ; Release reset
     out (c), a
+    ei
     ld b, 150           ; ~3s for ESP boot
 .bootWait:
     halt

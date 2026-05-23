@@ -33,8 +33,6 @@ init:
 write:
     push af
     call UartImpl.write
-    pop af
-    push af
     ld a, (log_enabled)
     and a
     jr z, .skipLog
@@ -58,14 +56,8 @@ readTimeoutFail:
     or a
     ret
 
-; Read with medium timeout (for in-progress data, e.g. scan)
-; Out: A = byte read, CF=1 success, CF=0 timeout
-readTimeoutMedium:
-    push bc, de, hl
-    ld de, MEDIUM_TIMEOUT
-    call poll_block
-    jr c, got_byte
-    jr readTimeoutFail
+; Medium currently equals the default timeout on all targets.
+readTimeoutMedium = readTimeout
 
 ; Read with long timeout (for WiFi connection)
 ; Out: A = byte read, CF=1 success, CF=0 timeout or BREAK pressed
@@ -157,8 +149,19 @@ log_char:
     sbc hl, de
     jr c, .have_space
 
-    ; No space: discard char, flush will happen on next LF
-    jr .maybe_flush
+    ; No space: keep a line break if the terminator arrives late.
+    ld a, c
+    cp 13
+    jr z, .force_cr_done
+    cp 10
+    jr nz, .done
+    call .store_cr_if_room
+    call log_flush
+    jr .done
+
+.force_cr_done
+    call .store_cr_if_room
+    jr .done
 
 .have_space
     ld a, c
@@ -174,6 +177,18 @@ log_char:
     call log_flush
 .done
     pop de, hl, bc
+    ret
+
+.store_cr_if_room
+    ld hl, (log_ptr)
+    ld de, log_buf + (LOG_BUF_SIZE - 1)
+    or a
+    sbc hl, de
+    ret nc
+    ld hl, (log_ptr)
+    ld (hl), 13
+    inc hl
+    ld (log_ptr), hl
     ret
 
 log_flush:

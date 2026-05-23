@@ -16,9 +16,9 @@ init:
     ld bc, #fffd
     out (c), a
 
-    ld b, #bf
     in a, (c)
     and #fb
+    ld b, #bf
     out (c), a ; Make CTS low
 
     ei
@@ -100,7 +100,6 @@ write:
     scf
     ld b, #0b ; Numbers of bits - 1 start, 8 data, 2 stop
 
-    di ; Hard timing starts
 transmitBit:
     push bc
     push af

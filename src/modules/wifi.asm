@@ -184,13 +184,19 @@ checkConnection:
 ; Drain UART until silence (capped at 1024 bytes to prevent lockup)
 ; Flush until sustained silence (NextSync flush_uart_hard pattern)
 flushInput:
+    ld bc, 2048               ; Hard byte cap — bail if ESP sends continuous garbage
     ld de, 10000              ; Silence timeout counter
 .flushLoop
+    push bc
     call UartImpl.uartRead
+    pop bc
     jr nc, .flushQuiet
-    ; Byte received — reset timeout
+    ; Byte received — reset silence timer, decrement hard cap
     ld de, 10000
-    jr .flushLoop
+    dec bc
+    ld a, b : or c
+    jr nz, .flushLoop
+    ret                       ; Cap exhausted — bail to prevent infinite hang
 .flushQuiet
     dec de
     ld a, d : or e
@@ -659,7 +665,7 @@ logTxMasked:
 
     ; Check prefix "AT+CWJAP" (8 chars)
     push hl
-    ld de, dbg_cwjap_prefix
+    ld de, S_AT_CWJAP_Q
     ld b, 8
 .chk
     ld a, (hl)
@@ -693,7 +699,6 @@ logTxMasked:
     jp Display.putStrLog
 
 dbg_prefix       db ">> ", 0
-dbg_cwjap_prefix db "AT+CWJAP"
 dbg_tx_cwjap     db "AT+CWJAP=<hidden>", 13, 10, 0
 dbg_rx_ok       db "<< OK", 13, 10, 0
 dbg_rx_error    db "<< ERROR", 13, 10, 0
@@ -819,7 +824,7 @@ getIP:
     call uartLock
     ; Clear buffer first
     ld hl, ip_buffer
-    ld b, 16
+    ld b, 17
     xor a
 .clear
     ld (hl), a
@@ -1209,17 +1214,20 @@ ecn_ptr         dw ecn_buffer
 chan_ptr         dw channel_buffer
 
 ; Flags in printer buffer (all set before first read)
-networks_count  = #5B11
 seen_cwlap      = #5B12
 ; #5B13 owned by Uart.break_hit
 scan_extended   = #5B14
 old_fw          = #5B15
 retry_count     = #5B16
-is_connected    = #5B17
+; networks_count and is_connected migrated to RTVAR (see bottom of module):
+; esxDOS rst $08 corrupts the printer buffer, and renderListAndLoop reads
+; both right after Config.load/save without re-deriving them.
 
-; In printer buffer (set by uartLock/unlock and L-key toggle)
+; In printer buffer (set by uartLock/unlock)
 uart_busy       = #5B1C
-debug_log       = #5B1D
+; debug_log migrated to RTVAR (see bottom of module): UI.toggleDebugLog and
+; multiple log-mute paths read it after esxDOS file I/O. Keeping it in the
+; printer buffer risked the L indicator state surviving file ops.
 
 ; Log message if debug_log is enabled (HL = message)
 logIfEnabled:
@@ -1257,5 +1265,12 @@ S_AT_CIFSR      db "AT+CIFSR", 13, 10, 0
     RTVAR ci_gateway, 17
     RTVAR ci_netmask, 17
     RTVAR ci_mac, 18             ; "aa:bb:cc:dd:ee:ff" + null
+
+    ; Hot state read after esxDOS file I/O — moved out of printer buffer
+    ; so divMMC rst $08 cannot corrupt it. Zero-initialised by main.asm
+    ; start: before any read.
+    RTVAR networks_count, 1
+    RTVAR is_connected,   1
+    RTVAR debug_log,      1
 
     endmodule

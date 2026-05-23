@@ -16,12 +16,12 @@ init:
     ; on fast backends (115200).
     ei
     ld b,50
-1
+.drain
     push bc
     call uartRead           ; discard (if any)
     pop bc
     halt
-    djnz 1b
+    djnz .drain
 
     ; Additional bounded drain
     ld bc, #0800
@@ -50,6 +50,9 @@ write:
     pop bc
     ret
 .is_recvF
+    ld a, (is_recv)
+    and a
+    jr nz, .checkSent
     ; Read incoming byte NOW before it's lost
     ld bc, ZXUNO_ADDR : ld a, UART_DATA_REG : out (c), a
     ld bc, ZXUNO_REG : in a, (c)
@@ -62,13 +65,11 @@ write:
 
 ; Read byte from UART
 ; A: byte
-; B:
-;     1 - Was read
-;     0 - Nothing to read
+; CF=1 if a byte was read, CF=0 if no data
 uartRead:
-    ld a, (poked_byte) : and 1 : jr nz, .retBuff
-
-    ld a, (is_recv) : and 1 : jr nz, recvRet
+    ld a, (is_recv)
+    and a
+    jr nz, recvRet
 
     ld bc, ZXUNO_ADDR : ld a, UART_STAT_REG : out (c), a
     ld bc, ZXUNO_REG : in a, (c) : and UART_BYTE_RECIVED
@@ -76,14 +77,8 @@ uartRead:
 
     or a
     ret
-.retBuff
-    xor a : ld (poked_byte), a : ld a, (byte_buff)
-    scf
-    ret
 
 retReadByte:
-    xor a : ld (poked_byte), a : ld (is_recv), a
-
     ld bc, ZXUNO_ADDR : ld a, UART_DATA_REG : out (c), a
     ld bc, ZXUNO_REG : in a, (c)
 
@@ -91,13 +86,12 @@ retReadByte:
     ret
 
 recvRet:
-    xor a : ld (is_recv), a : ld (poked_byte), a
+    xor a : ld (is_recv), a
     ld a, (byte_buff)
     scf
     ret
 
 
-poked_byte defb 0
 byte_buff defb 0
 is_recv defb 0
 
