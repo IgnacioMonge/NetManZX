@@ -1,5 +1,31 @@
 # NetManZX Development Changelog
 
+## v1.4.5 (2026-05-23)
+Changes from v1.4.4:
+
+### Bugs Fixed
+- **esxDOS file I/O state hardening**: moved hot state that is read after `Config.load` / `Config.save` out of the volatile printer buffer and into RTVAR space: `Wifi.networks_count`, `Wifi.is_connected`, `Wifi.debug_log`, `UI.cursor_position`, and `UI.offset`. These values are now zero-initialised at boot. `UI.restoreAfterFileIo` also rearms `Wifi.uart_busy`, the log cursor, auto-scan/health counters, async buffer state, and the log indicator after every config I/O path, preventing divMMC `rst $08` scribbles from corrupting reconnect/list rendering.
+- **Saved/connected row colour restoration**: cursor hide/show now compares against the connected row actually highlighted during `renderNetworksCommon`, instead of recomputing from list data that may have moved or been hidden. Saved-row comparison also forces CF clear on mismatch. This keeps list colours stable when moving over saved or connected rows.
+- **Health-check UART log noise**: idle link validation now mutes both RX logging (`Uart.log_enabled`) and TX logging (`Wifi.debug_log`), so periodic probes no longer print stray `>> AT` lines when the UART log is enabled.
+- **Bounded UART flushes**: `Wifi.flushInput` and `UI.flushUartBuffer` now have hard byte caps, so continuous ESP noise cannot trap the UI in an endless drain loop.
+- **WPS and disconnect error handling**: WPS pre-disconnect now checks `AT+CWQAP` through `espSendZCheckOk`; failure shows the existing red disconnect-failed screen and exits cleanly. WPS restore paths share a single `wpsRestoreAutoStore` helper.
+- **Static IP / hostname command checks**: final quote+CRLF for static IP and hostname commands now uses `Wifi.espSendZCheckOk`, so send+OK handling is one path instead of split send/check code.
+- **NextReg critical sections**: Layer 2 clip setup/restore and ESP hard-reset NextReg select/data pairs are wrapped in `DI`/`EI`, avoiding future IM 1 races if another handler touches NextReg selection.
+- **Splash message clamp**: `splashMsg` now clamps overlong messages to column 0 instead of unsigned-wrapping the centering calculation.
+- **Config path creation**: `Config.createPath` skips a leading root slash before iterating directory components, avoiding a bogus empty directory component.
+- **UART backend cleanup**: ZX-Uno UART receive state no longer keeps a redundant `poked_byte` path, and AY UART write no longer starts with an unnecessary `di`.
+- **IP buffer clear length**: `Wifi.getIP` now clears all 17 bytes of the IP buffer, including the terminator slot.
+- **UART log full-line handling**: when the log buffer is full, CR/LF terminators are preserved well enough to flush cleanly instead of dropping the line break.
+
+### Code Size Optimization
+- **Shared display helpers**: `Display.attrCalc` is reused by full-line, partial-line, and horizontal-line attribute painting; `clrThird1` shares the contiguous middle-third clear between list and network clears; `drawCBig` avoids temporary pushes around indexed screen-byte masking.
+- **Resident UI shrink**: removed legacy `exitProgram` / `showConnectedSuccessScreen` / `tryRecoverESP` dead wrappers, merged status setters, deduplicated `IP: ` status construction, shared row 3-4 pixel clear, shared `printClean`, and reused `at_quote_crlf` / `Wifi.S_AT_CWAUTOCONN` / `Wifi.S_AT_CWJAP_Q`.
+- **UART timeout shrink**: `readTimeoutMedium` is now an alias of `readTimeout`, matching the identical timeout constants on all current targets.
+- **Measured size**: AY TAP `22744 -> 22627` (-117 B), UNO TAP `23373 -> 23247` (-126 B), NEXT NEX unchanged at `132096` B.
+
+### Documentation
+- README and READMEsp refreshed to mark v1.4.5 as the current release while keeping the v1.4.4 screenshots as representative UI captures.
+
 ## v1.4.4 (2026-04-18)
 Changes from v1.4.3.1:
 

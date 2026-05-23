@@ -14,14 +14,16 @@ NetManZX is a WiFi network configuration utility for ZX Spectrum computers equip
 
 NetManZX is based on the original [netman-zx](https://github.com/nihirash/netman-zx) project by **Alex Nihirash**. This version has been significantly enhanced with new features, improved reliability, and a better user experience.
 
+**Current release:** v1.4.5
+
 ## Screenshots
 
-*Screenshots from v1.4.4. SSIDs in captures have been blurred for privacy.*
+*Screenshots from the v1.4.4 UI, still representative of v1.4.5. SSIDs in captures have been blurred for privacy.*
 
 | | | |
 |:---:|:---:|:---:|
 | [![Splash Next](images/1.4.4/release/01_splash_next.png)](images/1.4.4/release/01_splash_next.png) | [![Network list](images/1.4.4/release/03_network_list.png)](images/1.4.4/release/03_network_list.png) | [![Already connected](images/1.4.4/release/04_already_connected.png)](images/1.4.4/release/04_already_connected.png) |
-| *Boot splash (Spectrum Next, Layer 2)* | *Network list with RSSI bars* | *"Already connected" warning (v1.4.4)* |
+| *Boot splash (Spectrum Next, Layer 2)* | *Network list with RSSI bars* | *"Already connected" warning (v1.4.4+)* |
 | [![Connected](images/1.4.4/release/10_connected.png)](images/1.4.4/release/10_connected.png) | [![Diagnostics](images/1.4.4/release/06_diagnostics_menu.png)](images/1.4.4/release/06_diagnostics_menu.png) | [![Ping test](images/1.4.4/release/07_ping_test.png)](images/1.4.4/release/07_ping_test.png) |
 | *Successful connection* | *Diagnostics menu (7 options)* | *Ping test* |
 | [![UART baud rate](images/1.4.4/release/08_uart_baud.png)](images/1.4.4/release/08_uart_baud.png) | [![Config summary](images/1.4.4/release/09_config_summary.png)](images/1.4.4/release/09_config_summary.png) | [![About](images/1.4.4/release/11_about.png)](images/1.4.4/release/11_about.png) |
@@ -156,6 +158,8 @@ There is no "exit program" key — the program is a standalone tool, not a TSR. 
 - **Automatic WiFi Drop Detection**: Asynchronous ESP event parsing detects unexpected disconnections instantly
 - **Idle Connection Health Check**: Periodic AT-based link validation with debounce (3 consecutive failures required before declaring disconnection)
 - **UART Busy Protection**: Mutex-style guard prevents background async parsing from interfering during critical operations
+- **SD-card file I/O safety**: State used after config load/save is kept outside the esxDOS printer-buffer scratch area, and volatile UI/UART state is rearmed after every file operation
+- **Bounded UART flushes**: UART drain loops have hard byte caps, so continuous ESP noise cannot trap the UI in an endless flush
 - **UART Register Safety**: All three UART backends (UNO, AY, Next) preserve caller registers during write operations
 - **IP Retry on Connect**: 3 attempts with 1-second intervals after successful WiFi association
 - **Automatic State Recovery**: On link loss, UI transitions to Disconnected and schedules a safe rescan. Auto-rescan preserves previous network list on scan failure

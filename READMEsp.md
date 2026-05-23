@@ -14,14 +14,16 @@ NetManZX es una utilidad de configuracion de redes WiFi para ordenadores ZX Spec
 
 NetManZX esta basado en el proyecto original [netman-zx](https://github.com/nihirash/netman-zx) de **Alex Nihirash**. Esta version ha sido significativamente mejorada con nuevas funcionalidades, mayor fiabilidad y mejor experiencia de usuario.
 
+**Version actual:** v1.4.5
+
 ## Capturas de Pantalla
 
-*Capturas de v1.4.4. Los SSID de las capturas estan difuminados por privacidad.*
+*Capturas de la interfaz v1.4.4, aun representativas de v1.4.5. Los SSID de las capturas estan difuminados por privacidad.*
 
 | | | |
 |:---:|:---:|:---:|
 | [![Splash Next](images/1.4.4/release/01_splash_next.png)](images/1.4.4/release/01_splash_next.png) | [![Lista de redes](images/1.4.4/release/03_network_list.png)](images/1.4.4/release/03_network_list.png) | [![Ya conectado](images/1.4.4/release/04_already_connected.png)](images/1.4.4/release/04_already_connected.png) |
-| *Pantalla de arranque (Spectrum Next, Layer 2)* | *Lista de redes con barras RSSI* | *Aviso "ya conectado" (v1.4.4)* |
+| *Pantalla de arranque (Spectrum Next, Layer 2)* | *Lista de redes con barras RSSI* | *Aviso "ya conectado" (v1.4.4+)* |
 | [![Conectado](images/1.4.4/release/10_connected.png)](images/1.4.4/release/10_connected.png) | [![Diagnosticos](images/1.4.4/release/06_diagnostics_menu.png)](images/1.4.4/release/06_diagnostics_menu.png) | [![Ping](images/1.4.4/release/07_ping_test.png)](images/1.4.4/release/07_ping_test.png) |
 | *Conexion exitosa* | *Menu de diagnosticos (7 opciones)* | *Test de ping* |
 | [![UART baud rate](images/1.4.4/release/08_uart_baud.png)](images/1.4.4/release/08_uart_baud.png) | [![Resumen de configuracion](images/1.4.4/release/09_config_summary.png)](images/1.4.4/release/09_config_summary.png) | [![Acerca de](images/1.4.4/release/11_about.png)](images/1.4.4/release/11_about.png) |
@@ -156,6 +158,8 @@ No existe una tecla "salir del programa" — la aplicacion es una herramienta in
 - **Deteccion Automatica de Caida WiFi**: Parseo asincrono de eventos del ESP para detectar desconexiones inesperadas al instante
 - **Chequeo Periodico en Idle**: Validacion periodica mediante comandos AT con debounce (3 fallos consecutivos requeridos antes de declarar desconexion)
 - **Proteccion UART Busy**: Mecanismo tipo mutex que evita que el parser asincrono interfiera durante operaciones criticas
+- **Seguridad tras I/O en SD**: El estado usado despues de cargar/guardar configuracion vive fuera del area volatil de printer-buffer usada por esxDOS, y el estado UI/UART volatil se rearma tras cada operacion de fichero
+- **Flush UART acotado**: Los bucles de drenaje UART tienen limite duro de bytes, asi el ruido continuo del ESP no puede dejar la interfaz atrapada vaciando datos
 - **Seguridad de Registros UART**: Los tres backends UART (UNO, AY, Next) preservan los registros del llamante durante operaciones de escritura
 - **Reintento de IP al Conectar**: 3 intentos con intervalos de 1 segundo tras la asociacion WiFi exitosa
 - **Recuperacion Automatica de Estado**: Al perder conexion, la interfaz pasa a Disconnected y programa un rescaneo seguro. El auto-rescan preserva la lista anterior en caso de fallo
