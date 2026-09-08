@@ -36,18 +36,28 @@ init:
 
 write:
     push bc
+    push hl
     push af
+    ld hl, Uart.DEFAULT_TIMEOUT
     ld bc, ZXUNO_ADDR : ld a, UART_STAT_REG : out (c), a
     ld bc, ZXUNO_REG : in A, (c) : and UART_BYTE_RECIVED
     jr nz, .is_recvF
 .checkSent
     ld bc, ZXUNO_REG : in A, (c) : and UART_BYTE_SENDING
+    jr z, .send
+    dec hl
+    ld a, h : or l
     jr nz, .checkSent
+    ld a, 1
+    ld (Uart.io_error), a
+    pop af, hl, bc
+    ret
 
+.send
     ld bc, ZXUNO_ADDR : ld a, UART_DATA_REG : out (c), a
 
     ld bc, ZXUNO_REG : pop af : out (c), a
-    pop bc
+    pop hl, bc
     ret
 .is_recvF
     ld a, (is_recv)
@@ -72,15 +82,15 @@ uartRead:
     jr nz, recvRet
 
     ld bc, ZXUNO_ADDR : ld a, UART_STAT_REG : out (c), a
-    ld bc, ZXUNO_REG : in a, (c) : and UART_BYTE_RECIVED
+    inc b : in a, (c) : and UART_BYTE_RECIVED
     jr nz, retReadByte
 
     or a
     ret
 
 retReadByte:
-    ld bc, ZXUNO_ADDR : ld a, UART_DATA_REG : out (c), a
-    ld bc, ZXUNO_REG : in a, (c)
+    dec b : ld a, UART_DATA_REG : out (c), a
+    inc b : in a, (c)
 
     scf
     ret

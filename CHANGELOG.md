@@ -1,6 +1,33 @@
-# NetManZX Development Changelog
+# NetManZX Changelog
 
-## v1.4.5 (2026-05-23)
+## [Unreleased]
+
+## [v1.4.6] - 2026-09-08
+
+### Added
+
+- Quit with BREAK from the main menu: return to BASIC on UNO/AY, or restart the Spectrum Next. BREAK still cancels or goes back on other screens.
+- Select individual access points when several share the same network name. Duplicate scan entries for the same access point are removed; manual and saved connections still use the network name.
+
+### Changed
+
+- Smoother network-list updates, with unchanged rows left in place.
+- More descriptive startup messages on Spectrum Next, including WiFi detection and recovery progress.
+- Smaller Spectrum Next download: the NEX file is 82,944 bytes, down from 132,096 bytes (37% smaller), retaining the loading screen.
+- UART log output is displayed after command exchanges to reduce interference with reception; truncated output is marked.
+
+### Fixed
+
+- More reliable network scans and handling of escaped network names. Invalid or damaged scan responses are rejected, and a network missing from a rescan no longer implies disconnection.
+- Pending keystrokes collected during an automatic scan no longer act on the reordered list when the scan finishes or fails. A continuously held key can still repeat.
+- Reconnection can proceed when the ESP explicitly rejects a preliminary disconnect. Timeouts, UART faults and cancellation still stop the attempt, with more accurate failure reporting.
+- Improved recovery from UART errors and ESP resets, including baud-rate recovery on Next without changing the saved baud rate. Incoming network data is no longer mistaken for AT command replies.
+- More reliable connection-state detection, WPS cleanup and BREAK cancellation. WPS preserves the ESP's saved automatic-connection policy.
+- Safer credential loading and saving on UNO/Next: malformed files are rejected, and failed saves no longer appear successful in the current session.
+- Corrected diagnostic text clipping, firmware and network information, password-field redraws and cancellation when editing a hostname or returning to diagnostics.
+- Fixed instability after repeated diagnostic navigation, SD-card operations and returning to BASIC on UNO/AY.
+
+## [v1.4.5] - 2026-05-23
 Changes from v1.4.4:
 
 ### Bugs Fixed
@@ -13,7 +40,7 @@ Changes from v1.4.4:
 - **NextReg critical sections**: Layer 2 clip setup/restore and ESP hard-reset NextReg select/data pairs are wrapped in `DI`/`EI`, avoiding future IM 1 races if another handler touches NextReg selection.
 - **Splash message clamp**: `splashMsg` now clamps overlong messages to column 0 instead of unsigned-wrapping the centering calculation.
 - **Config path creation**: `Config.createPath` skips a leading root slash before iterating directory components, avoiding a bogus empty directory component.
-- **UART backend cleanup**: ZX-Uno UART receive state no longer keeps a redundant `poked_byte` path, and AY UART write no longer starts with an unnecessary `di`.
+- **UART backend cleanup**: ZX-Uno UART receive state no longer keeps a redundant `poked_byte` path, and AY UART write keeps timing-critical bytes IRQ-atomic, reenabling interrupts between bytes.
 - **IP buffer clear length**: `Wifi.getIP` now clears all 17 bytes of the IP buffer, including the terminator slot.
 - **UART log full-line handling**: when the log buffer is full, CR/LF terminators are preserved well enough to flush cleanly instead of dropping the line break.
 
@@ -239,3 +266,7 @@ Changes from v1.4.0:
 | UNO    |        |        |       |
 | AY     |        |        |       |
 | NEXT   |        |        |       |
+
+[v1.4.5]: https://github.com/IgnacioMonge/NetManZX/releases/tag/v1.4.5
+[Unreleased]: https://github.com/IgnacioMonge/NetManZX/compare/v1.4.6...main
+[v1.4.6]: https://github.com/IgnacioMonge/NetManZX/compare/v1.4.5...v1.4.6

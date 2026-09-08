@@ -26,6 +26,9 @@ ATTR_STATUS_DISC = 172o   ; Bright red on white (status: disconnected)
 ATTR_STATUS_CONN = 174o   ; Bright green on white (status: connected)
 ATTR_INPUT_LINE  = 071o   ; Blue on white (input field background)
 
+    RTVAR row_target, 1
+    RTVAR row_active, 1
+
 ; Input: A = row number (0-23)
 ; Output: HL = attribute address ($5800 + row*32)
 ; Destroys: AF
@@ -238,17 +241,97 @@ putLogC:
 log_ind_data = #5B4E  ; 8 bytes (#5B4E-#5B55)
 putLogC_coord = #5B36  ; In printer buffer (set before use)
 
+; Compose one text row away from the display. Keeps a live list pointer/count.
+; Input: A = row (0-23). Preserves: BC, DE, HL.
+beginRow:
+    ld (row_target), a
+    ld a, 1
+    ld (row_active), a
+    push bc
+    push de
+    push hl
+    ld hl, row_buffer
+    ld de, row_buffer + 1
+    ld bc, 255
+    xor a
+    ld (hl), a
+    ldir
+    pop hl
+    pop de
+    pop bc
+    ret
+
+; Publish a composed row only when its pixels changed.
+; Output: Z = unchanged/skipped, NZ = published. Destroys: AF, BC, DE, HL.
+endRow:
+    xor a
+    ld (row_active), a
+    ld a, (row_target)
+    ld d, a
+    ld e, 0
+    call findAddr
+    ld hl, row_buffer
+    ld b, 8
+.compareScanline
+    push bc
+    push de
+    ld b, 32
+.compareByte
+    ld a, (de)
+    cp (hl)
+    jr nz, .changed
+    inc de
+    inc hl
+    djnz .compareByte
+    pop de
+    inc d
+    pop bc
+    djnz .compareScanline
+    xor a                   ; Z = unchanged
+    ret
+.changed
+    pop de
+    pop bc
+    ld a, (row_target)
+    ld d, a
+    ld e, 0
+    call findAddr
+    ld hl, row_buffer
+    ld b, 8
+.copyScanline
+    push bc
+    push de
+    ld bc, 32
+    ldir
+    pop de
+    inc d
+    pop bc
+    djnz .copyScanline
+    ld a, 1                 ; NZ = published
+    or a
+    ret
+
 
 drawC:
-    call decompressChar     ; A = char, returns DE = glyph_buf
+    call fontCharPtr        ; A = char, returns DE = cached glyph
     push de                 ; save font data ptr
     ld hl, 0
 .coords = $ - 2
     ld b, l
     call calc               ; L = byte col, A = pixel offset (0,2,4,6)
     ld (dcb_rot), a         ; save pixel offset (reuses drawCBig's temp)
+    ld c, l : ld b, 0
+    ld a, (row_active)
+    and a
+    jr z, .screenTarget
+    ld hl, row_buffer
+    add hl, bc
+    ld d, h : ld e, l
+    jr .targetReady
+.screenTarget
     ld d, h : ld e, l
     call findAddr
+.targetReady
     push de                 ; save screen address
 ; Mask table lookup (replaces mask rotation loop)
     ld a, (dcb_rot)
@@ -265,7 +348,7 @@ drawC:
     ld a, .shift0 - .shiftJr - 2
     sub c
     ld (.shiftJr + 1), a
-    pop ix, de              ; IX = screen addr, DE = glyph_buf
+    pop ix, de              ; IX = target address, DE = cached glyph
     ld b, 8
 .printIt
     ld a, (de)
@@ -293,7 +376,18 @@ drawC:
 .mask2 = $ - 1
     or h
     ld (ix), a
+    ld a, (row_active)
+    and a
+    jr nz, .nextBuffered
     inc ixh
+    jr .advanced
+.nextBuffered
+    ld a, ixl
+    add a, 32
+    ld ixl, a
+    jr nc, .advanced
+    inc ixh
+.advanced
     inc de
     djnz .printIt
     ret
@@ -310,7 +404,7 @@ dcb_m1      = #5B34
 dcb_m2      = #5B35
 
 drawCBig:
-    call decompressChar
+    call fontCharPtr
 .glyph:                          ; entry: DE = glyph_buf (pre-decompressed)
     push de
     ld hl, 0
@@ -395,6 +489,21 @@ clrThird1:
     ldir
     ret
 
+clrTwoRows8Scanlines:
+    ld b, 8
+.loop
+    push bc
+    push hl
+    ld d, h : ld e, l : inc de
+    ld bc, 63               ; 64 bytes (2 lines * 32)
+    xor a : ld (hl), a
+    ldir
+    pop hl
+    inc h                   ; Next scanline (+256)
+    pop bc
+    djnz .loop
+    ret
+
 ; Clear list area (lines 2-17)
 ; For each scanline, clear all lines at once
 clrListOnly:
@@ -418,36 +527,13 @@ clrListOnly:
 
     ; Third 2: lines 16-17 (2 lines)
     ld hl, #5000            ; Scanline 0, line 16
-    ld b, 8
-.loopT2
-    push bc
-    push hl
-    ld d, h : ld e, l : inc de
-    ld bc, 63               ; 64 bytes (2 lines * 32)
-    xor a : ld (hl), a
-    ldir
-    pop hl
-    inc h                   ; Next scanline (+256)
-    pop bc
-    djnz .loopT2
-    ret
+    jp clrTwoRows8Scanlines
 
 ; Clear network area only (lines 6-15)
 clrNetworksOnly:
     ; Third 0: lines 6-7 (2 lines)
     ld hl, #40C0
-    ld b, 8                 ; 8 scanlines
-.loopN0
-    push bc
-    push hl
-    ld d, h : ld e, l : inc de
-    ld bc, 63               ; 64 bytes (2 lines * 32)
-    xor a : ld (hl), a
-    ldir
-    pop hl
-    inc h                   ; Next scanline (+256)
-    pop bc
-    djnz .loopN0
+    call clrTwoRows8Scanlines
 
     ; Third 1: lines 8-15 (full middle third, contiguous $4800-$4FFF)
     call clrThird1
@@ -556,210 +642,43 @@ gotoXY0:
 
 coords = #5B37  ; In printer buffer (set by gotoXY macro)
 
-; ============================================
-; decompressChar - Decompress a character from the packed font
+; Glyphs are loaded expanded; retain the display initialization entry.
+initFontCache:
+    xor a
+    ld (row_active), a
+    ret
+
 ; Input: A = ASCII code (32-127, others mapped to space)
-; Output: DE = glyph_buf (8 bytes of decompressed font data)
-; Destroys: AF, BC, DE, HL
-; ============================================
-decompressChar:
+; Output: DE = cached 8-byte glyph. Destroys: AF, DE, HL.
+fontCharPtr:
     sub 32
     cp 96
     jr c, .valid
-    xor a                   ; out of range -> space (index 0)
-.valid:
-    ld c, a                 ; C = character index (0-95)
-    ; HL = font_packed + index * 4
+    xor a
+.valid
     ld l, a
     ld h, 0
     add hl, hl
     add hl, hl
-    ld de, font_packed
+    add hl, hl
+    ld de, font_cache
     add hl, de
-    ; Unpack 4 bytes -> 8 scanlines via LUT (font_lut is 16-byte aligned)
+    ex de, hl
+    ret
+
+; Compatibility entry: copy the cached glyph to glyph_buf.
+; Input: A = ASCII code. Output: DE = glyph_buf. Destroys: AF, BC, DE, HL.
+decompressChar:
+    call fontCharPtr
+    ld hl, de
     ld de, glyph_buf
-    push bc                 ; preserve C (char index)
-    ld b, 4
-.unpack:
-    ld a, (hl)
-    push hl
-    ld c, a                 ; save packed byte
-    ld hl, font_lut         ; H = page, L = base (aligned, no page cross)
-    ; High nibble -> even scanline
-    ld a, c
-    rrca : rrca : rrca : rrca
-    and #0F
-    add a, l : ld l, a     ; HL = &font_lut[high_nibble], H preserved
-    ld a, (hl)
-    ld (de), a
-    inc de
-    ; Low nibble -> odd scanline (H still valid)
-    ld a, c
-    and #0F
-    add a, low font_lut : ld l, a  ; reset L to base + low_nibble
-    ld a, (hl)
-    ld (de), a
-    inc de
-    pop hl
-    inc hl
-    djnz .unpack
-    pop bc                  ; restore C = char index
-    ; Apply exceptions (table sorted by index)
-    ld hl, font_exceptions
-.excScan:
-    ld a, (hl)
-    cp #FF
-    jr z, .excDone
-    cp c
-    jr z, .excMatch
-    jr nc, .excDone         ; sorted table: if entry > c, done
-    inc hl
-    inc hl
-    inc hl
-    jr .excScan
-.excMatch:
-    inc hl
-    ld a, (hl)              ; scanline number (0-7)
-    inc hl
-    ld b, (hl)              ; actual value
-    inc hl
-    push hl
-    ld hl, glyph_buf
-    ld d, 0
-    ld e, a
-    add hl, de
-    ld (hl), b
-    pop hl
-    jr .excScan
-.excDone:
+    ld bc, 8
+    ldir
     ld de, glyph_buf
     ret
 
 glyph_buf: ds 8
 
-; ============================================
-; Compressed 6px font - 96 characters (ASCII 32-127)
-; Format: nibble-packed with 16-value LUT + exception table
-; ============================================
-    ALIGN 16
-font_lut:
-    db #00, #0C, #10, #18, #1C, #28, #30, #36, #38, #3C, #4C, #54, #60, #6C, #78, #7C
-
-font_packed:
-    db #00, #00, #00, #00  ; ' '
-    db #33, #33, #30, #30  ; '!'
-    db #DD, #00, #00, #00  ; '"'
-    db #55, #F5, #F5, #50  ; '#'
-    db #39, #C8, #1E, #60  ; '$'
-    db #0D, #13, #36, #70  ; '%'
-    db #8D, #87, #DD, #70  ; '&'
-    db #33, #00, #00, #00  ; '''
-    db #13, #66, #63, #10  ; '('
-    db #C6, #33, #36, #C0  ; ')'
-    db #02, #B8, #B2, #00  ; '*'
-    db #02, #2F, #22, #00  ; '+'
-    db #00, #00, #00, #36  ; ','
-    db #00, #0F, #00, #00  ; '-'
-    db #00, #00, #00, #30  ; '.'
-    db #11, #33, #36, #60  ; '/'
-    db #8D, #DF, #DD, #80  ; '0'
-    db #38, #33, #33, #30  ; '1'
-    db #8D, #13, #6C, #F0  ; '2'
-    db #8D, #13, #1D, #80  ; '3'
-    db #14, #9D, #F1, #10  ; '4'
-    db #FC, #E1, #1D, #80  ; '5'
-    db #8C, #CE, #DD, #80  ; '6'
-    db #F1, #33, #36, #60  ; '7'
-    db #8D, #D8, #DD, #80  ; '8'
-    db #8D, #D9, #13, #60  ; '9'
-    db #00, #30, #00, #30  ; ':'
-    db #00, #30, #00, #36  ; ';'
-    db #01, #36, #63, #10  ; '<'
-    db #00, #F0, #F0, #00  ; '='
-    db #0C, #63, #36, #C0  ; '>'
-    db #8D, #13, #60, #60  ; '?'
-    db #30, #AB, #BA, #03  ; '@'
-    db #28, #DF, #DD, #D0  ; 'A'
-    db #ED, #DE, #DD, #E0  ; 'B'
-    db #8D, #CC, #CD, #80  ; 'C'
-    db #ED, #DD, #DD, #E0  ; 'D'
-    db #FC, #CE, #CC, #F0  ; 'E'
-    db #FC, #CE, #CC, #C0  ; 'F'
-    db #8D, #CD, #DD, #90  ; 'G'
-    db #DD, #DF, #DD, #D0  ; 'H'
-    db #93, #33, #33, #90  ; 'I'
-    db #11, #11, #1D, #80  ; 'J'
-    db #DD, #DE, #DD, #D0  ; 'K'
-    db #CC, #CC, #CC, #F0  ; 'L'
-    db #0D, #FF, #DD, #D0  ; 'M'
-    db #AD, #FF, #FD, #00  ; 'N'
-    db #8D, #DD, #DD, #80  ; 'O'
-    db #ED, #DE, #CC, #C0  ; 'P'
-    db #8D, #DD, #DD, #81  ; 'Q'
-    db #ED, #DE, #DD, #D0  ; 'R'
-    db #8D, #C8, #1D, #80  ; 'S'
-    db #93, #33, #33, #30  ; 'T'
-    db #DD, #DD, #DD, #80  ; 'U'
-    db #DD, #DD, #D8, #20  ; 'V'
-    db #DD, #DF, #FD, #00  ; 'W'
-    db #DD, #D8, #DD, #D0  ; 'X'
-    db #DD, #D8, #66, #60  ; 'Y'
-    db #F1, #36, #CC, #F0  ; 'Z'
-    db #86, #66, #66, #80  ; '['
-    db #66, #33, #31, #10  ; '\'
-    db #83, #33, #33, #80  ; ']'
-    db #F0, #52, #28, #FF  ; '^' → hourglass (scanning indicator)
-    db #00, #00, #00, #00  ; '_'
-    db #08, #FF, #FF, #80  ; '`' → filled circle (lock indicator)
-    db #00, #81, #9D, #90  ; 'a'
-    db #CC, #ED, #DD, #E0  ; 'b'
-    db #00, #8D, #CD, #80  ; 'c'
-    db #11, #9D, #DD, #90  ; 'd'
-    db #00, #8D, #FC, #80  ; 'e'
-    db #46, #F6, #66, #60  ; 'f'
-    db #00, #9D, #D9, #1E  ; 'g'
-    db #CC, #ED, #DD, #D0  ; 'h'
-    db #30, #83, #33, #30  ; 'i'
-    db #30, #33, #33, #30  ; 'j'
-    db #CC, #DD, #ED, #D0  ; 'k'
-    db #66, #66, #66, #30  ; 'l'
-    db #00, #0F, #FD, #D0  ; 'm'
-    db #00, #ED, #DD, #D0  ; 'n'
-    db #00, #8D, #DD, #80  ; 'o'
-    db #00, #ED, #DD, #EC  ; 'p'
-    db #00, #9D, #DD, #91  ; 'q'
-    db #00, #D0, #CC, #C0  ; 'r'
-    db #00, #9C, #81, #E0  ; 's'
-    db #26, #F6, #66, #40  ; 't'
-    db #00, #DD, #DD, #90  ; 'u'
-    db #00, #DD, #D8, #20  ; 'v'
-    db #00, #DD, #FD, #00  ; 'w'
-    db #00, #DD, #8D, #D0  ; 'x'
-    db #00, #DD, #D8, #6C  ; 'y'
-    db #00, #F3, #6C, #F0  ; 'z'
-    db #00, #F8, #20, #00  ; '{' → down arrow (scroll indicator)
-    db #33, #33, #33, #30  ; '|'
-    db #00, #28, #F0, #00  ; '}' → up arrow (scroll indicator)
-    db #08, #00, #00, #80  ; '~' → hollow circle (open network, 6 rows)
-    db #FF, #FF, #FF, #FF  ; DEL → cursor block (0x7C solid)
-
-font_exceptions:
-    db 32, 1, #24  ; '@' line 1
-    db 32, 6, #20  ; '@' line 6
-    db 45, 0, #44  ; 'M' line 0
-    db 46, 6, #64  ; 'N' line 6
-    db 55, 6, #44  ; 'W' line 6
-    db 62, 1, #44  ; '^' line 1 (hourglass: X...X)
-    db 63, 7, #7E  ; '_' line 7
-    db 74, 7, #70  ; 'j' line 7
-    db 77, 2, #68  ; 'm' line 2
-    db 82, 3, #70  ; 'r' line 3
-    db 87, 6, #44  ; 'w' line 6
-    db 94, 2, #44  ; '~' line 2 (hollow circle)
-    db 94, 3, #44  ; '~' line 3 (hollow circle)
-    db 94, 4, #44  ; '~' line 4 (hollow circle)
-    db 94, 5, #44  ; '~' line 5 (hollow circle)
-    db #FF          ; end of table
 
 ; ============================================
 ; compareStringZ - Compare two zero-terminated strings

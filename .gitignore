@@ -7,3 +7,4 @@ log/
 .claude/
 src/modules/speedtest.asm
 images/1.4.4/Mi captura*.png
+__pycache__/

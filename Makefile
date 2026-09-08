@@ -15,6 +15,7 @@ LOGDIR   = log
 
 MAIN       = $(SRCDIR)/main.asm
 OUTPUT_TAP = netmanzx.tap
+DELIVERY_FILE = netmanzx-uno.tap
 
 # ------------------------------------------------------------
 # Assembler flags
@@ -61,7 +62,7 @@ define INFO
 endef
 
 define RUN_ASM
-	@powershell -NoProfile -ExecutionPolicy Bypass -Command "$$ErrorActionPreference='Stop'; New-Item -ItemType Directory -Force -Path '$(BUILDDIR)' | Out-Null; New-Item -ItemType Directory -Force -Path '$(LOGDIR)' | Out-Null; $$ts=(Get-Date).ToString('yyyyMMdd_HHmmss'); $$pretty=(Get-Date).ToString('yyyy-MM-dd HH:mm:ss'); $$log='$(LOGDIR)/build_'+$$ts+'.log'; $$last='$(LOGDIR)/last_build.log'; @('============================================================','NetManZX - Build Log ($(1))','Date: '+$$pretty,'============================================================','ASMFLAGS=$(ASMFLAGS) $(2)','CMD=$(ASM) $(ASMFLAGS) $(2) -i$(SRCDIR) -iassets $(MAIN)','--------------------------------') | Set-Content -Encoding ASCII $$log; & '$(ASM)' $(ASMFLAGS) $(2) -i'$(SRCDIR)' -i'assets' '$(MAIN)' 2>&1 | Tee-Object -FilePath $$log -Append; Copy-Item -Force $$log $$last | Out-Null; Write-Output $$pretty | Set-Content -Encoding ASCII '$(LOGDIR)/last_build_date.txt'"
+	@powershell -NoProfile -ExecutionPolicy Bypass -Command "$$ErrorActionPreference='Stop'; New-Item -ItemType Directory -Force -Path '$(BUILDDIR)' | Out-Null; New-Item -ItemType Directory -Force -Path '$(LOGDIR)' | Out-Null; $$ts=(Get-Date).ToString('yyyyMMdd_HHmmss'); $$pretty=(Get-Date).ToString('yyyy-MM-dd HH:mm:ss'); $$log='$(LOGDIR)/build_'+$$ts+'.log'; $$last='$(LOGDIR)/last_build.log'; @('============================================================','NetManZX - Build Log ($(1))','Date: '+$$pretty,'============================================================','ASMFLAGS=$(ASMFLAGS) $(2)','CMD=$(ASM) $(ASMFLAGS) $(2) -i$(SRCDIR) -iassets $(MAIN)','--------------------------------') | Set-Content -Encoding ASCII $$log; & '$(ASM)' $(ASMFLAGS) $(2) -i'$(SRCDIR)' -i'assets' '$(MAIN)' 2>&1 | Tee-Object -FilePath $$log -Append; $$asm_status=$$LASTEXITCODE; Copy-Item -Force $$log $$last | Out-Null; Write-Output $$pretty | Set-Content -Encoding ASCII '$(LOGDIR)/last_build_date.txt'; if ($$asm_status -ne 0) { exit $$asm_status }"
 endef
 
 define ECHO_SIZE
@@ -88,7 +89,8 @@ define CLEAN_ALL
 endef
 
 else
-SHELL := /bin/sh
+SHELL := /bin/bash
+.SHELLFLAGS := -o pipefail -c
 
 define MKDIR_P
 	@mkdir -p "$(1)"
@@ -138,8 +140,12 @@ define RUN_ASM
 	  echo "ASMFLAGS=$(ASMFLAGS) $(2)"; \
 	  echo "--------------------------------"; \
 	} > "$$log"; \
+	set +e; \
 	$(ASM) $(ASMFLAGS) $(2) -i$(SRCDIR) -iassets $(MAIN) 2>&1 | tee -a "$$log"; \
-	cp -f "$$log" "$$last"
+	status=$$?; \
+	set -e; \
+	cp -f "$$log" "$$last"; \
+	exit "$$status"
 endef
 
 define ECHO_SIZE
@@ -147,7 +153,7 @@ define ECHO_SIZE
 endef
 
 define MOVE_FILE
-	@mv -f "$(1)" "$(2)" 2>/dev/null || true
+	@mv -f "$(1)" "$(2)"
 endef
 
 define CLEAN_CMD
@@ -188,9 +194,9 @@ clean_step:
 info_step:
 	$(call BANNER)
 	$(call STEP,3/3,Info)
-	$(call INFO,Output: $(BUILDDIR)/$(OUTPUT_TAP))
+	$(call INFO,Output: $(BUILDDIR)/$(DELIVERY_FILE))
 	$(call INFO,Build log: $(LOGDIR)/last_build.log)
-	$(call ECHO_SIZE,$(BUILDDIR)/$(OUTPUT_TAP))
+	$(call ECHO_SIZE,$(BUILDDIR)/$(DELIVERY_FILE))
 	$(call BANNER)
 
 # ------------------------------------------------------------
@@ -204,7 +210,7 @@ build_uno:
 	$(call INFO,Flags: -DUNO -DTAP)
 	$(call RUN_ASM,UNO,-DUNO -DTAP)
 	$(call MKDIR_P,$(BUILDDIR))
-	$(call MOVE_FILE,$(OUTPUT_TAP),$(BUILDDIR)/$(OUTPUT_TAP))
+	$(call MOVE_FILE,$(OUTPUT_TAP),$(BUILDDIR)/netmanzx-uno.tap)
 	$(call OK,Build complete.)
 
 build_ay:
@@ -214,7 +220,7 @@ build_ay:
 	$(call INFO,Flags: -DAY -DTAP)
 	$(call RUN_ASM,AY,-DAY -DTAP)
 	$(call MKDIR_P,$(BUILDDIR))
-	$(call MOVE_FILE,$(OUTPUT_TAP),$(BUILDDIR)/$(OUTPUT_TAP))
+	$(call MOVE_FILE,$(OUTPUT_TAP),$(BUILDDIR)/netmanzx-ay.tap)
 	$(call OK,Build complete.)
 
 build_next:
@@ -224,36 +230,31 @@ build_next:
 	$(call INFO,Flags: -DNEXT)
 	$(call RUN_ASM,NEXT,-DNEXT)
 	$(call MKDIR_P,$(BUILDDIR))
-	$(call MOVE_FILE,netmanzx.nex,$(BUILDDIR)/netmanzx.nex)
+	$(call MOVE_FILE,netmanzx.nex,$(BUILDDIR)/netmanzx-next.nex)
 	$(call OK,Build complete.)
-
-info_step_next:
-	$(call BANNER)
-	$(call STEP,3/3,Info)
-	$(call INFO,Output: $(BUILDDIR)/netmanzx.nex)
-	$(call INFO,Build log: $(LOGDIR)/last_build.log)
-	$(call ECHO_SIZE,$(BUILDDIR)/netmanzx.nex)
-	$(call BANNER)
 
 # ------------------------------------------------------------
 # Main targets
 # ------------------------------------------------------------
 
+ay: DELIVERY_FILE = netmanzx-ay.tap
+next: DELIVERY_FILE = netmanzx-next.nex
+
 uno: dirs preflight clean_step build_uno info_step
 
 ay: dirs preflight clean_step build_ay info_step
 
-next: dirs preflight clean_step build_next info_step_next
+next: dirs preflight clean_step build_next info_step
 
 all: dirs preflight clean_step
 	$(call BANNER)
 	$(call STEP,2/3,Building all targets)
-	$(call RUN_ASM,UNO,-DUNO -DTAP)
-	$(call MOVE_FILE,$(OUTPUT_TAP),$(BUILDDIR)/netmanzx-uno.tap)
 	$(call RUN_ASM,AY,-DAY -DTAP)
 	$(call MOVE_FILE,$(OUTPUT_TAP),$(BUILDDIR)/netmanzx-ay.tap)
 	$(call RUN_ASM,NEXT,-DNEXT)
 	$(call MOVE_FILE,netmanzx.nex,$(BUILDDIR)/netmanzx-next.nex)
+	$(call RUN_ASM,UNO,-DUNO -DTAP)
+	$(call MOVE_FILE,$(OUTPUT_TAP),$(BUILDDIR)/netmanzx-uno.tap)
 	$(call OK,All builds complete.)
 	$(call BANNER)
 	$(call INFO,Output files in $(BUILDDIR)/)
@@ -269,7 +270,7 @@ info:
 	$(call BANNER)
 	@echo ASMFLAGS : $(ASMFLAGS)
 	@echo MAIN     : $(MAIN)
-	@echo OUTPUT   : $(OUTPUT_TAP)
+	@echo OUTPUT   : netmanzx-uno.tap / netmanzx-ay.tap / netmanzx-next.nex
 	@echo.
 	@echo Targets:
 	@echo   make uno   - ZX-Uno / DivMMC [default]
@@ -279,4 +280,4 @@ info:
 	@echo   make clean - Remove build artifacts
 	$(call BANNER)
 
-.PHONY: uno ay next all clean info dirs preflight clean_step build_uno build_ay build_next info_step info_step_next
+.PHONY: uno ay next all clean info dirs preflight clean_step build_uno build_ay build_next info_step

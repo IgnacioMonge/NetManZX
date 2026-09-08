@@ -9,7 +9,7 @@ UART_GetStatus equ #133B  ; Reads status
 ; Status bits
 UART_TX_BUSY       equ %00000010
 UART_RX_DATA_READY equ %00000001
-UART_FIFO_FULL     equ %00000100
+UART_RX_ERRORS     equ %01100100
 
 init:
     ; Select UART
@@ -52,15 +52,24 @@ baudTable:
     dw 243,248,256,260,269,278,286,234
 
 write:
-    push bc, de
+    push bc, de, hl
     ld d, a
     ld bc, UART_GetStatus
+    ld hl, Uart.DEFAULT_TIMEOUT
 .wait
-    in a, (c)
+    call readStatus
     and UART_TX_BUSY
-    jr nz, .wait         ; Wait if TX is busy
+    jr z, .send
+    dec hl
+    ld a, h : or l
+    jr nz, .wait
+    ld a, 1
+    ld (Uart.io_error), a
+    jr .done
+.send
     out (c), d
-    pop de, bc
+.done
+    pop hl, de, bc
     ret
 
 ; ============================================
@@ -72,7 +81,7 @@ write:
 ; ============================================
 uartRead:
     ld bc, UART_GetStatus
-    in a, (c)
+    call readStatus
     rrca                 ; Bit 0 (Data Ready) to Carry
     ret nc               ; No data -> Immediate return with CF=0
 
@@ -81,6 +90,40 @@ uartRead:
     in a, (c)            ; Read the byte
     scf                  ; Mark success (CF=1)
     ret
+
+; Status errors clear on read, including reads made while transmitting.
+readStatus:
+    in a, (c)
+    push af
+    and UART_RX_ERRORS
+    jr z, .done
+    ld (Uart.io_error), a
+.done
+    pop af
+    ret
+
+; A reset restores the ESP's saved baud, not necessarily 115200.
+recoverAfterReset:
+    ld b, 150
+.wait
+    halt
+    djnz .wait
+recoverBaud:
+    call init
+    call .probe
+    ret nc
+    call baudScan
+    ret c
+    call Wifi.flushInput
+    ld hl, .uartCur
+    call Wifi.espSendZCheckOk
+    ret c
+    call init
+.probe
+    call Wifi.flushInput
+    ld hl, Wifi.S_AT
+    jp Wifi.espSendZCheckOk
+.uartCur db "AT+UART_CUR=115200,8,1,0,0", 0
 
 ; ============================================
 ; baudScan - Try common baud rates to find ESP
@@ -95,7 +138,7 @@ baudScan:
     ex de, hl
     call setBaudFromTable       ; set UART to this baud rate
     call Wifi.flushInput
-    ld hl, Wifi.S_AT : call Wifi.espSendZ
+    ld hl, Wifi.S_AT : call Wifi.espSendZ_CRLF
     call Wifi.checkOkErr
     pop hl, bc
     ret nc                      ; CF=0 — ESP responded
@@ -126,7 +169,7 @@ baudTable2M:                    ; 2000000 (NextSync fast)
 
 ; ============================================
 ; espHardReset - Hardware ESP reset via NextReg $02
-; Forces ESP to reboot at its default baud (115200).
+; Reboots the ESP with its persistent settings.
 ; Last resort when baudScan can't find the ESP.
 ; ============================================
 espHardReset:
@@ -150,10 +193,6 @@ espHardReset:
     xor a               ; Release reset
     out (c), a
     ei
-    ld b, 150           ; ~3s for ESP boot
-.bootWait:
-    halt
-    djnz .bootWait
-    ret
+    jp recoverAfterReset
 
     endmodule

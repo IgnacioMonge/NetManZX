@@ -38,13 +38,14 @@ CFG_CKSUM_OFF = 79
 ; Output: CF=0 success, CF=1 fail (silent)
 ; ============================================
 save:
-    ; Build config block in cfg_buffer
-    ld hl, cfg_buffer
-    ld (hl), CFG_SIG_0 : inc hl
-    ld (hl), CFG_SIG_1 : inc hl
-    ld (hl), CFG_SIG_2 : inc hl
-    ld (hl), CFG_SIG_3 : inc hl
-    ld (hl), CFG_VERSION : inc hl
+    ; The replacement is not saved until both transfer and close succeed.
+    xor a
+    ld (cfg_valid), a
+    ld hl, cfg_signature
+    ld de, cfg_buffer
+    ld bc, 5
+    ldir
+    ex de, hl
 
     ; Zero-fill SSID area (33 bytes)
     push hl
@@ -70,12 +71,7 @@ save:
 .passDone
 
     ; Compute XOR checksum of bytes 0-78
-    ld hl, cfg_buffer
-    ld b, CFG_CKSUM_OFF
-    xor a
-.ckBuild
-    xor (hl) : inc hl
-    djnz .ckBuild
+    call calcChecksum
     ld (hl), a
 
     ; esxDOS save — identical to NextSync createfilewithpath + fwrite + fclose
@@ -111,31 +107,49 @@ save:
     ld bc, CFG_SIZE
     rst $08
     db F_WRITE
-    push af
-
-    ; fclose (NextSync: A=handle)
-    ld iy, #5C3A
-    ld a, (file_handle)
-    rst $08
-    db F_CLOSE
-    pop af
+    call closeTransfer
 
     pop iy
     ret c
-    jr .saveOk
+
+.saveOk
+    ld a, 1
+    ld (cfg_valid), a
+    or a
+    ret
 
 .openFail
     pop iy
     scf
     ret
 
-.saveOk
-    ld hl, .msg_saved
-    call Wifi.logIfEnabled
-    or a
+calcChecksum:
+    ld hl, cfg_buffer
+    ld b, CFG_CKSUM_OFF
+    xor a
+.loop
+    xor (hl) : inc hl
+    djnz .loop
     ret
 
-.msg_saved db "Config file stored in SD", 13, 0
+; Close the file; CF=0 only if close and exact transfer both succeeded.
+closeTransfer:
+    jr c, .close
+    ld a, c
+    xor CFG_SIZE
+    or b
+    jr z, .close
+    scf
+.close
+    push af
+    ld iy, #5C3A
+    ld a, (file_handle)
+    rst $08
+    db F_CLOSE
+    pop bc                       ; C = saved transfer flags
+    ret c                        ; Close failure wins
+    rr c                         ; Restore transfer CF from saved F
+    ret
 
 ; ============================================
 ; load - Read credentials from config file
@@ -163,60 +177,52 @@ load:
     ld bc, CFG_SIZE
     rst $08
     db F_READ
-    push af
-
-    ; fclose
-    ld iy, #5C3A
-    ld a, (file_handle)
-    rst $08
-    db F_CLOSE
-    pop af
+    call closeTransfer
 
     pop iy
-    ret c
-    jr .loadValidate
-
-.loadOpenFail
-    pop iy
-    scf
-    ret
+    jr c, .loadFail
 
 .loadValidate
     ; Validate signature
     ld hl, cfg_buffer
-    ld a, (hl) : cp CFG_SIG_0 : jr nz, .loadFail
+    ld de, cfg_signature
+    ld b, 5
+.checkSignature
+    ld a, (de)
+    cp (hl)
+    jr nz, .loadFail
+    inc de
     inc hl
-    ld a, (hl) : cp CFG_SIG_1 : jr nz, .loadFail
-    inc hl
-    ld a, (hl) : cp CFG_SIG_2 : jr nz, .loadFail
-    inc hl
-    ld a, (hl) : cp CFG_SIG_3 : jr nz, .loadFail
-    inc hl
-    ld a, (hl) : cp CFG_VERSION : jr nz, .loadFail
+    djnz .checkSignature
 
     ; Validate XOR checksum
-    ld hl, cfg_buffer
-    ld b, CFG_CKSUM_OFF
-    xor a
-.ckValid
-    xor (hl) : inc hl
-    djnz .ckValid
+    call calcChecksum
     cp (hl)
     jr nz, .loadFail
 
-    or a
-    ret
+    ; Both fixed-width fields must contain a terminator.
+    ld hl, cfg_buffer + CFG_SSID_OFF
+    ld bc, 33
+    xor a
+    cpir
+    jr nz, .loadFail
+    ld hl, cfg_buffer + CFG_PASS_OFF
+    ld bc, 41
+    cpir
+    jr nz, .loadFail
+
+    jp save.saveOk
+
+.loadOpenFail
+    pop iy
 
 .loadFail
+    xor a
+    ld (cfg_valid), a
     scf
     ret
 
-; ============================================
-; getSavedSSID - Returns pointer to saved SSID
-; ============================================
-getSavedSSID:
-    ld hl, cfg_buffer + CFG_SSID_OFF
-    ret
+cfg_signature db CFG_SIG_0, CFG_SIG_1, CFG_SIG_2, CFG_SIG_3, CFG_VERSION
 
 ; ============================================
 ; copyToBuffers - Prepare buffers for AT+CWJAP
@@ -282,6 +288,7 @@ createPath:
     ld c, 7
     rst $08
     db M_P3DOS
+    exx                         ; Restore main register set after M_P3DOS args
     pop hl
     pop de
     ex de, hl

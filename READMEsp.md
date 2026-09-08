@@ -14,11 +14,11 @@ NetManZX es una utilidad de configuracion de redes WiFi para ordenadores ZX Spec
 
 NetManZX esta basado en el proyecto original [netman-zx](https://github.com/nihirash/netman-zx) de **Alex Nihirash**. Esta version ha sido significativamente mejorada con nuevas funcionalidades, mayor fiabilidad y mejor experiencia de usuario.
 
-**Version actual:** v1.4.5
+**Versión actual:** [v1.4.6](https://github.com/IgnacioMonge/NetManZX/releases/tag/v1.4.6)
 
 ## Capturas de Pantalla
 
-*Capturas de la interfaz v1.4.4, aun representativas de v1.4.5. Los SSID de las capturas estan difuminados por privacidad.*
+*Capturas de v1.4.4; algunos textos difieren en v1.4.6. Los SSID están difuminados por privacidad.*
 
 | | | |
 |:---:|:---:|:---:|
@@ -32,18 +32,18 @@ NetManZX esta basado en el proyecto original [netman-zx](https://github.com/nihi
 ## Caracteristicas
 
 ### Gestion de Redes
-- **Escaneo de Redes**: Descubre automaticamente hasta 25 redes WiFi usando parametros de escaneo extendidos (`AT+CWLAP` con 200-1500ms de permanencia por canal) para mejor cobertura. Reintento con fallback en caso de fallo. Ordenadas por intensidad de senal
+- **Escaneo de redes**: Descubre hasta 25 puntos de acceso WiFi, ordenados por señal, con reintentos si falla el escaneo. Los puntos de acceso con el mismo nombre permanecen separados; la selección conecta al punto elegido
 - **Deteccion robusta al inicio**: Desactiva el echo del ESP (ATE0) antes del primer escaneo para prevenir fallos del parser. Multiples intentos de escaneo con mensajes diagnosticos en caso de timeout o resultados vacios
 - **Soporte de Redes Ocultas**: Introduce manualmente el SSID de redes que no emiten su nombre
 - **Deteccion Inteligente de Conexion**: Al iniciar, detecta si ya esta conectado a una WiFi y actualiza la barra de estado; el arranque en frio va directo al menu principal + primer escaneo en todos los casos. Si la red "ya conectada" se selecciona desde la lista, una pantalla de detalle muestra su informacion con un aviso en rojo `Already connected to this network!`
 - **Pantalla de informacion de conexion**: Pulsa ENTER sobre la red ya conectada para ver IP, gateway, mascara de subred y direccion MAC
-- **Guardar y Reconectar** (tecla C, solo UNO/NEXT): Guarda las credenciales WiFi en la tarjeta SD (`/SYS/CONFIG/NETMAN.CFG` en divMMC, `c:/sys/config/netman.cfg` en Next). Pulsa C desde el menu principal para reconectar a la red guardada. Tambien ofrece guardar tras una conexion exitosa (tecla S). La red guardada se resalta en cyan en la lista de redes
+- **Guardar y reconectar** (solo UNO/NEXT): Guarda credenciales en SD (`/SYS/CONFIG/NETMAN.CFG` en divMMC, `c:/sys/config/netman.cfg` en Next). C ofrece reconectar a la red guardada; S guarda tras una conexión correcta. La red guardada aparece en cyan
 - **Entrada de Contrasena**: Soporte completo de teclado con opcion de mostrar/ocultar, entrada en doble altura con edicion de cursor (flechas izquierda/derecha)
-- **Soporte WPS**: Conexion WPS por pulsacion de boton (tecla W), con ventana real de sondeo ~60 segundos, cancelacion con BREAK y sin efectos secundarios sobre la flash del ESP (envuelto en `SYSSTORE=0` + `CWAUTOCONN=0` para evitar que una autoreconexion en segundo plano simule un exito falso)
+- **Soporte WPS**: Conexión por pulsación con W y cancelación con BREAK, conservando la política de conexión automática guardada en el ESP
 - **Opcion de Desconexion**: Desconecta de la red actual con dialogo de confirmacion, sin salir de la aplicacion
 - **Monitorizacion de Estado en Tiempo Real**: Detecta automaticamente caidas y reconexiones mediante parseo asincrono de eventos del ESP
 - **Diagnostico de fallos de conexion**: Mensajes especificos de error: contrasena incorrecta, AP no encontrado, timeout o conexion rechazada
-- **Cancelacion con BREAK**: Cancelacion casi instantanea (~5ms de respuesta) durante cualquier comando AT o intento de conexion
+- **Cancelación con BREAK**: Cancela intentos de conexión y operaciones AT. El tiempo de respuesta depende del hardware y de la operación
 
 ### Menu de Diagnosticos
 1. **Ping test** - Probar conectividad con IP configurable (por defecto: 8.8.8.8)
@@ -55,8 +55,8 @@ NetManZX esta basado en el proyecto original [netman-zx](https://github.com/nihi
 7. **Config summary** - Ver todos los ajustes WiFi actuales de un vistazo (SSID, IP, MAC, hostname, firmware, red guardada, version de la app)
 
 ### Interfaz de Usuario
-- **Renderizado en doble altura**: Banner, barra de estado, campos de entrada y mensajes renderizados en texto de doble altura sin parpadeo mediante un renderizador a nivel de pixel
-- **Pantalla de Detalle de Red**: Vista de detalle con SSID (doble altura), tipo de seguridad, canal WiFi con indicador de banda (2.4/5 GHz) y barras de intensidad de senal
+- **Texto en doble altura**: Banner, estado, entradas y mensajes grandes, con actualizaciones más suaves de la lista de redes
+- **Detalle de red**: Consulta el nombre, la seguridad, el canal y la señal antes de conectar
 - **Pantalla de conexion**: "Connecting to..." muestra el SSID en doble altura amarillo con contador de intentos
 - **Badge arcoiris**: Triangulo decorativo con transiciones de color en el banner
 - **Barras de senal RSSI de 8 niveles**: Indicador visual de intensidad de senal WiFi para cada red, con glifos personalizados de circulo cerrado/abierto
@@ -65,12 +65,12 @@ NetManZX esta basado en el proyecto original [netman-zx](https://github.com/nihi
 - **Click de tecla audible**: Feedback sonoro claro en cada pulsacion durante la entrada de texto
 
 ### Otros
-- **Pantalla de arranque (splash)**: Logo pintado antes de que aparezca la interfaz principal. En Spectrum Next se carga una imagen Layer 2 de 48 KB con paleta personalizada de 9 bits via el cargador NEX; la fila ULA 20 muestra mensajes de estado de inicializacion (`Configuring ESP...`, `Scanning baud rates...`, etc.) bajo una ventana de clip Layer 2. En UNO / AY se carga un logo SCR de 6912 B desde el TAP antes del codigo, suprimiendo los mensajes `Bytes: ...` de BASIC para una carga limpia
+- **Pantalla de arranque**: Logo de carga en todos los equipos, con imagen en color Layer 2 en Next. Los mensajes descriptivos informan de la inicialización y recuperación del WiFi
 - **Pantalla Acerca de** (tecla I): Muestra version, fecha de compilacion, autor, URL de GitHub y licencia
-- **Log de Depuracion UART**: Muestra/oculta el log UART en tiempo real con la tecla L (funciona globalmente). Indicador rojo en el area de log cuando esta activo
-- **Fuente comprimida**: Sistema de fuente comprimida por nibbles integrado (sin dependencia de archivo font.bin externo)
+- **Log UART**: Se activa con L; un indicador rojo muestra su estado. Los comandos se registran en pantalla al terminar el intercambio, con un aviso si el texto queda truncado
+- **Fuente integrada**: Texto compacto de seis píxeles de ancho, sin archivo de fuente externo para ejecutar el programa
 - **Tres backends UART**: Soporta hardware ZX-Uno, AY-UART (ZX-Badaloc) y ZX Spectrum Next
-- **Auto-deteccion de baud rate** (solo Next): Si el ESP no responde a 115200, escanea 1152000, 2000000, 9600 y 57600 baudios y establece 115200 para la sesion via `AT+UART_CUR` (no modifica la flash del ESP). Si ninguna tasa funciona, resetea el ESP por hardware. Maneja restos de NextSync/NextSync-fast, ESPs de fabrica y configuraciones erroneas sin overhead en arranques normales
+- **Detección automática de baudios** (solo Next): Prueba 1152000, 2000000, 9600 y 57600 baudios si el ESP no responde a 115200. Restablece 115200 para la sesión sin cambiar la velocidad guardada; reinicia el ESP si la recuperación lo requiere
 - **Formato NEX** (solo Next): Binario nativo `.nex` para arranque directo sin menu de seleccion de modo
 - **Fecha de compilacion**: Incrustada automaticamente en tiempo de ensamblado via Lua
 
@@ -108,6 +108,8 @@ make all
 
 ### Archivos de Salida
 
+Los archivos compilados se guardan en `build/`. Los binarios listos para cargar están en las [releases de GitHub](https://github.com/IgnacioMonge/NetManZX/releases).
+
 | Target | Archivo | Descripcion |
 |--------|---------|-------------|
 | UNO | `netmanzx-uno.tap` | ZX-Uno / DivMMC |
@@ -120,7 +122,7 @@ make all
 Simplemente carga el archivo TAP - el cargador BASIC se ejecutara automaticamente y cargara el programa.
 
 **NEX (Next):**
-Copia `netmanzx-next.nex` a la tarjeta SD y ejecutalo directamente desde el navegador de ficheros o la linea de comandos (`.netmanzx-next`).
+Copia `netmanzx-next.nex` a la tarjeta SD y ejecútalo desde el navegador de archivos del Next.
 
 ## Uso
 
@@ -129,7 +131,7 @@ Copia `netmanzx-next.nex` a la tarjeta SD y ejecutalo directamente desde el nave
 3. **Navega** usando las teclas de cursor (arriba/abajo) o Q/A, O/P para pagina arriba/abajo
 4. **Selecciona una red** con ENTER - una pantalla de detalle muestra seguridad, canal y senal
 5. **Introduce la contrasena** (si es necesaria) - usa flecha arriba para mostrar/ocultar contrasena
-6. **Espera a la conexion** - BREAK cancela inmediatamente, mensajes de error detallados en caso de fallo
+6. **Espera a la conexión** — BREAK cancela; los fallos muestran su motivo
 7. **Accede a diagnosticos** pulsando D desde la lista de redes
 
 ### Controles
@@ -139,32 +141,24 @@ Copia `netmanzx-next.nex` a la tarjeta SD y ejecutalo directamente desde el nave
 | Arriba/Abajo o Q/A | Navegar lista de redes |
 | O/P | Pagina Arriba/Abajo |
 | ENTER | Seleccionar red / Confirmar |
-| BREAK | Cancelar / Volver (respuesta instantanea) |
+| BREAK | Cancelar / Volver; salir desde el menú principal |
 | H | Conectar a red oculta (introducir SSID manualmente) |
 | X | Desconectar de la red actual |
 | D | Menu de diagnosticos |
 | R | Reescanear redes |
 | L | Alternar log de depuracion UART |
 | W | Conexion WPS por pulsacion |
-| C | Reconectar a red guardada / Guardar config (UNO/NEXT) |
+| C | Reconectar a la red guardada (UNO/NEXT) |
 | S | Guardar credenciales tras conexion exitosa (UNO/NEXT) |
 | I | Pantalla Acerca de |
 
-No existe una tecla "salir del programa" — la aplicacion es una herramienta independiente, no un TSR. Para abandonarla, resetea la maquina.
+Desde el menú principal, BREAK vuelve a BASIC en UNO/AY. En Next reinicia la máquina; no restaura la sesión anterior de NextZXOS.
 
-### Robustez de Conectividad
+### Recuperación de la conexión
 
-- **Deteccion BREAK**: Tecla BREAK comprobada cada ~5ms durante comandos AT para cancelacion casi instantanea. Pantalla dedicada de "Cancelled" con debounce
-- **Deteccion Automatica de Caida WiFi**: Parseo asincrono de eventos del ESP para detectar desconexiones inesperadas al instante
-- **Chequeo Periodico en Idle**: Validacion periodica mediante comandos AT con debounce (3 fallos consecutivos requeridos antes de declarar desconexion)
-- **Proteccion UART Busy**: Mecanismo tipo mutex que evita que el parser asincrono interfiera durante operaciones criticas
-- **Seguridad tras I/O en SD**: El estado usado despues de cargar/guardar configuracion vive fuera del area volatil de printer-buffer usada por esxDOS, y el estado UI/UART volatil se rearma tras cada operacion de fichero
-- **Flush UART acotado**: Los bucles de drenaje UART tienen limite duro de bytes, asi el ruido continuo del ESP no puede dejar la interfaz atrapada vaciando datos
-- **Seguridad de Registros UART**: Los tres backends UART (UNO, AY, Next) preservan los registros del llamante durante operaciones de escritura
-- **Reintento de IP al Conectar**: 3 intentos con intervalos de 1 segundo tras la asociacion WiFi exitosa
-- **Recuperacion Automatica de Estado**: Al perder conexion, la interfaz pasa a Disconnected y programa un rescaneo seguro. El auto-rescan preserva la lista anterior en caso de fallo
-- **Busquedas de Buffer Acotadas**: Todas las busquedas CPIR limitadas al tamano real del buffer
-- **Auto-deteccion de baud rate** (solo Next): Escanea 1152000, 2000000, 9600, 57600 baudios si el ESP no responde a 115200. Establece 115200 para la sesion via `AT+UART_CUR`. Reset hardware del ESP como fallback
+NetManZX supervisa los eventos del ESP y comprueba periódicamente el enlace. Los escaneos y comandos de conexión pausan temporalmente la navegación; la respuesta a BREAK varía según el controlador UART. El escaneo automático descarta la entrada pendiente al terminar, pero una tecla mantenida puede repetirse.
+
+Next puede recuperar automáticamente desajustes habituales de baudios. En UNO/AY, comprueba la velocidad del módulo y la configuración de la interfaz si el arranque no consigue comunicarse con el ESP.
 
 ## Historial de Versiones
 

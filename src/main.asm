@@ -15,7 +15,7 @@
     ; Examples: V=12  -> 1.2
     ;           V=121 -> 1.2.1
     ; Optional: VSUB for sub-patch (e.g., V=143 + VSUB=1 -> 1.4.3.1)
-    DEFINE V 145
+    DEFINE V 146
 
 ; Platforms with esxDOS (SD card file I/O)
     IFDEF UNO
@@ -26,7 +26,7 @@
     ENDIF
 
 ; Global constants
-buffer = #C200
+buffer = #C800
 stack_top = #FFF0
 
 ; Runtime data area: uninitialized buffers placed after the SSID buffer
@@ -47,6 +47,9 @@ name? = @rt_ptr
     ; during Config.load/save, and the UNO/AY exit path reads saved_sp
     ; to return to BASIC.
     RTVAR saved_sp, 2
+    IFNDEF NEXT
+    RTVAR saved_hl_alt, 2
+    ENDIF
 
 text
     jp start
@@ -56,6 +59,10 @@ cfg_valid        db 0
 
     include "modules/display.asm"
     include "modules/wifi.asm"
+    module Display
+; Rows are composed only after getList has consumed the captured response.
+row_buffer = Wifi.scan_rx_buffer
+    endmodule
     include "modules/version.asm"    ; generates VERSION_STRING from V
     include "modules/ui.asm"
     include "modules/uart-common.asm"
@@ -215,6 +222,14 @@ splashEnd:
     ret
 
 start:
+    ; Loader IY may be invalid; UART init reenables IRQs after restoration.
+    di
+    IFNDEF NEXT
+    ; AY uses HL' internally; BASIC's USR caller needs its original value.
+    exx
+    ld (saved_hl_alt), hl
+    exx
+    ENDIF
     ; Zero printer buffer (128K/Next ROM leaves garbage that corrupts
     ; our variables stored there: log_ind_data, putLogC_coord, etc.)
     ld hl, #5B00
@@ -226,11 +241,19 @@ start:
     ; Zero RTVAR state migrated out of the printer buffer (esxDOS-safe).
     ; RTVAR space is uninitialised at boot, so do this explicitly.
     xor a
-    ld (Wifi.networks_count), a
-    ld (Wifi.is_connected), a
-    ld (Wifi.debug_log), a
+    ld hl, Wifi.connected_ssid
+    ld de, Wifi.connected_ssid + 1
+    ld (hl), a
+    ld bc, Wifi.debug_log - Wifi.connected_ssid
+    ldir
+    ld (Wifi.old_fw), a
     ld (UI.cursor_position), a
     ld (UI.offset), a
+    ld (UI.force_rescan), a
+    ld (UI.diag_cursor), a
+    ld (UI.ping_ip_len), a
+    ld (UI.async_buf_idx), a
+    ld (UI.async_buf_count), a
 
     ld (saved_sp), sp
     ld sp, stack_top
@@ -240,38 +263,11 @@ start:
     ; we EI later.
     ld iy, #5C3A
 
+    call Display.initFontCache
+
     IFDEF NEXT
-    ; Program Layer 2 first palette from splash.pal. Palette lives in its
-    ; own 8K page (SPLASH_PAL_BANK); map it briefly into slot 6 ($C000),
-    ; stream 512 bytes through NextReg $44, then restore slot 6's prior
-    ; bank. DI during the NextReg sequence to keep the select/value pair
-    ; atomic across any background IM 1 handler that might touch them.
-    di
-    ld bc, $243B
-    ld a, $56                ; MMU slot 6 mapping register
-    out (c), a
-    ld b, $25
-    in a, (c)
-    ld (.slot6Save), a
-    nextreg $56, SPLASH_PAL_BANK
-
-    nextreg $43, %00010000   ; palette select = L2 first, autoinc on
-    nextreg $40, 0           ; palette index = 0
-    ld hl, $C000
-    ld bc, 512
-.palLoop:
-    ld a, (hl)
-    nextreg $44, a           ; two writes per entry, index auto-advances
-    inc hl
-    dec bc
-    ld a, b
-    or c
-    jr nz, .palLoop
-    nextreg $43, 0           ; restore default palette select
-
-    ld a, 0
-.slot6Save = $ - 1
-    nextreg $56, a           ; restore prior slot 6 bank
+    ; The NEX loader already installed the Layer 2 palette from the file.
+    nextreg $43, 0           ; Restore default palette selection only
     ei
     ENDIF
 
@@ -301,35 +297,16 @@ start:
     ; Baud rate auto-detection: try AT at 115200, scan if no response
     ld hl, .msg_probe_esp
     call splashMsg
-    call Wifi.flushInput
-    ld hl, Wifi.S_AT : call Wifi.espSendZ
-    call Wifi.checkOkErr
+    call UartImpl.recoverBaud
     jr nc, .baudOk
-
-    ; No response at 115200 — scan common baud rates
-    ld hl, .msg_baud_scan
-    call splashMsg
-    call UartImpl.baudScan
-    jr c, .baudScanFail
-
-    ; Found ESP at wrong baud — switch to 115200 for this session only
-    ld hl, .msg_baud_fix
-    call splashMsg
-    call Wifi.flushInput
-    ld hl, .at_uart_cur : call Wifi.espSendZ
-    call Wifi.checkOkErr        ; OK at detected baud
-    call Uart.init              ; Switch local UART to 115200
-    call Wifi.flushInput
-    jr .baudOk
 
 .baudScanFail:
     ; Not found at any scanned rate — hardware ESP reset
-    ; Forces ESP back to default baud (115200)
+    ; Probe again after reset: the persisted baud may differ.
     ld hl, .msg_hw_reset
     call splashMsg
     call UartImpl.espHardReset
-    call Uart.init              ; Reinit UART at 115200
-    call Wifi.flushInput
+    jp c, .initFailed
 .baudOk:
     ENDIF
 
@@ -343,7 +320,7 @@ start:
     ; Without this, AT+CWLAP responses include the echoed command,
     ; breaking the scan parser. Must happen before any scan path.
     call Wifi.flushInput
-    ld hl, Wifi.S_ATE0 : call Wifi.espSendZ
+    ld hl, Wifi.S_ATE0 : call Wifi.espSendZ_CRLF
     call Wifi.checkOkErr
 
     ; Ensure station mode — CWMODE=2 (AP mode, e.g. after AT+RESTORE)
@@ -359,23 +336,7 @@ start:
     call Wifi.checkConnection
     jr nc, .alreadyConnected  ; CF=0 means connected
 
-    ; Fallback: some firmwares don't respond to CWJAP? but have an IP assigned.
-    ; If a valid IP exists, consider it connected.
-    call Wifi.getIP
-    jr c, .noPreconn
-    ld a, 1
-    ld (Wifi.is_connected), a
-    ld hl, Wifi.connected_ssid
-    ld a, (hl)
-    and a
-    jr nz, .alreadyConnected
-    ; Unknown SSID -> show placeholder
-    ld hl, .ssid_unknown
-    ld de, Wifi.connected_ssid
-    call UI.copyStringZ
-    jr .alreadyConnected
-
-.noPreconn
+    ; A configured IP alone does not prove station association.
     ; --- NOT CONNECTED: full initialization ---
     ld hl, .msg_init_wifi
     call splashMsg
@@ -436,7 +397,12 @@ start:
 
     call Wifi.getList
     
-    jr c, .scanTimeout     ; CF=1 -> Communication error
+    jr nc, .scanComplete
+    and a
+    jp nz, .scanCancelled  ; BREAK: stop without timeout/retry noise
+    jr .scanTimeout
+
+.scanComplete
     
     ld a, (Wifi.networks_count)
     and a
@@ -475,6 +441,10 @@ start:
     djnz .scanLoop
     
     jr .endScan
+
+.scanCancelled
+    pop bc
+    jr .showList
 
 .scanSuccess
     pop bc
@@ -524,10 +494,17 @@ start:
     ; Fall through to exit_clean
 
 .exitClean
+    call Keyboard.waitBreakRelease
     IFDEF NEXT
-        ei
-        rst 0               ; Return to NextZXOS
+        ; NEX has no preserved dot-command caller; request a soft reset.
+        di
+        nextreg #02, #01
+.resetPending
+        jr .resetPending
     ELSE
+        exx
+        ld hl, (saved_hl_alt)
+        exx
         ld sp, (saved_sp)
         ei
         ret                 ; Return to BASIC
@@ -541,43 +518,40 @@ start:
     IFDEF HAS_ESXDOS
     call Config.load
     call UI.restoreAfterFileIo
-    jr c, .emNoCfg
-    ld a, 1
-    ld (cfg_valid), a
-.emNoCfg
     ENDIF
     jp UI.init                  ; draw main UI while L2 still covering
 
 ; String constants
 .msg_checking   db "Checking...", 13, 0
-.msg_preparing  db "UART init...", 13, 0
-    IFDEF NEXT
-.msg_probe_esp  db "Probing ESP...", 13, 0
-.msg_baud_scan  db "Scanning baud rates...", 13, 0
-.msg_baud_fix   db "Setting ESP to 115200...", 13, 0
-.msg_hw_reset   db "Resetting ESP module...", 13, 0
-.at_uart_cur    db "AT+UART_CUR=115200,8,1,0,0", 13, 10, 0
-    ENDIF
-.msg_esp_config   db "Configuring ESP...", 13, 0
 .msg_query_status db "Checking WiFi status...", 13, 0
-.ssid_unknown     db "(unknown)", 0
-.msg_init_wifi  db "Initializing WiFi module...", 13, 0
-.msg_err_init   db "WiFi Init Failed", 0
-.msg_esp_timeout db "ESP not responding, retrying...", 0
-.msg_no_networks db "No networks found, retrying...", 0
-.msg_log_timeout db "Scan failed: ESP timeout", 13, 0
-.msg_log_empty   db "Scan complete: no networks", 13, 0
+.msg_init_wifi    db "Initializing WiFi module...", 13, 0
+.msg_err_init     db "Init failed", 0
+.msg_esp_timeout  db "ESP timeout", 0
+.msg_no_networks  db "No networks", 0
+.msg_log_timeout  db "Scan timeout", 13, 0
+.msg_log_empty    db "No networks", 13, 0
 
 ; Variables in printer buffer (set before use)
 ; Only boot-time scratch — no file I/O between set and read, so esxDOS
 ; clobbering is a non-issue here. saved_sp moved to RTVAR (see top of file).
 .scan_fail_reason = #5B39
 
+
 program_end:
 
     ; Build-time safety checks
+    ASSERT program_end <= #C000               ; code must stay out of paged RAM
     ASSERT program_end <= buffer              ; code must not overlap SSID buffer
     ASSERT rt_ptr <= stack_top - 64           ; runtime vars must not reach stack
+
+; Read-only data precedes the SSID buffer in the already-used data bank.
+; Executable code remains entirely in unpaged bank 2.
+    defs #C000 - $, 0
+    include "modules/font-data.asm"
+    include "modules/ui-strings.asm"
+
+static_data_end:
+    ASSERT static_data_end <= buffer
 
     IFDEF NEXT
         ; ============================================
@@ -598,21 +572,16 @@ program_end:
         MMU 6, 22, $C000 : ORG $C000 : INCBIN "splash.nxi", $8000, $2000
         MMU 6, 23, $C000 : ORG $C000 : INCBIN "splash.nxi", $A000, $2000
 
-        ; Store the Layer 2 loading screen with its final palette so the
-        ; loader shows the splash in the correct colours immediately, instead
-        ; of first using the default palette and then being recoloured at
-        ; runtime when start: uploads splash.pal.
-        SAVENEX SCREEN L2 18, 0, SPLASH_PAL_BANK, 0
-
-        ; Splash palette in its own 8K page. Runtime maps this bank into
-        ; slot 6 long enough to copy 512 bytes into the L2 first palette,
-        ; then restores the previous bank. Placed AFTER SAVENEX SCREEN L2
-        ; so NextZXOS does not try to paint it onto Layer 2.
-SPLASH_PAL_BANK = 24
-        MMU 6, SPLASH_PAL_BANK, $C000 : ORG $C000
+        ; Stage the palette before SCREEN reads it. This page is build-only;
+        ; the loader reads the 512-byte palette block directly from the NEX.
+SPLASH_PAL_PAGE = 24
+        MMU 6, SPLASH_PAL_PAGE, $C000 : ORG $C000
         INCBIN "splash.pal"
+        SAVENEX SCREEN L2 18, 0, SPLASH_PAL_PAGE, 0
 
-        SAVENEX AUTO                ; Save all modified pages
+        ; Only program and runtime-data banks belong in the resident payload.
+        ; AUTO would also duplicate the staged splash and palette banks.
+        SAVENEX BANK 2, 0
         SAVENEX CLOSE
 
     ELSE
@@ -702,13 +671,13 @@ basic_end:
         emptytap "netmanzx.tap"
         savetap "netmanzx.tap", BASIC, "netmanzx", basic_start, basic_end - basic_start, 10
         savetap "netmanzx.tap", CODE, "splash",   splash_scr, 6912, #4000
-        savetap "netmanzx.tap", CODE, "netmanzx", text, program_end - text, text
+        savetap "netmanzx.tap", CODE, "netmanzx", text, static_data_end - text, text
 
     ELSE
         ; ============================================
         ; Standard +3DOS format
         ; ============================================
-        save3dos "netmanzx.cod", text, program_end - text
+        save3dos "netmanzx.cod", text, static_data_end - text
     ENDIF
 
     ENDIF   ; NEXT

@@ -4,7 +4,7 @@
 
 **WiFi Network Manager for ZX Spectrum**
 
-[Version en espanol](READMEsp.md)
+[Versión en español](READMEsp.md)
 
 ## What is NetManZX?
 
@@ -14,11 +14,11 @@ NetManZX is a WiFi network configuration utility for ZX Spectrum computers equip
 
 NetManZX is based on the original [netman-zx](https://github.com/nihirash/netman-zx) project by **Alex Nihirash**. This version has been significantly enhanced with new features, improved reliability, and a better user experience.
 
-**Current release:** v1.4.5
+**Current release:** [v1.4.6](https://github.com/IgnacioMonge/NetManZX/releases/tag/v1.4.6)
 
 ## Screenshots
 
-*Screenshots from the v1.4.4 UI, still representative of v1.4.5. SSIDs in captures have been blurred for privacy.*
+*Screenshots from v1.4.4; some text differs in v1.4.6. SSIDs have been blurred for privacy.*
 
 | | | |
 |:---:|:---:|:---:|
@@ -32,18 +32,18 @@ NetManZX is based on the original [netman-zx](https://github.com/nihirash/netman
 ## Features
 
 ### Network Management
-- **Network Scanning**: Automatically discovers up to 25 WiFi networks using extended scan parameters (`AT+CWLAP` with 200-1500ms dwell time) for better coverage. Retry with fallback on scan failure. Sorted by signal strength
+- **Network scanning**: Discover up to 25 WiFi access points, sorted by signal strength, with retries on scan failure. Access points sharing a name remain separate; selection connects to the chosen access point
 - **Robust startup detection**: Disables ESP echo early (ATE0) to prevent scan parser failures on cold boot. Multiple scan attempts with diagnostic messages on timeout or empty results
 - **Hidden Network Support**: Manually enter SSID for networks that do not broadcast their name
 - **Smart Connection Detection**: On startup, detects if already connected to a WiFi and updates the status bar accordingly; cold boot goes straight to the main menu + first scan in all cases. If the "already connected" network is selected from the list, a detail screen shows its info with an `Already connected to this network!` warning in red
 - **Connection info screen**: Press ENTER on the already-connected network to view full connection details: IP address, gateway, netmask, and MAC address
-- **Save & Reconnect** (C key, UNO/NEXT only): Save WiFi credentials to SD card (`/SYS/CONFIG/NETMAN.CFG` on divMMC, `c:/sys/config/netman.cfg` on Next). Press C from the main menu to reconnect to the saved network with one keypress. Save prompt also appears after successful connection (S key). Saved network is highlighted in cyan in the network list
+- **Save & reconnect** (UNO/NEXT only): Store credentials on SD (`/SYS/CONFIG/NETMAN.CFG` on divMMC, `c:/sys/config/netman.cfg` on Next). C offers reconnection to the saved network; S saves after a successful connection. The saved network is highlighted in cyan
 - **Password Entry**: Full keyboard support with show/hide toggle, double-height input with cursor editing (left/right arrow keys)
-- **WPS Support**: Push-button WPS connection (W key), with a real ~60 second polling window, BREAK cancellation, and no side-effects on ESP flash (wrapped in `SYSSTORE=0` + `CWAUTOCONN=0` to prevent background autoreconnect from spoofing success)
+- **WPS support**: Push-button connection with W and cancellation with BREAK, preserving the ESP's saved automatic-connection policy
 - **Disconnect Option**: Disconnect from current network with confirmation dialog, without exiting the application
 - **Real-time Status Monitoring**: Automatically detects connection drops and reconnections via async ESP event parsing
 - **Connection failure diagnostics**: Specific error messages for connection failures: wrong password, AP not found, timeout, or connection refused
-- **BREAK cancellation**: Near-instant cancellation (~5ms response) during any AT command or connection attempt
+- **BREAK cancellation**: Cancel connection attempts and AT operations. Response time depends on the hardware and operation
 
 ### Diagnostics Menu
 1. **Ping test** - Test connectivity with configurable target IP (default: 8.8.8.8)
@@ -55,8 +55,8 @@ NetManZX is based on the original [netman-zx](https://github.com/nihirash/netman
 7. **Config summary** - View all current WiFi settings at a glance (SSID, IP, MAC, hostname, firmware, saved network, app version)
 
 ### User Interface
-- **Double-height rendering**: Banner, status bar, input fields, and messages all rendered in flicker-free double-height text using a custom pixel-level renderer
-- **Network Detail screen**: Detail view shows SSID (double-height), security type, WiFi channel with band indicator (2.4/5 GHz), and signal strength bars before prompting for password
+- **Double-height text**: Large banner, status, input and message text, with smoother network-list updates
+- **Network detail screen**: View the network name, security, channel and signal strength before connecting
 - **Connection progress screen**: "Connecting to..." shows the SSID in double-height yellow text with attempt counter
 - **Rainbow badge**: Decorative dither-triangle with color transitions on the banner
 - **8-level RSSI signal bars**: Visual WiFi signal strength indicator for each network, with custom lock/open circle glyphs
@@ -65,12 +65,12 @@ NetManZX is based on the original [netman-zx](https://github.com/nihirash/netman
 - **Audible key click**: Clear audible feedback on every keypress during text input
 
 ### Other
-- **Boot splash screen**: Logo painted before the main UI. On Spectrum Next, a 48 KB Layer 2 image with a custom 9-bit palette is loaded by the NEX loader; ULA row 20 displays init status messages (`Configuring ESP...`, `Scanning baud rates...`, etc.) under a Layer 2 clip window. On UNO / AY, a 6912 B SCR logo is loaded from the TAP before the code, with the BASIC `Bytes: ...` messages suppressed for a clean load
+- **Boot splash screen**: A loading logo on every target, with a colour Layer 2 image on Next. Descriptive startup messages report WiFi initialization and recovery
 - **About screen** (I key): Shows version, build date, author, GitHub URL, and license
-- **UART Debug Log**: Toggle live UART log display with L key (works globally). Red indicator dot in log area when active
-- **Compressed font**: Built-in nibble-packed font system (no external font.bin dependency)
+- **UART debug log**: Toggle with L; a red indicator marks when enabled. Command logs are displayed after the exchange, with a notice when output is truncated
+- **Built-in font**: Compact six-pixel-wide text with no external font file required when running the program
 - **Three UART backends**: Supports ZX-Uno, AY-UART (ZX-Badaloc), and ZX Spectrum Next hardware
-- **Baud rate auto-detection** (Next only): Scans common baud rates (1152000, 2000000, 9600, 57600) if ESP doesn't respond at 115200, and sets 115200 for the current session via `AT+UART_CUR` (does not modify ESP flash). Falls back to hardware ESP reset if no known rate matches. Handles NextSync/NextSync-fast leftovers, factory ESPs, and user misconfigurations with zero overhead on normal boot
+- **Baud rate auto-detection** (Next only): Try 1152000, 2000000, 9600 and 57600 baud if the ESP does not respond at 115200. Restore 115200 for the session without changing the saved baud rate; reset the ESP if recovery requires it
 - **NEX format** (Next only): Native `.nex` binary for direct launch without mode selection menu
 - **Build date**: Automatically embedded at assembly time via Lua
 
@@ -108,6 +108,8 @@ make all
 
 ### Output Files
 
+Build outputs are placed in `build/`. Ready-to-load binaries are available in [GitHub releases](https://github.com/IgnacioMonge/NetManZX/releases).
+
 | Target | File | Description |
 |--------|------|-------------|
 | UNO | `netmanzx-uno.tap` | ZX-Uno / DivMMC |
@@ -120,7 +122,7 @@ make all
 Simply load the TAP file - the BASIC loader will auto-run and load the program automatically.
 
 **NEX (Next):**
-Copy `netmanzx-next.nex` to your SD card and run it directly from the file browser or command line (`.netmanzx-next`).
+Copy `netmanzx-next.nex` to your SD card and launch it from the Next file browser.
 
 ## Usage
 
@@ -129,7 +131,7 @@ Copy `netmanzx-next.nex` to your SD card and run it directly from the file brows
 3. **Navigate** using cursor keys (up/down) or Q/A, O/P for page up/down
 4. **Select a network** with ENTER - a detail screen shows security, channel, and signal
 5. **Enter password** (if required) - use UP arrow to toggle password visibility
-6. **Wait for connection** - BREAK cancels immediately, detailed error messages on failure
+6. **Wait for connection** — BREAK cancels; failures show a reason
 7. **Access diagnostics** by pressing D from the network list
 
 ### Key Controls
@@ -139,32 +141,24 @@ Copy `netmanzx-next.nex` to your SD card and run it directly from the file brows
 | Up/Down or Q/A | Navigate network list |
 | O/P | Page Up/Down |
 | ENTER | Select network / Confirm |
-| BREAK | Cancel / Back (instant response) |
+| BREAK | Cancel / Back; quit from the main menu |
 | H | Connect to hidden network (manual SSID entry) |
 | X | Disconnect from current network |
 | D | Diagnostics menu |
 | R | Rescan networks |
 | L | Toggle UART debug log |
 | W | WPS push-button connect |
-| C | Save config / Reconnect (UNO/NEXT) |
+| C | Reconnect to the saved network (UNO/NEXT) |
 | S | Save credentials after connection (UNO/NEXT) |
 | I | About screen |
 
-There is no "exit program" key — the program is a standalone tool, not a TSR. To leave, reset the machine.
+From the main menu, BREAK returns to BASIC on UNO/AY. On Next it restarts the machine; it does not restore the previous NextZXOS session.
 
-### Connection Robustness
+### Connection recovery
 
-- **BREAK Detection**: BREAK key checked every ~5ms during AT commands for near-instant cancellation. Dedicated "Cancelled" screen with debounce
-- **Automatic WiFi Drop Detection**: Asynchronous ESP event parsing detects unexpected disconnections instantly
-- **Idle Connection Health Check**: Periodic AT-based link validation with debounce (3 consecutive failures required before declaring disconnection)
-- **UART Busy Protection**: Mutex-style guard prevents background async parsing from interfering during critical operations
-- **SD-card file I/O safety**: State used after config load/save is kept outside the esxDOS printer-buffer scratch area, and volatile UI/UART state is rearmed after every file operation
-- **Bounded UART flushes**: UART drain loops have hard byte caps, so continuous ESP noise cannot trap the UI in an endless flush
-- **UART Register Safety**: All three UART backends (UNO, AY, Next) preserve caller registers during write operations
-- **IP Retry on Connect**: 3 attempts with 1-second intervals after successful WiFi association
-- **Automatic State Recovery**: On link loss, UI transitions to Disconnected and schedules a safe rescan. Auto-rescan preserves previous network list on scan failure
-- **Bounded Buffer Searches**: All CPIR-based string searches bounded to actual buffer sizes
-- **Baud Rate Auto-Detection** (Next only): Scans 1152000, 2000000, 9600, 57600 baud if ESP doesn't respond at 115200. Sets 115200 for the session via `AT+UART_CUR`. Hardware ESP reset as fallback
+NetManZX monitors ESP connection events and periodically checks the link. Scans and connection commands temporarily pause navigation; BREAK response varies with the UART backend. A background scan discards pending input on completion, but a held key can still repeat.
+
+Next can recover common baud-rate mismatches automatically. On UNO/AY, check the module's baud rate and interface setup if startup cannot communicate with the ESP.
 
 ## Version History
 

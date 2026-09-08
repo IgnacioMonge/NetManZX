@@ -78,6 +78,7 @@ setSpeed:
 
 
 write:
+    ; One bit-banged byte must be IRQ-atomic; EI below runs between bytes.
     di
     push hl, de, bc
     push af
@@ -149,11 +150,6 @@ uartRead:
     ret
 startReadByte:
     di
-    ; Brief red border pulse (waiting)
-    ld a, 2
-    out (#fe), a    ; Red border
-    xor a
-    out (#fe), a    ; Black border immediately
 
     xor a
     exx
@@ -195,11 +191,12 @@ startBitFound:
     and #80
     jr nz, readTimeOut
 
-    ; Brief cyan border pulse (reading)
-    ld a, 5
-    out (#fe), a    ; Cyan border
-    xor a
-    out (#fe), a    ; Black border immediately
+    ; Preserve the former 33T phase delay without touching ULA port #FE.
+    push af
+    pop af
+    nop
+    nop
+    nop
 
     in a, (c)
     and #80

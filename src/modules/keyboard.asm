@@ -22,6 +22,13 @@ checkBreak:
     ld (BASIC_KEY), a
     ret                     ; A=0, Z=1
 
+; Prevent a held cancellation chord from acting on the next screen.
+waitBreakRelease:
+    call checkBreak
+    ret nz
+    halt
+    jr waitBreakRelease
+
 ; Blocking read - waits until a key is available (sync 50Hz)
 inKey:
     halt
