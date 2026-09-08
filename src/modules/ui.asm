@@ -1446,8 +1446,8 @@ uiLoopMain:
     cp 'O' : jp z, pageUp
     cp 'p' : jp z, pageDown
     cp 'P' : jp z, pageDown
-    cp Keyboard.KEY_LEFT  : jp z, goFirstNetwork
-    cp Keyboard.KEY_RIGHT : jp z, goLastNetwork
+    cp Keyboard.KEY_LEFT  : jp z, pageUp
+    cp Keyboard.KEY_RIGHT : jp z, pageDown
 
     cp 'r' : jp z, rescan
     cp 'R' : jp z, rescan
@@ -1533,7 +1533,8 @@ rescan:
     call hideCursor
     xor a : ld (cursor_position), a : ld (offset), a
     
-    ; Show "Scanning..." on line 17, col 0
+    ; Remove the old count/page text before showing the shorter scan message.
+    ld a, 17 : call clearRowPixels
     ld a, 17 : ld hl, .scanning_msg : call printAt0
     
     call Wifi.getList
@@ -2417,58 +2418,11 @@ pageDown:
     add a, PER_PAGE
     ld hl, Wifi.networks_count
     cp (hl)
-    jr nc, goLastNetwork        ; No full page, go to last
+    jr nc, .atEnd               ; Keep the final partial page in place.
     jp renderPageFromOffsetTop
-
-; Go to first network (LEFT arrow)
-goFirstNetwork:
-    call hideCursor
-    ld a, (offset)
-    and a
-    jr z, .atFirst
-    xor a
-    jp renderPageFromOffsetTop
-.atFirst:
-    xor a
-    ld (cursor_position), a
+.atEnd
     call showCursor
     jp uiLoop
-
-; Go to last network (RIGHT arrow, also used by pageDown overflow)
-goLastNetwork:
-    call hideCursor
-    ld a, (Wifi.networks_count)
-    and a
-    jp z, uiLoop                ; No networks
-    dec a                       ; Last network (index)
-    ld b, a                     ; B = last_index
-
-    ld a, (offset)
-    ld c, a                     ; C = current offset
-    ld a, b
-    sub c                       ; A = last_index - offset
-    jr c, .needRepaint          ; (safety) last_index < offset
-    cp PER_PAGE
-    jr nc, .needRepaint         ; last_index outside current page -> repaint
-
-    ld (cursor_position), a     ; cursor_position = last_index - offset
-    call showCursor
-    jp uiLoop
-
-.needRepaint
-    ; Calculate offset so last network is visible
-    ld a, b
-    sub PER_PAGE - 1
-    jr nc, .setOffset
-    xor a                       ; If fewer than PER_PAGE networks, offset=0
-.setOffset
-    ld (offset), a
-    ; cursor_position = index - offset
-    ld a, b
-    ld hl, offset
-    sub (hl)
-    ld (cursor_position), a
-    jp renderPageAndLoop
 
 ; Page Up - jump one full page
 pageUp:

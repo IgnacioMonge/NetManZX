@@ -27,6 +27,21 @@ def check(image, symbols, target):
     del target
     run = Run(image, symbols)
 
+    # Manual scan replaces the entire count/page row before waiting for WiFi.
+    expected = Run(image, symbols)
+    expected.m.a = 17
+    expected.m.hl = symbols["UI.msg_ip_scanning"]
+    expected.call("UI.printAt0")
+    for count in (8, 14, 25):
+        actual = Run(image, symbols)
+        actual.put("Wifi.networks_count", count)
+        actual.call("UI.showPageInfo")
+        actual.hook("UI.hideCursor")
+        actual.call("UI.rescan", "Wifi.getList")
+        for scanline in range(8):
+            address = _pixel_addr(17, scanline)
+            assert bytes(actual.m.memory[address:address + 32]) == bytes(expected.m.memory[address:address + 32]), "manual scan leaves old count/page pixels"
+
     cache = symbols["Display.font_cache"]
     glyph_buf = symbols["Display.glyph_buf"]
 

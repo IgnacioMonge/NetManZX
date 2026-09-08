@@ -6,6 +6,23 @@ from audit_regression import Run
 def check(image, s, target):
     new = lambda: Run(image, s)
 
+    # Horizontal arrows share O/P paging; every page starts on a ten-row boundary.
+    dispatch = image[s['UI.uiLoopMain'] - 0x8000:s['UI.rescan'] - 0x8000]
+    for key, routine in (('KEY_LEFT', 'pageUp'), ('KEY_RIGHT', 'pageDown')):
+        assert bytes((0xFE, s['Keyboard.' + key], 0xCA)) + s['UI.' + routine].to_bytes(2, 'little') in dispatch
+    for count in range(26):
+        for offset in range(0, max(count, 1), 10):
+            for routine, expected in (('pageDown', offset + 10 if offset + 10 < count else offset),
+                                      ('pageUp', max(0, offset - 10))):
+                r = new()
+                r.put('Wifi.networks_count', count)
+                r.put('UI.offset', offset)
+                for name in ('UI.hideCursor', 'UI.showCursor', 'UI.renderListOnly'):
+                    r.hook(name)
+                r.call('UI.' + routine, 'UI.uiLoop')
+                assert r.get('UI.offset') == expected, (count, offset, routine)
+                assert r.get('UI.cursor_position') == 0
+
     # Both auto-scan outcomes discard input captured against the old list.
     for failed in (False, True):
         r = new()

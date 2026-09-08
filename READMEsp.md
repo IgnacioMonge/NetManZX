@@ -158,7 +158,7 @@ Copia `netmanzx-next.nex` a la tarjeta SD y ejecútalo desde el navegador de arc
 | Tecla | Accion |
 |-------|--------|
 | Arriba/Abajo o Q/A | Navegar lista de redes |
-| O/P | Pagina Arriba/Abajo |
+| Izquierda/Derecha u O/P | Página anterior/siguiente |
 | ENTER | Seleccionar red / Confirmar |
 | BREAK | Cancelar / Volver; salir desde el menú principal |
 | H | Conectar a red oculta (introducir SSID manualmente) |

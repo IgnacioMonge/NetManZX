@@ -158,7 +158,7 @@ Copy `netmanzx-next.nex` to your SD card and launch it from the Next file browse
 | Key | Action |
 |-----|--------|
 | Up/Down or Q/A | Navigate network list |
-| O/P | Page Up/Down |
+| Left/Right or O/P | Previous/next page |
 | ENTER | Select network / Confirm |
 | BREAK | Cancel / Back; quit from the main menu |
 | H | Connect to hidden network (manual SSID entry) |

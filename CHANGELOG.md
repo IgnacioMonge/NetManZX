@@ -2,23 +2,17 @@
 
 ## [Unreleased]
 
-### Added
-
-- ZXESPEmu launcher for the Spectrum Next edition, with the Next machine and UART bridge selected automatically.
-
-### Changed
-
-- English and Spanish guides now open with release highlights and a contents index, with downloads and setup before detailed features.
-
 ## [v1.4.6] - 2026-09-08
 
 ### Added
 
+- ZXESPEmu launcher for the Spectrum Next edition, with the Next machine and UART bridge selected automatically.
 - Quit with BREAK from the main menu: return to BASIC on UNO/AY, or restart the Spectrum Next. BREAK still cancels or goes back on other screens.
 - Select individual access points when several share the same network name. Duplicate scan entries for the same access point are removed; manual and saved connections still use the network name.
 
 ### Changed
 
+- English and Spanish guides now open with release highlights and a contents index, with downloads and setup before detailed features.
 - Smoother network-list updates, with unchanged rows left in place.
 - More descriptive startup messages on Spectrum Next, including WiFi detection and recovery progress.
 - Smaller Spectrum Next download: the NEX file is 82,944 bytes, down from 132,096 bytes (37% smaller), retaining the loading screen.
@@ -26,6 +20,8 @@
 
 ### Fixed
 
+- Left/right arrows now move one page, like O/P. The last page shows only the remaining networks instead of repeating entries from the previous page.
+- Manual rescan clears the previous network count and pagination before displaying "Scanning...", preventing overlapping text.
 - More reliable network scans and handling of escaped network names. Invalid or damaged scan responses are rejected, and a network missing from a rescan no longer implies disconnection.
 - Pending keystrokes collected during an automatic scan no longer act on the reordered list when the scan finishes or fails. A continuously held key can still repeat.
 - Reconnection can proceed when the ESP explicitly rejects a preliminary disconnect. Timeouts, UART faults and cancellation still stop the attempt, with more accurate failure reporting.

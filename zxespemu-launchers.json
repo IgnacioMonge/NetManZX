@@ -1,16 +1,19 @@
 {
   "schema": 2,
   "owner": "netmanzx",
-  "version": "1.4.6",
+  "version": "1.4.6+ui.1",
   "launchers": [
     {
       "name": "NetManZX Next",
       "bundle_id": "org.ignaciomonge.netmanzx.next",
       "runtime": "zesarux",
       "arguments": [
-        "--program", "artifact",
-        "--model", "next",
-        "--artifact", "./build/netmanzx-next.nex",
+        "--program",
+        "artifact",
+        "--model",
+        "next",
+        "--artifact",
+        "./build/netmanzx-next.nex",
         "--require-uart"
       ],
       "icon": "./images/netmanzxlogo-white.png"
