@@ -6,13 +6,11 @@
 
 ### Added
 
-- ZXESPEmu launcher for the Spectrum Next edition, with the Next machine and UART bridge selected automatically.
 - Quit with BREAK from the main menu: return to BASIC on UNO/AY, or restart the Spectrum Next. BREAK still cancels or goes back on other screens.
 - Select individual access points when several share the same network name. Duplicate scan entries for the same access point are removed; manual and saved connections still use the network name.
 
 ### Changed
 
-- English and Spanish guides now open with release highlights and a contents index, with downloads and setup before detailed features.
 - Smoother network-list updates, with unchanged rows left in place.
 - More descriptive startup messages on Spectrum Next, including WiFi detection and recovery progress.
 - Smaller Spectrum Next download: the NEX file is 82,944 bytes, down from 132,096 bytes (37% smaller), retaining the loading screen.
