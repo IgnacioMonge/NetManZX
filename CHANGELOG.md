@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- ZXESPEmu launcher for the Spectrum Next edition, with the Next machine and UART bridge selected automatically.
+
 ### Changed
 
 - English and Spanish guides now open with release highlights and a contents index, with downloads and setup before detailed features.
