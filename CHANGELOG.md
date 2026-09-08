@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- English and Spanish guides now open with release highlights and a contents index, with downloads and setup before detailed features.
+
 ## [v1.4.6] - 2026-09-08
 
 ### Added

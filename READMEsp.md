@@ -1,22 +1,97 @@
-![NetManZX Banner](images/netmanzxlogo-white.png)
+<p align="center">
+  <img src="images/netmanzxlogo-white.png" alt="NetManZX" width="520">
+</p>
 
 # NetManZX
 
-**Gestor de Redes WiFi para ZX Spectrum**
+<p align="center">
+  <strong>Gestor de redes WiFi para ZX Spectrum</strong><br>
+  ZX-Uno / divMMC · AY-UART / ZX-Badaloc · ZX Spectrum Next
+</p>
 
-[English version](README.md)
+<p align="center">
+  <a href="README.md">English</a> ·
+  <a href="https://github.com/IgnacioMonge/NetManZX/releases/tag/v1.4.6">Descargar v1.4.6</a> ·
+  <a href="CHANGELOG.md">Historial de cambios</a>
+</p>
 
-## Que es NetManZX?
+---
 
-NetManZX es una utilidad de configuracion de redes WiFi para ordenadores ZX Spectrum equipados con modulos WiFi basados en ESP8266. Soporta sistemas basados en divMMC (como DivTIESUS, ZX-Badaloc o similares), ZX-Uno y ZX Spectrum Next. Proporciona una interfaz amigable para escanear, seleccionar y conectarse a redes inalambricas directamente desde tu Spectrum.
+Escanea redes WiFi, conecta tu Spectrum y comprueba el enlace desde una sola aplicación. NetManZX utiliza un módulo ESP8266 conectado mediante una interfaz compatible con ZX-Uno, AY-UART o Spectrum Next.
 
-## Origen
+## Qué ofrece NetManZX
 
-NetManZX esta basado en el proyecto original [netman-zx](https://github.com/nihirash/netman-zx) de **Alex Nihirash**. Esta version ha sido significativamente mejorada con nuevas funcionalidades, mayor fiabilidad y mejor experiencia de usuario.
+| | |
+| --- | --- |
+| **Redes** | Hasta 25 puntos de acceso, ordenados por señal; conexión manual a redes ocultas |
+| **Conexión** | Contraseña, WPS y reconexión a credenciales guardadas en SD en UNO/Next |
+| **Diagnósticos** | Ping, firmware, IP/MAC, baudios, IP estática, hostname y resumen de configuración |
+| **Interfaz** | Texto en doble altura, barras de señal, indicadores de desplazamiento y log UART |
+| **Distribución** | TAP para UNO/AY; un único NEX para Spectrum Next |
 
-**Versión actual:** [v1.4.6](https://github.com/IgnacioMonge/NetManZX/releases/tag/v1.4.6)
+## Novedades de la versión 1.4.6
 
-## Capturas de Pantalla
+- **Elige el punto de acceso:** las redes con el mismo nombre permanecen separadas y la selección conecta al punto elegido.
+- **Navegación más suave:** se evitan redibujados innecesarios y las teclas acumuladas durante un escaneo automático se descartan al terminar.
+- **Conexiones más fiables:** mejoras en escaneo, reconexión, recuperación UART, WPS y cancelación con BREAK.
+- **Next más compacto y claro:** archivo NEX un 37% menor, con la pantalla de carga y mensajes de arranque más descriptivos.
+- **Salida desde el menú:** BREAK vuelve a BASIC en UNO/AY y reinicia la máquina en Next; en otras pantallas sigue cancelando o volviendo atrás.
+- **Guardado y diagnósticos más seguros:** mejor tratamiento de fallos al guardar credenciales y correcciones en la información y los campos de texto.
+
+Consulta el [CHANGELOG](CHANGELOG.md#v146---2026-09-08) para ver todos los cambios de esta versión.
+
+## Índice
+
+- [Novedades de la versión 1.4.6](#novedades-de-la-versión-146)
+- [Plataformas y requisitos](#plataformas-y-requisitos)
+- [Descarga](#descarga)
+- [Instalación](#instalación)
+- [Inicio rápido](#inicio-rápido)
+- [Galería](#galería)
+- [Funciones](#funciones)
+- [Controles](#controles)
+- [Recuperación de la conexión](#recuperación-de-la-conexión)
+- [Compilar desde el código fuente](#compilar-desde-el-código-fuente)
+- [Créditos y licencia](#créditos-y-licencia)
+
+## Plataformas y requisitos
+
+- ZX Spectrum (48K o superior) o compatible
+- Modulo WiFi basado en ESP8266:
+  - **ZX-Uno**: UART integrado (target por defecto)
+  - **AY-UART**: ZX-Badaloc o implementaciones similares bit-banged AY-3-8912
+  - **ZX Spectrum Next**: UART hardware con FIFO
+- Metodo de carga compatible con TAP (divMMC, esxDOS, emulador, o tap2wav para cinta)
+
+## Descarga
+
+Descarga los binarios listos para cargar de la [versión 1.4.6](https://github.com/IgnacioMonge/NetManZX/releases/tag/v1.4.6). Elige el archivo para tu interfaz:
+
+| Target | Archivo | Descripcion |
+|--------|---------|-------------|
+| UNO | `netmanzx-uno.tap` | ZX-Uno / DivMMC |
+| AY | `netmanzx-ay.tap` | AY-UART / ZX-Badaloc |
+| NEXT | `netmanzx-next.nex` | ZX Spectrum Next (NEX nativo) |
+
+## Instalación
+
+**TAP (cinta/emuladores):**
+Simplemente carga el archivo TAP - el cargador BASIC se ejecutara automaticamente y cargara el programa.
+
+**NEX (Next):**
+Copia `netmanzx-next.nex` a la tarjeta SD y ejecútalo desde el navegador de archivos del Next.
+
+## Inicio rápido
+
+1. **Carga el programa** en tu Spectrum
+2. **Espera al escaneo de redes** - las redes disponibles apareceran en una lista
+3. **Navega** usando las teclas de cursor (arriba/abajo) o Q/A, O/P para pagina arriba/abajo
+4. **Selecciona una red** con ENTER - una pantalla de detalle muestra seguridad, canal y senal
+5. **Introduce la contrasena** (si es necesaria) - usa flecha arriba para mostrar/ocultar contrasena
+6. **Espera a la conexión** — BREAK cancela; los fallos muestran su motivo
+7. **Accede a diagnosticos** pulsando D desde la lista de redes
+
+## Galería
 
 *Capturas de v1.4.4; algunos textos difieren en v1.4.6. Los SSID están difuminados por privacidad.*
 
@@ -29,9 +104,10 @@ NetManZX esta basado en el proyecto original [netman-zx](https://github.com/nihi
 | [![UART baud rate](images/1.4.4/release/08_uart_baud.png)](images/1.4.4/release/08_uart_baud.png) | [![Resumen de configuracion](images/1.4.4/release/09_config_summary.png)](images/1.4.4/release/09_config_summary.png) | [![Acerca de](images/1.4.4/release/11_about.png)](images/1.4.4/release/11_about.png) |
 | *Velocidad UART (actual / por defecto)* | *Resumen de configuracion* | *Pantalla Acerca de* |
 
-## Caracteristicas
+## Funciones
 
 ### Gestion de Redes
+
 - **Escaneo de redes**: Descubre hasta 25 puntos de acceso WiFi, ordenados por señal, con reintentos si falla el escaneo. Los puntos de acceso con el mismo nombre permanecen separados; la selección conecta al punto elegido
 - **Deteccion robusta al inicio**: Desactiva el echo del ESP (ATE0) antes del primer escaneo para prevenir fallos del parser. Multiples intentos de escaneo con mensajes diagnosticos en caso de timeout o resultados vacios
 - **Soporte de Redes Ocultas**: Introduce manualmente el SSID de redes que no emiten su nombre
@@ -46,6 +122,7 @@ NetManZX esta basado en el proyecto original [netman-zx](https://github.com/nihi
 - **Cancelación con BREAK**: Cancela intentos de conexión y operaciones AT. El tiempo de respuesta depende del hardware y de la operación
 
 ### Menu de Diagnosticos
+
 1. **Ping test** - Probar conectividad con IP configurable (por defecto: 8.8.8.8)
 2. **Module info** - Mostrar version del firmware del ESP8266 y conjunto de comandos AT
 3. **Network info** - Mostrar direccion IP y direccion MAC actual
@@ -55,6 +132,7 @@ NetManZX esta basado en el proyecto original [netman-zx](https://github.com/nihi
 7. **Config summary** - Ver todos los ajustes WiFi actuales de un vistazo (SSID, IP, MAC, hostname, firmware, red guardada, version de la app)
 
 ### Interfaz de Usuario
+
 - **Texto en doble altura**: Banner, estado, entradas y mensajes grandes, con actualizaciones más suaves de la lista de redes
 - **Detalle de red**: Consulta el nombre, la seguridad, el canal y la señal antes de conectar
 - **Pantalla de conexion**: "Connecting to..." muestra el SSID en doble altura amarillo con contador de intentos
@@ -65,6 +143,7 @@ NetManZX esta basado en el proyecto original [netman-zx](https://github.com/nihi
 - **Click de tecla audible**: Feedback sonoro claro en cada pulsacion durante la entrada de texto
 
 ### Otros
+
 - **Pantalla de arranque**: Logo de carga en todos los equipos, con imagen en color Layer 2 en Next. Los mensajes descriptivos informan de la inicialización y recuperación del WiFi
 - **Pantalla Acerca de** (tecla I): Muestra version, fecha de compilacion, autor, URL de GitHub y licencia
 - **Log UART**: Se activa con L; un indicador rojo muestra su estado. Los comandos se registran en pantalla al terminar el intercambio, con un aviso si el texto queda truncado
@@ -74,16 +153,33 @@ NetManZX esta basado en el proyecto original [netman-zx](https://github.com/nihi
 - **Formato NEX** (solo Next): Binario nativo `.nex` para arranque directo sin menu de seleccion de modo
 - **Fecha de compilacion**: Incrustada automaticamente en tiempo de ensamblado via Lua
 
-## Requisitos
+## Controles
 
-- ZX Spectrum (48K o superior) o compatible
-- Modulo WiFi basado en ESP8266:
-  - **ZX-Uno**: UART integrado (target por defecto)
-  - **AY-UART**: ZX-Badaloc o implementaciones similares bit-banged AY-3-8912
-  - **ZX Spectrum Next**: UART hardware con FIFO
-- Metodo de carga compatible con TAP (divMMC, esxDOS, emulador, o tap2wav para cinta)
+| Tecla | Accion |
+|-------|--------|
+| Arriba/Abajo o Q/A | Navegar lista de redes |
+| O/P | Pagina Arriba/Abajo |
+| ENTER | Seleccionar red / Confirmar |
+| BREAK | Cancelar / Volver; salir desde el menú principal |
+| H | Conectar a red oculta (introducir SSID manualmente) |
+| X | Desconectar de la red actual |
+| D | Menu de diagnosticos |
+| R | Reescanear redes |
+| L | Alternar log de depuracion UART |
+| W | Conexion WPS por pulsacion |
+| C | Reconectar a la red guardada (UNO/NEXT) |
+| S | Guardar credenciales tras conexion exitosa (UNO/NEXT) |
+| I | Pantalla Acerca de |
 
-## Compilacion
+Desde el menú principal, BREAK vuelve a BASIC en UNO/AY. En Next reinicia la máquina; no restaura la sesión anterior de NextZXOS.
+
+## Recuperación de la conexión
+
+NetManZX supervisa los eventos del ESP y comprueba periódicamente el enlace. Los escaneos y comandos de conexión pausan temporalmente la navegación; la respuesta a BREAK varía según el controlador UART. El escaneo automático descarta la entrada pendiente al terminar, pero una tecla mantenida puede repetirse.
+
+Next puede recuperar automáticamente desajustes habituales de baudios. En UNO/AY, comprueba la velocidad del módulo y la configuración de la interfaz si el arranque no consigue comunicarse con el ESP.
+
+## Compilar desde el código fuente
 
 ### Prerrequisitos
 
@@ -106,75 +202,16 @@ make next
 make all
 ```
 
-### Archivos de Salida
 
-Los archivos compilados se guardan en `build/`. Los binarios listos para cargar están en las [releases de GitHub](https://github.com/IgnacioMonge/NetManZX/releases).
 
-| Target | Archivo | Descripcion |
-|--------|---------|-------------|
-| UNO | `netmanzx-uno.tap` | ZX-Uno / DivMMC |
-| AY | `netmanzx-ay.tap` | AY-UART / ZX-Badaloc |
-| NEXT | `netmanzx-next.nex` | ZX Spectrum Next (NEX nativo) |
+Los archivos compilados se guardan en `build/`.
 
-### Carga
+## Créditos y licencia
 
-**TAP (cinta/emuladores):**
-Simplemente carga el archivo TAP - el cargador BASIC se ejecutara automaticamente y cargara el programa.
+NetManZX está basado en [netman-zx](https://github.com/nihirash/netman-zx), de **Alex Nihirash**.
 
-**NEX (Next):**
-Copia `netmanzx-next.nex` a la tarjeta SD y ejecútalo desde el navegador de archivos del Next.
+Mejoras de NetManZX: **M. Ignacio Monge Garcia — 2025–2026**.
 
-## Uso
+Distribuido bajo la [licencia MIT](LICENSE). Consulta el [CHANGELOG](CHANGELOG.md) para el historial de versiones.
 
-1. **Carga el programa** en tu Spectrum
-2. **Espera al escaneo de redes** - las redes disponibles apareceran en una lista
-3. **Navega** usando las teclas de cursor (arriba/abajo) o Q/A, O/P para pagina arriba/abajo
-4. **Selecciona una red** con ENTER - una pantalla de detalle muestra seguridad, canal y senal
-5. **Introduce la contrasena** (si es necesaria) - usa flecha arriba para mostrar/ocultar contrasena
-6. **Espera a la conexión** — BREAK cancela; los fallos muestran su motivo
-7. **Accede a diagnosticos** pulsando D desde la lista de redes
-
-### Controles
-
-| Tecla | Accion |
-|-------|--------|
-| Arriba/Abajo o Q/A | Navegar lista de redes |
-| O/P | Pagina Arriba/Abajo |
-| ENTER | Seleccionar red / Confirmar |
-| BREAK | Cancelar / Volver; salir desde el menú principal |
-| H | Conectar a red oculta (introducir SSID manualmente) |
-| X | Desconectar de la red actual |
-| D | Menu de diagnosticos |
-| R | Reescanear redes |
-| L | Alternar log de depuracion UART |
-| W | Conexion WPS por pulsacion |
-| C | Reconectar a la red guardada (UNO/NEXT) |
-| S | Guardar credenciales tras conexion exitosa (UNO/NEXT) |
-| I | Pantalla Acerca de |
-
-Desde el menú principal, BREAK vuelve a BASIC en UNO/AY. En Next reinicia la máquina; no restaura la sesión anterior de NextZXOS.
-
-### Recuperación de la conexión
-
-NetManZX supervisa los eventos del ESP y comprueba periódicamente el enlace. Los escaneos y comandos de conexión pausan temporalmente la navegación; la respuesta a BREAK varía según el controlador UART. El escaneo automático descarta la entrada pendiente al terminar, pero una tecla mantenida puede repetirse.
-
-Next puede recuperar automáticamente desajustes habituales de baudios. En UNO/AY, comprueba la velocidad del módulo y la configuración de la interfaz si el arranque no consigue comunicarse con el ESP.
-
-## Historial de Versiones
-
-Ver [CHANGELOG.md](CHANGELOG.md) para el historial detallado de versiones.
-
-## Licencia
-
-Licencia MIT. Ver [LICENSE](LICENSE) para mas detalles.
-
-Basado en el trabajo original de Alex Nihirash.
-
-## Copyright
-
-- netman-zx original: **Alex Nihirash** (https://github.com/nihirash)
-- Mejoras de NetManZX: **M. Ignacio Monge Garcia** (2025-2026)
-
----
-
-*Hecho con amor para la comunidad del ZX Spectrum*
+*Hecho con amor para la comunidad del ZX Spectrum.*
