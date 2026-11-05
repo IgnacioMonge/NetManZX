@@ -111,51 +111,14 @@ Copy `netmanzx-next.nex` to your SD card and launch it from the Next file browse
 
 ## Features
 
-### Network Management
-
-- **Network scanning**: Retain the 50 strongest WiFi access points, sorted by signal strength, with retries on scan failure. Access points sharing a name remain separate; selection connects to the chosen access point
-- **Startup detection**: Checks the WiFi module and reports initialization, recovery and scan problems
-- **Hidden Network Support**: Manually enter SSID for networks that do not broadcast their name
-- **Smart Connection Detection**: On startup, detects if already connected to a WiFi and updates the status bar accordingly; cold boot goes straight to the main menu + first scan in all cases. If the "already connected" network is selected from the list, a detail screen shows its info with an `Already connected to this network!` warning in red
-- **Connection info screen**: Press ENTER on the already-connected network to view full connection details: IP address, gateway, netmask, and MAC address
-- **Save & reconnect** (UNO/NEXT only): Store credentials on SD (`/SYS/CONFIG/NETMAN.CFG` on divMMC, `c:/sys/config/netman.cfg` on Next). C offers reconnection to the saved network; S saves after a successful connection. The saved network is highlighted in cyan
-- **Password Entry**: Full keyboard support with show/hide toggle, double-height input with cursor editing (left/right arrow keys)
-- **WPS support**: Push-button connection with W and cancellation with BREAK, preserving the ESP's saved automatic-connection policy
-- **Disconnect Option**: Disconnect from current network with confirmation dialog, without exiting the application
-- **Real-time Status Monitoring**: Automatically detects connection drops and reconnections via async ESP event parsing
-- **Connection failure diagnostics**: Specific error messages for connection failures: wrong password, AP not found, timeout, or connection refused
-- **BREAK cancellation**: Cancel connection attempts and AT operations. Response time depends on the hardware and operation
-
-### Diagnostics Menu
-
-1. **Ping test** - Test connectivity with configurable target IP (default: 8.8.8.8)
-2. **Module info** - Display ESP8266 firmware version and AT command set
-3. **Network info** - Show current IP address and MAC address
-4. **UART baud rate** - Show the current and saved default speeds separately
-5. **Static IP** - Configure static IP address, gateway, and subnet mask
-6. **Hostname** - Set a custom hostname for the ESP module
-7. **Config summary** - View all current WiFi settings at a glance (SSID, IP, MAC, hostname, firmware, saved network, app version)
-
-### User Interface
-
-- **Double-height text**: Large banner, status, input and message text, with smoother network-list updates
-- **Network detail screen**: View the network name, security, channel and signal strength before connecting
-- **Connection progress screen**: "Connecting to..." shows the SSID in double-height yellow text with attempt counter
-- **Rainbow badge**: Decorative dither-triangle with color transitions on the banner
-- **RSSI signal bars**: Nine-cell meters with bright red/yellow/green strength bars and dim striped remainder, with custom lock/open circle glyphs
-- **Anti-flicker status bar**: Direct-overwrite rendering with batched updates eliminates visual flickering
-- **Scroll indicators**: Visual arrows showing when more networks are available
-- **Audible key click**: Clear audible feedback on every keypress during text input
-
-### Other
-
-- **Boot splash screen**: A loading logo on every target, with a colour Layer 2 image on Next. Descriptive startup messages report WiFi initialization and recovery
-- **About screen** (I key): Shows version, build date, author, GitHub URL, and license
-- **UART debug log**: Toggle with L; a red indicator marks when enabled. Command logs are displayed after the exchange, with a notice when output is truncated
-- **Built-in font**: Compact six-pixel-wide text with no external font file required when running the program
-- **Three UART backends**: Supports ZX-Uno, AY-UART, and ZX Spectrum Next hardware
-- **Baud rate auto-detection** (Next only): Try 1152000, 2000000, 9600 and 57600 baud if the ESP does not respond at 115200. Restore 115200 for the session without changing the saved baud rate; reset the ESP if recovery requires it
-- **NEX format** (Next only): Native `.nex` binary for direct launch without mode selection menu
+- **Find nearby networks:** browse up to 50 access points sorted by signal strength, with security and channel information before connecting.
+- **Connect to visible or hidden networks:** choose a network or enter its name manually, supply a password when needed, or use WPS push-button setup.
+- **Save and reconnect (UNO/Next):** keep one network's credentials on SD and reconnect without typing the password again.
+- **Configure your connection:** set a static IP address and a custom hostname for the WiFi module.
+- **Inspect network details:** view the current network, IP address, gateway, subnet mask and MAC address.
+- **Troubleshoot connection problems:** run a ping test to an address of your choice, inspect WiFi module settings and see why a connection failed.
+- **Monitor connection status:** see when the connection drops and when the WiFi module reconnects.
+- **Synchronize date and time (UNO TAP/Next):** get the time over WiFi, choose a UTC offset and update a compatible real-time clock.
 
 ## Controls
 

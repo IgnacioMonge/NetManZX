@@ -111,51 +111,14 @@ Copia `netmanzx-next.nex` a la tarjeta SD y ejecútalo desde el navegador de arc
 
 ## Funciones
 
-### Gestion de Redes
-
-- **Escaneo de redes**: Conserva los 50 puntos de acceso WiFi más potentes, ordenados por señal, con reintentos si falla el escaneo. Los puntos de acceso con el mismo nombre permanecen separados; la selección conecta al punto elegido
-- **Detección al arrancar**: Comprueba el módulo WiFi e informa de problemas de inicio, recuperación y escaneo
-- **Soporte de Redes Ocultas**: Introduce manualmente el SSID de redes que no emiten su nombre
-- **Deteccion Inteligente de Conexion**: Al iniciar, detecta si ya esta conectado a una WiFi y actualiza la barra de estado; el arranque en frio va directo al menu principal + primer escaneo en todos los casos. Si la red "ya conectada" se selecciona desde la lista, una pantalla de detalle muestra su informacion con un aviso en rojo `Already connected to this network!`
-- **Pantalla de informacion de conexion**: Pulsa ENTER sobre la red ya conectada para ver IP, gateway, mascara de subred y direccion MAC
-- **Guardar y reconectar** (solo UNO/NEXT): Guarda credenciales en SD (`/SYS/CONFIG/NETMAN.CFG` en divMMC, `c:/sys/config/netman.cfg` en Next). C ofrece reconectar a la red guardada; S guarda tras una conexión correcta. La red guardada aparece en cyan
-- **Entrada de Contrasena**: Soporte completo de teclado con opcion de mostrar/ocultar, entrada en doble altura con edicion de cursor (flechas izquierda/derecha)
-- **Soporte WPS**: Conexión por pulsación con W y cancelación con BREAK, conservando la política de conexión automática guardada en el ESP
-- **Opcion de Desconexion**: Desconecta de la red actual con dialogo de confirmacion, sin salir de la aplicacion
-- **Monitorizacion de Estado en Tiempo Real**: Detecta automaticamente caidas y reconexiones mediante parseo asincrono de eventos del ESP
-- **Diagnostico de fallos de conexion**: Mensajes especificos de error: contrasena incorrecta, AP no encontrado, timeout o conexion rechazada
-- **Cancelación con BREAK**: Cancela intentos de conexión y operaciones AT. El tiempo de respuesta depende del hardware y de la operación
-
-### Menu de Diagnosticos
-
-1. **Ping test** - Probar conectividad con IP configurable (por defecto: 8.8.8.8)
-2. **Module info** - Mostrar version del firmware del ESP8266 y conjunto de comandos AT
-3. **Network info** - Mostrar direccion IP y direccion MAC actual
-4. **Velocidad UART** - Muestra por separado la velocidad actual y la predeterminada guardada
-5. **Static IP** - Configurar direccion IP estatica, gateway y mascara de subred
-6. **Hostname** - Establecer un nombre de host personalizado para el modulo ESP
-7. **Config summary** - Ver todos los ajustes WiFi actuales de un vistazo (SSID, IP, MAC, hostname, firmware, red guardada, version de la app)
-
-### Interfaz de Usuario
-
-- **Texto en doble altura**: Banner, estado, entradas y mensajes grandes, con actualizaciones más suaves de la lista de redes
-- **Detalle de red**: Consulta el nombre, la seguridad, el canal y la señal antes de conectar
-- **Pantalla de conexion**: "Connecting to..." muestra el SSID en doble altura amarillo con contador de intentos
-- **Badge arcoiris**: Triangulo decorativo con transiciones de color en el banner
-- **Barras de señal RSSI**: Medidores de nueve celdas con barras brillantes rojas, amarillas y verdes y franjas tenues para el resto de la escala, con glifos personalizados de círculo cerrado/abierto
-- **Barra de estado anti-parpadeo**: Renderizado por sobreescritura directa con actualizaciones agrupadas que elimina el parpadeo visual
-- **Indicadores de scroll**: Flechas visuales que indican cuando hay mas redes disponibles
-- **Click de tecla audible**: Feedback sonoro claro en cada pulsacion durante la entrada de texto
-
-### Otros
-
-- **Pantalla de arranque**: Logo de carga en todos los equipos, con imagen en color Layer 2 en Next. Los mensajes descriptivos informan de la inicialización y recuperación del WiFi
-- **Pantalla Acerca de** (tecla I): Muestra version, fecha de compilacion, autor, URL de GitHub y licencia
-- **Log UART**: Se activa con L; un indicador rojo muestra su estado. Los comandos se registran en pantalla al terminar el intercambio, con un aviso si el texto queda truncado
-- **Fuente integrada**: Texto compacto de seis píxeles de ancho, sin archivo de fuente externo para ejecutar el programa
-- **Tres backends UART**: Soporta hardware ZX-Uno, AY-UART y ZX Spectrum Next
-- **Detección automática de baudios** (solo Next): Prueba 1152000, 2000000, 9600 y 57600 baudios si el ESP no responde a 115200. Restablece 115200 para la sesión sin cambiar la velocidad guardada; reinicia el ESP si la recuperación lo requiere
-- **Formato NEX** (solo Next): Binario nativo `.nex` para arranque directo sin menu de seleccion de modo
+- **Encuentra redes cercanas:** consulta hasta 50 puntos de acceso ordenados por señal, con información de seguridad y canal antes de conectar.
+- **Conecta a redes visibles u ocultas:** elige una red o introduce su nombre manualmente, escribe la contraseña si hace falta o utiliza WPS por pulsación.
+- **Guarda y reconecta (UNO/Next):** conserva las credenciales de una red en la SD y vuelve a conectar sin escribir otra vez la contraseña.
+- **Configura tu conexión:** establece una dirección IP estática y un nombre de host para el módulo WiFi.
+- **Consulta los detalles de red:** comprueba la red actual, la dirección IP, la puerta de enlace, la máscara de subred y la dirección MAC.
+- **Diagnostica problemas de conexión:** prueba la conectividad con un ping a la dirección que elijas, consulta los ajustes del módulo WiFi y conoce el motivo de los fallos de conexión.
+- **Supervisa el estado de la conexión:** comprueba cuándo se pierde la conexión y cuándo vuelve a conectar el módulo WiFi.
+- **Sincroniza fecha y hora (UNO TAP/Next):** obtén la hora por WiFi, elige el desfase UTC y actualiza un reloj en tiempo real compatible.
 
 ## Controles
 

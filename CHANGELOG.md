@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- English and Spanish READMEs now focus the feature list on WiFi setup, connection management and troubleshooting.
+
 ## [v1.4.7] - 2026-11-05
 
 ### Added
