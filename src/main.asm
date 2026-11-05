@@ -1,21 +1,31 @@
+; AY's cycle-timed receiver is supported only by the TAP memory layout.
+    IFNDEF UNO
+    IFNDEF NEXT
+    IFNDEF TAP
+        ASSERT 0, "AY supports TAP only: use -DAY -DTAP without -DDOT"
+        END
+    ENDIF
+    IFDEF DOT
+        ASSERT 0, "AY supports TAP only: use -DAY -DTAP without -DDOT"
+        END
+    ENDIF
+    ENDIF
+    ENDIF
+
     IFDEF NEXT
         device ZXSPECTRUMNEXT
     ELSE
         device ZXSPECTRUM48
     ENDIF
 
-    IFDEF DOT
-        org #8000
-    ELSE
-        org #8000          
-    ENDIF
+    org #8000
 
     ; Global version definition (single source of truth)
     ; V = Mmp...  (M=major, m=minor, p=patch)
     ; Examples: V=12  -> 1.2
     ;           V=121 -> 1.2.1
     ; Optional: VSUB for sub-patch (e.g., V=143 + VSUB=1 -> 1.4.3.1)
-    DEFINE V 146
+    DEFINE V 147
 
 ; Platforms with esxDOS (SD card file I/O)
     IFDEF UNO
@@ -25,15 +35,29 @@
         DEFINE HAS_ESXDOS
     ENDIF
 
+; Clock UI availability. Next runs it from its paged #6000 overlay; UNO
+; ships it as a TAP CODE block preloaded at #6000 (resident does not fit).
+    IFDEF NEXT
+        DEFINE HAS_TIME
+    ENDIF
+    IFDEF UNO
+        IFDEF TAP
+            DEFINE HAS_TIME
+        ENDIF
+    ENDIF
+
 ; Global constants
 buffer = #C800
 stack_top = #FFF0
 
 ; Runtime data area: uninitialized buffers placed after the SSID buffer
 ; to keep them out of the binary. Use RTVAR to allocate.
-MAX_NETWORKS    = 25
+MAX_NETWORKS    = 50          ; Strongest APs kept; UI page digits allow <= 90
 MAX_SSID_LEN    = 32
-BUFFER_SIZE     = (MAX_NETWORKS * (MAX_SSID_LEN + 1))
+SSID_SLOT_SIZE  = MAX_SSID_LEN + 1
+; Fixed-stride SSID slots plus one scratch slot: a row parsed while the list is
+; full lands there and replaces the weakest committed AP when it is stronger.
+BUFFER_SIZE     = ((MAX_NETWORKS + 1) * SSID_SLOT_SIZE)
 BUFFER_END      = buffer + BUFFER_SIZE
 rt_ptr = BUFFER_END
 
@@ -41,15 +65,6 @@ rt_ptr = BUFFER_END
 name? = @rt_ptr
 @rt_ptr = @rt_ptr + size?
     ENDM
-
-    ; saved_sp: original BASIC stack pointer. Must live outside printer
-    ; buffer (#5B00-#5BFF) because esxDOS rst $08 scribbles that area
-    ; during Config.load/save, and the UNO/AY exit path reads saved_sp
-    ; to return to BASIC.
-    RTVAR saved_sp, 2
-    IFNDEF NEXT
-    RTVAR saved_hl_alt, 2
-    ENDIF
 
 text
     jp start
@@ -65,12 +80,22 @@ row_buffer = Wifi.scan_rx_buffer
     endmodule
     include "modules/version.asm"    ; generates VERSION_STRING from V
     include "modules/ui.asm"
+; Return state lives in resident immediates, outside relocation and runtime RAM.
+saved_sp = UI.exitRestore.callerStack
+saved_ret = UI.exitRestore.callerReturn
+    IFNDEF NEXT
+saved_hl_alt = UI.exitRestore.callerAltHL
+    ENDIF
     include "modules/uart-common.asm"
     include "modules/keyboard.asm"
 
     ; Config save/load (esxDOS) - only for platforms with SD card
     IFDEF HAS_ESXDOS
         include "modules/config.asm"
+    ENDIF
+    IFDEF NEXT
+    include "modules/rtc.asm"
+    include "modules/sntp.asm"
     ENDIF
 
     ; ============================================
@@ -79,9 +104,9 @@ row_buffer = Wifi.scan_rx_buffer
     ; Build defines:
     ;   -DUNO  : ZX-Uno compatible UART (e.g., divMMC+ESP-12 boards such as DivTIESUS)
     ;   -DNEXT : ZX Spectrum Next UART
-    ;   -DAY   : AY-3-8912 UART (ZX-Badaloc and similar)
+    ;   -DAY -DTAP : AY-3-8912 UART (TAP only)
     ;
-    ; If none is provided, AY is used as a safe default.
+    ; Without a backend define, AY is selected and still requires -DTAP.
     ; ============================================
     IFDEF UNO
         include "drivers/zxuno.asm"
@@ -224,11 +249,32 @@ splashEnd:
 start:
     ; Loader IY may be invalid; UART init reenables IRQs after restoration.
     di
+    ld (saved_sp), sp
+    pop hl
+    ld (saved_ret), hl
+    ld sp, stack_top
     IFNDEF NEXT
     ; AY uses HL' internally; BASIC's USR caller needs its original value.
     exx
     ld (saved_hl_alt), hl
     exx
+    ENDIF
+    IFDEF UNO
+    IFNDEF TAP
+    ; The contiguous +3DOS load stages diagnostics in future runtime RAM.
+    ; Caller state is resident, outside the staged diagnostic image.
+.overlayGuard
+    jr .copyOverlay
+.copyOverlay
+    ld hl, dos_overlay_source
+    ld de, dos_overlay
+    ld bc, dos_overlay_end - dos_overlay
+    ldir
+    ; Warm re-entry must keep the overlay: its staging area now holds runtime data.
+    ld a, .overlayDone - .copyOverlay
+    ld (.overlayGuard + 1), a
+.overlayDone
+    ENDIF
     ENDIF
     ; Zero printer buffer (128K/Next ROM leaves garbage that corrupts
     ; our variables stored there: log_ind_data, putLogC_coord, etc.)
@@ -252,22 +298,40 @@ start:
     ld (UI.force_rescan), a
     ld (UI.diag_cursor), a
     ld (UI.ping_ip_len), a
-    ld (UI.async_buf_idx), a
-    ld (UI.async_buf_count), a
+    ld (UI.async_state), a
+    IFDEF HAS_TIME
+    ld (Sntp.tz), a
+    ld (Rtc.kind), a
+    ld hl, Sntp.fields
+    ld de, Sntp.fields + 1
+    ld bc, 5
+    ld (hl), a
+    ldir
+    ENDIF
 
-    ld (saved_sp), sp
-    ld sp, stack_top
+    IFDEF NEXT
+    ; Map cold UI, diagnostics, Time and font64 before any overlay call.
+    nextreg $53, 32
+    ENDIF
 
     ; ROM IM 1 handler expects IY = #5C3A. Some loaders leave IY elsewhere;
-    ; reloading it is cheap insurance against interrupt-time crashes when
-    ; we EI later.
+    ; reloading it avoids interrupt-time crashes when we EI later.
     ld iy, #5C3A
+    IFDEF NEXT
+    ; Direct NEX loaders may not initialise the ROM keyboard state.
+    ld hl, #0523             ; REPPER=5, REPDEL=35
+    ld (#5C09), hl
+    set 3, (iy + 1)          ; FLAGS: L mode returns ASCII instead of tokens
+.irqMode:
+    im 1
+    ENDIF
 
     call Display.initFontCache
 
     IFDEF NEXT
     ; The NEX loader already installed the Layer 2 palette from the file.
     nextreg $43, 0           ; Restore default palette selection only
+.irqEnable:
     ei
     ENDIF
 
@@ -310,16 +374,14 @@ start:
 .baudOk:
     ENDIF
 
-    ; Exit transparent mode (if SpecTalkZX or similar left it active)
-    ; Requires 1s of prior silence (satisfied: we just started)
+    ; Probe AT first; only run +++ passthrough recovery when needed.
     ld hl, .msg_esp_config
     call splashMsg
-    call Wifi.exitTransparent
+    call Wifi.ensureCommandMode
 
     ; Disable echo early — ESP default is echo ON after power-on.
     ; Without this, AT+CWLAP responses include the echoed command,
     ; breaking the scan parser. Must happen before any scan path.
-    call Wifi.flushInput
     ld hl, Wifi.S_ATE0 : call Wifi.espSendZ_CRLF
     call Wifi.checkOkErr
 
@@ -369,6 +431,12 @@ start:
 
 .forceScan
     ; --- CASE: NOT CONFIGURED / RESCAN ---
+    ; Normalize inherited scan fields even when an existing connection skips init.
+    ; Old firmware may reject this command; its defaults already include channel.
+    ld hl, Wifi.S_AT_CWLAPOPT : call Wifi.espSendZCheckOk
+    ld a, (Uart.io_error)
+    and a
+    jp nz, .initFailed
 
     ; CRITICAL: Reset UI variables before new scan
     xor a
@@ -502,12 +570,7 @@ start:
 .resetPending
         jr .resetPending
     ELSE
-        exx
-        ld hl, (saved_hl_alt)
-        exx
-        ld sp, (saved_sp)
-        ei
-        ret                 ; Return to BASIC
+        jp UI.exitRestore
     ENDIF
 
 ; Shared transition from splash to main menu. Loads saved config on esxDOS
@@ -533,9 +596,19 @@ start:
 
 ; Variables in printer buffer (set before use)
 ; Only boot-time scratch — no file I/O between set and read, so esxDOS
-; clobbering is a non-issue here. saved_sp moved to RTVAR (see top of file).
+; clobbering is a non-issue here.
 .scan_fail_reason = #5B39
 
+
+    IFDEF UNO
+    IFNDEF TAP
+    ; UNO +3DOS has code space and #6000 overlay headroom, while its #C000
+    ; font/string span before #C800 is tight.
+    DEFINE REPLY_DATA_RESIDENT
+    DEFINE DIAG_STRINGS_OVERLAY
+    include "modules/reply-data.asm"
+    ENDIF
+    ENDIF
 
 program_end:
 
@@ -543,12 +616,29 @@ program_end:
     ASSERT program_end <= #C000               ; code must stay out of paged RAM
     ASSERT program_end <= buffer              ; code must not overlap SSID buffer
     ASSERT rt_ptr <= stack_top - 64           ; runtime vars must not reach stack
+    IFDEF UNO
+    ASSERT program_end <= #C000 - 256         ; keep 256 B headroom on UNO
+    ENDIF
 
-; Read-only data precedes the SSID buffer in the already-used data bank.
-; Executable code remains entirely in unpaged bank 2.
+; Static strings precede the SSID buffer; TAP/NEX font data uses the overlay.
+    IFDEF TAP
+    ; The TAP ships code and static data as separate CODE blocks, so the gap
+    ; below #C000 never reaches the file. Padding it would cost as many bytes
+    ; as the resident image has free.
+    ORG #C000
+    ELSE
+    ; +3DOS and the NEX bank image want one contiguous span.
     defs #C000 - $, 0
+    ENDIF
+    IFNDEF NEXT
+    IFNDEF TAP
     include "modules/font-data.asm"
+    ENDIF
+    ENDIF
     include "modules/ui-strings.asm"
+    IFNDEF REPLY_DATA_RESIDENT
+    include "modules/reply-data.asm"
+    ENDIF
 
 static_data_end:
     ASSERT static_data_end <= buffer
@@ -579,9 +669,27 @@ SPLASH_PAL_PAGE = 24
         INCBIN "splash.pal"
         SAVENEX SCREEN L2 18, 0, SPLASH_PAL_PAGE, 0
 
+        ; Paged cold code. Assemble the cold UI routines into 16K bank 16
+        ; (8K page 32); start maps page 32 into MMU slot 3 (#6000). Keeps the
+        ; resident image under its #C000 ceiling.
+        MMU 3, 32, $6000
+        ORG #6000
+        include "modules/font-data.asm"
+        module UI
+        include "modules/cold-ui.asm"
+        include "modules/diag-ui.asm"
+        include "modules/quit-ui.asm"
+        include "modules/time-core.asm"
+        include "modules/time-ui.asm"
+        endmodule
+        include "modules/font64.asm"
+overlay_end:
+        ASSERT overlay_end <= #8000
+
         ; Only program and runtime-data banks belong in the resident payload.
         ; AUTO would also duplicate the staged splash and palette banks.
         SAVENEX BANK 2, 0
+        SAVENEX BANK 16
         SAVENEX CLOSE
 
     ELSE
@@ -598,8 +706,35 @@ SPLASH_PAL_PAGE = 24
 splash_scr:
         INCBIN "splash.scr"         ; 6912 bytes: 6144 pixels + 768 attrs
 
-        ; Define BASIC loader in temporary area
+        ; TAP overlay at #6000: fonts and diagnostics; UNO also carries Time,
+        ; SNTP and RTC here so the resident image fits below #C000. AY keeps
+        ; the diagnostic UART reader resident. Runtime limit is the program at
+        ; #8000; the BASIC loader is staged after the splash image so this
+        ; overlay can use the whole 8K hole.
         ORG #6000
+tap_overlay:
+        include "modules/font-data.asm"
+        IFDEF HAS_TIME
+        include "modules/sntp.asm"
+        include "modules/rtc.asm"
+        module UI
+        include "modules/diag-ui.asm"
+        include "modules/quit-ui.asm"
+        include "modules/time-core.asm"
+        include "modules/time-ui.asm"
+        endmodule
+        ELSE
+        module UI
+        include "modules/diag-ui.asm"
+        include "modules/quit-ui.asm"
+        endmodule
+        ENDIF
+        include "modules/font64.asm"
+tap_overlay_end:
+        ASSERT tap_overlay_end <= #8000
+
+        ; BASIC loader staged after the splash SCR (assembly scratch only).
+        ORG splash_scr + 6912
 basic_start:
         ; Line 10: CLEAR 32767
         db #00, #0A                 ; Line number (10) big-endian
@@ -614,8 +749,8 @@ line10start:
 line10end:
 
         ; Line 20: BORDER 0: PAPER 0: INK 0
-        ; Black-on-black hides ROM "Bytes: ..." messages during both
-        ; subsequent LOADs. SCR attrs already on-screen are unaffected.
+        ; Black-on-black hides ROM "Bytes: ..." messages until the final
+        ; screen block replaces the complete display.
         db #00, #14                 ; Line number (20)
         dw line20end - line20start
 line20start:
@@ -633,23 +768,49 @@ line20start:
         db #0D
 line20end:
 
-        ; Line 30: LOAD ""SCREEN$
+        ; The screen image is loaded LAST so the ROM "Bytes:" messages of the
+        ; preceding CODE blocks cannot cut its top. Line numbers stay
+        ; ascending; block order in the TAP matches this sequence.
+        ; CODE blocks, in order: overlay #6000, program #8000, static data
+        ; #C000. Each carries its own address, so a bare LOAD ""CODE lands
+        ; it where it belongs.
+        ; Line 30: LOAD ""CODE  (overlay)
         db #00, #1E                 ; Line number (30)
         dw line30end - line30start
 line30start:
         db #EF                      ; LOAD
         db '"', '"'                 ; ""
-        db #AA                      ; SCREEN$
+        db #AF                      ; CODE
         db #0D
 line30end:
 
-        ; Line 40: LOAD ""CODE
+        ; Line 35: LOAD ""CODE  (program)
+        db #00, #23                 ; Line number (35)
+        dw line35end - line35start
+line35start:
+        db #EF                      ; LOAD
+        db '"', '"'                 ; ""
+        db #AF                      ; CODE
+        db #0D
+line35end:
+
+        ; Line 37: LOAD ""CODE  (static data)
+        db #00, #25                 ; Line number (37)
+        dw line37end - line37start
+line37start:
+        db #EF                      ; LOAD
+        db '"', '"'                 ; ""
+        db #AF                      ; CODE
+        db #0D
+line37end:
+
+        ; Line 40: LOAD ""SCREEN$  (image last: covers all previous messages)
         db #00, #28                 ; Line number (40)
         dw line40end - line40start
 line40start:
         db #EF                      ; LOAD
         db '"', '"'                 ; ""
-        db #AF                      ; CODE
+        db #AA                      ; SCREEN$
         db #0D
 line40end:
 
@@ -667,17 +828,40 @@ line50start:
 line50end:
 basic_end:
 
-        ; Generate TAP
+        ; Generate TAP. Block order must match the BASIC loader: the splash
+        ; screen is last so it covers the loader messages.
         emptytap "netmanzx.tap"
         savetap "netmanzx.tap", BASIC, "netmanzx", basic_start, basic_end - basic_start, 10
+        savetap "netmanzx.tap", CODE, "overlay",  tap_overlay, tap_overlay_end - tap_overlay, #6000
+        savetap "netmanzx.tap", CODE, "netmanzx", text, program_end - text, text
+        savetap "netmanzx.tap", CODE, "data",     #C000, static_data_end - #C000, #C000
         savetap "netmanzx.tap", CODE, "splash",   splash_scr, 6912, #4000
-        savetap "netmanzx.tap", CODE, "netmanzx", text, static_data_end - text, text
 
     ELSE
         ; ============================================
         ; Standard +3DOS format
         ; ============================================
-        save3dos "netmanzx.cod", text, static_data_end - text
+        IFDEF UNO
+dos_overlay_source:
+        DISP #6000
+dos_overlay:
+        module UI
+        include "modules/diag-ui.asm"
+        include "modules/quit-ui.asm"
+        endmodule
+        UNDEFINE DIAG_STRINGS_OVERLAY
+        DEFINE UI_DIAG_STRINGS_PASS
+        include "modules/ui-strings.asm"
+dos_overlay_end:
+        ASSERT dos_overlay_end <= #8000
+        ENT
+        ENDIF
+dos_payload_end:
+        ASSERT dos_payload_end <= stack_top - 64
+        save3dos "netmanzx.cod", text, dos_payload_end - text
     ENDIF
 
     ENDIF   ; NEXT
+
+    ; Overlay modules also allocate runtime state.
+    ASSERT rt_ptr <= stack_top - 64

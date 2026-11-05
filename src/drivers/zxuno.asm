@@ -38,7 +38,7 @@ write:
     push bc
     push hl
     push af
-    ld hl, Uart.DEFAULT_TIMEOUT
+    ld hl, Uart.TX_TIMEOUT
     ld bc, ZXUNO_ADDR : ld a, UART_STAT_REG : out (c), a
     ld bc, ZXUNO_REG : in A, (c) : and UART_BYTE_RECIVED
     jr nz, .is_recvF
@@ -74,25 +74,21 @@ write:
 
 
 ; Read byte from UART
-; A: byte
-; CF=1 if a byte was read, CF=0 if no data
+; Out: CF=1 and A=byte, or CF=0 if no data. Preserves DE/HL.
+; The capture loop has ~300 T per byte at 115200, so the ready test is
+; ADD A,A (bit 7 into CF) and the data IN leaves that carry intact.
 uartRead:
     ld a, (is_recv)
     and a
     jr nz, recvRet
 
     ld bc, ZXUNO_ADDR : ld a, UART_STAT_REG : out (c), a
-    inc b : in a, (c) : and UART_BYTE_RECIVED
-    jr nz, retReadByte
+    inc b : in a, (c)
+    add a, a
+    ret nc
 
-    or a
-    ret
-
-retReadByte:
     dec b : ld a, UART_DATA_REG : out (c), a
     inc b : in a, (c)
-
-    scf
     ret
 
 recvRet:

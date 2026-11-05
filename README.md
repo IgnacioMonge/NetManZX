@@ -1,17 +1,17 @@
 <p align="center">
-  <img src="images/netmanzxlogo-white.png" alt="NetManZX" width="520">
+  <img src="images/netmanzx-banner.png" alt="NetManZX" width="760">
 </p>
 
 # NetManZX
 
 <p align="center">
   <strong>WiFi network manager for ZX Spectrum</strong><br>
-  ZX-Uno / divMMC · AY-UART / ZX-Badaloc · ZX Spectrum Next
+  ZX-Uno / divMMC · AY-UART · ZX Spectrum Next
 </p>
 
 <p align="center">
   <a href="READMEsp.md">Español</a> ·
-  <a href="https://github.com/IgnacioMonge/NetManZX/releases/tag/v1.4.6">Download v1.4.6</a> ·
+  <a href="https://github.com/IgnacioMonge/NetManZX/releases/tag/v1.4.7">Download v1.4.7</a> ·
   <a href="CHANGELOG.md">Changelog</a>
 </p>
 
@@ -19,30 +19,31 @@
 
 Scan WiFi networks, connect your Spectrum and check the link from one application. NetManZX uses an ESP8266 module connected through a ZX-Uno-compatible, AY-UART or Spectrum Next interface.
 
+**Current release: 1.4.7**, available for UNO, AY-UART and Spectrum Next.
+
 ## Why NetManZX
 
 | | |
 | --- | --- |
-| **Networks** | Up to 25 access points, sorted by signal strength; manual connection to hidden networks |
+| **Networks** | The 50 strongest access points, sorted by signal strength; manual connection to hidden networks |
 | **Connect** | Password, WPS and reconnection to credentials saved on SD on UNO/Next |
 | **Diagnostics** | Ping, firmware, IP/MAC, baud rate, static IP, hostname and configuration summary |
 | **Interface** | Double-height text, signal bars, scroll indicators and UART log |
 | **Distribution** | TAP for UNO/AY; one self-contained NEX for Spectrum Next |
 
-## What's new in 1.4.6
+## What's new in 1.4.7
 
-- **Choose the access point:** networks sharing a name stay separate, and selection connects to the chosen access point.
-- **Smoother navigation:** unchanged rows avoid unnecessary redraws, and pending keys are discarded after an automatic scan.
-- **More reliable connections:** improved scanning, reconnection, UART recovery, WPS and BREAK cancellation.
-- **A smaller, clearer Next edition:** a 37% smaller NEX file, retaining the loading screen and adding more descriptive startup messages.
-- **Quit from the menu:** BREAK returns to BASIC on UNO/AY and restarts the machine on Next; elsewhere it still cancels or goes back.
-- **Safer saves and diagnostics:** better handling of credential-save failures, with corrected information displays and text fields.
+- **Time and date:** T opens RTC status and clock settings on Spectrum Next and UNO TAP. Y synchronizes through SNTP; Z selects a whole-hour UTC offset from -12 to +14. Settings are saved in `NETTIME.CFG`.
+- **More networks:** retain the 50 strongest access points, with a single active scan pass and a fallback for older ESP firmware.
+- **Clearer signal meters:** bright red/yellow/green bars show measured strength; dim stripes show the remaining range. Detail and configuration screens align their values and meters.
+- **Smoother interaction:** list rows, menus, counters and text editors update only changing areas; queued keys take priority over optional background work.
+- **Safer cancellation and recovery:** improved BREAK handling, bounded UART recovery, scan parsing and connection details; quitting now asks for confirmation.
 
-See the [changelog](CHANGELOG.md#v146---2026-09-08) for the complete release overview.
+See the [1.4.7 changelog](CHANGELOG.md#v147---2026-11-05) for all changes since 1.4.6.
 
 ## Contents
 
-- [What's new in 1.4.6](#whats-new-in-146)
+- [What's new in 1.4.7](#whats-new-in-147)
 - [Platforms and requirements](#platforms-and-requirements)
 - [Download](#download)
 - [Installation](#installation)
@@ -50,6 +51,7 @@ See the [changelog](CHANGELOG.md#v146---2026-09-08) for the complete release ove
 - [Gallery](#gallery)
 - [Features](#features)
 - [Controls](#controls)
+- [Time and date](#time-and-date)
 - [Connection recovery](#connection-recovery)
 - [Build from source](#build-from-source)
 - [Credits and license](#credits-and-license)
@@ -59,19 +61,22 @@ See the [changelog](CHANGELOG.md#v146---2026-09-08) for the complete release ove
 - ZX Spectrum (48K or higher) or compatible
 - ESP8266-based WiFi module:
   - **ZX-Uno**: Built-in UART (default target)
-  - **AY-UART**: ZX-Badaloc or similar bit-banged AY-3-8912 implementations
+  - **AY-UART**: UART implemented through the AY-3-8912 I/O port
   - **ZX Spectrum Next**: Hardware UART with FIFO
-- TAP-compatible loading method (divMMC, esxDOS, emulator, or tap2wav for tape)
+- TAP-compatible loading method for UNO/AY (divMMC, esxDOS, emulator, or tap2wav for tape); NextZXOS for the native Next NEX
+- SD access through esxDOS/NextZXOS for saved credentials and clock settings; an RTC is optional for the Time screen
 
 ## Download
 
-Download ready-to-load binaries from [release v1.4.6](https://github.com/IgnacioMonge/NetManZX/releases/tag/v1.4.6). Choose the file for your interface:
+Download ready-to-load binaries from [release v1.4.7](https://github.com/IgnacioMonge/NetManZX/releases/tag/v1.4.7). Choose the file for your interface:
 
 | Target | File | Description |
 |--------|------|-------------|
-| UNO | `netmanzx-uno.tap` | ZX-Uno / DivMMC |
-| AY | `netmanzx-ay.tap` | AY-UART / ZX-Badaloc |
-| NEXT | `netmanzx-next.nex` | ZX Spectrum Next (native NEX) |
+| UNO | [`netmanzx-uno.tap`](https://github.com/IgnacioMonge/NetManZX/releases/download/v1.4.7/netmanzx-uno.tap) | ZX-Uno / DivMMC |
+| AY | [`netmanzx-ay.tap`](https://github.com/IgnacioMonge/NetManZX/releases/download/v1.4.7/netmanzx-ay.tap) | AY-UART |
+| NEXT | [`netmanzx-next.nex`](https://github.com/IgnacioMonge/NetManZX/releases/download/v1.4.7/netmanzx-next.nex) | ZX Spectrum Next (native NEX) |
+
+The 1.4.7 distribution retains all three targets, including AY-UART as a TAP file.
 
 ## Installation
 
@@ -93,23 +98,23 @@ Copy `netmanzx-next.nex` to your SD card and launch it from the Next file browse
 
 ## Gallery
 
-*Screenshots from v1.4.4; some text differs in v1.4.6. SSIDs have been blurred for privacy.*
+*Emulator captures of NetManZX 1.4.7: Time on UNO, other screens on Spectrum Next. Networks, SSIDs and responses are simulated test data. Images show only the Spectrum display, without window frames or desktop borders.*
 
 | | | |
 |:---:|:---:|:---:|
-| [![Splash Next](images/1.4.4/release/01_splash_next.png)](images/1.4.4/release/01_splash_next.png) | [![Network list](images/1.4.4/release/03_network_list.png)](images/1.4.4/release/03_network_list.png) | [![Already connected](images/1.4.4/release/04_already_connected.png)](images/1.4.4/release/04_already_connected.png) |
-| *Boot splash (Spectrum Next, Layer 2)* | *Network list with RSSI bars* | *"Already connected" warning (v1.4.4+)* |
-| [![Connected](images/1.4.4/release/10_connected.png)](images/1.4.4/release/10_connected.png) | [![Diagnostics](images/1.4.4/release/06_diagnostics_menu.png)](images/1.4.4/release/06_diagnostics_menu.png) | [![Ping test](images/1.4.4/release/07_ping_test.png)](images/1.4.4/release/07_ping_test.png) |
-| *Successful connection* | *Diagnostics menu (7 options)* | *Ping test* |
-| [![UART baud rate](images/1.4.4/release/08_uart_baud.png)](images/1.4.4/release/08_uart_baud.png) | [![Config summary](images/1.4.4/release/09_config_summary.png)](images/1.4.4/release/09_config_summary.png) | [![About](images/1.4.4/release/11_about.png)](images/1.4.4/release/11_about.png) |
-| *UART baud (current / default)* | *Configuration summary* | *About screen* |
+| [![Network list](images/1.4.7/release/01_network_list.png)](images/1.4.7/release/01_network_list.png) | [![Network details](images/1.4.7/release/02_network_details.png)](images/1.4.7/release/02_network_details.png) | [![Time and date](images/1.4.7/release/03_time.png)](images/1.4.7/release/03_time.png) |
+| *Network list* | *Network details* | *Time and date (UNO)* |
+| [![Diagnostics](images/1.4.7/release/04_diagnostics.png)](images/1.4.7/release/04_diagnostics.png) | [![Ping test](images/1.4.7/release/05_ping.png)](images/1.4.7/release/05_ping.png) | [![Configuration summary](images/1.4.7/release/06_config_summary.png)](images/1.4.7/release/06_config_summary.png) |
+| *Diagnostics* | *Ping test* | *Configuration summary* |
+| [![UART baud rate](images/1.4.7/release/07_uart_baud.png)](images/1.4.7/release/07_uart_baud.png) | [![Hostname editor](images/1.4.7/release/08_hostname.png)](images/1.4.7/release/08_hostname.png) | [![About](images/1.4.7/release/09_about.png)](images/1.4.7/release/09_about.png) |
+| *UART baud rate* | *Hostname editor* | *About* |
 
 ## Features
 
 ### Network Management
 
-- **Network scanning**: Discover up to 25 WiFi access points, sorted by signal strength, with retries on scan failure. Access points sharing a name remain separate; selection connects to the chosen access point
-- **Robust startup detection**: Disables ESP echo early (ATE0) to prevent scan parser failures on cold boot. Multiple scan attempts with diagnostic messages on timeout or empty results
+- **Network scanning**: Retain the 50 strongest WiFi access points, sorted by signal strength, with retries on scan failure. Access points sharing a name remain separate; selection connects to the chosen access point
+- **Startup detection**: Checks the WiFi module and reports initialization, recovery and scan problems
 - **Hidden Network Support**: Manually enter SSID for networks that do not broadcast their name
 - **Smart Connection Detection**: On startup, detects if already connected to a WiFi and updates the status bar accordingly; cold boot goes straight to the main menu + first scan in all cases. If the "already connected" network is selected from the list, a detail screen shows its info with an `Already connected to this network!` warning in red
 - **Connection info screen**: Press ENTER on the already-connected network to view full connection details: IP address, gateway, netmask, and MAC address
@@ -126,7 +131,7 @@ Copy `netmanzx-next.nex` to your SD card and launch it from the Next file browse
 1. **Ping test** - Test connectivity with configurable target IP (default: 8.8.8.8)
 2. **Module info** - Display ESP8266 firmware version and AT command set
 3. **Network info** - Show current IP address and MAC address
-4. **UART baud rate** - Display `Current:` and `Default:` ESP baud rates separately, so the Next-only session override (`AT+UART_CUR=115200`) is visible without implying that flash was changed
+4. **UART baud rate** - Show the current and saved default speeds separately
 5. **Static IP** - Configure static IP address, gateway, and subnet mask
 6. **Hostname** - Set a custom hostname for the ESP module
 7. **Config summary** - View all current WiFi settings at a glance (SSID, IP, MAC, hostname, firmware, saved network, app version)
@@ -137,7 +142,7 @@ Copy `netmanzx-next.nex` to your SD card and launch it from the Next file browse
 - **Network detail screen**: View the network name, security, channel and signal strength before connecting
 - **Connection progress screen**: "Connecting to..." shows the SSID in double-height yellow text with attempt counter
 - **Rainbow badge**: Decorative dither-triangle with color transitions on the banner
-- **8-level RSSI signal bars**: Visual WiFi signal strength indicator for each network, with custom lock/open circle glyphs
+- **RSSI signal bars**: Nine-cell meters with bright red/yellow/green strength bars and dim striped remainder, with custom lock/open circle glyphs
 - **Anti-flicker status bar**: Direct-overwrite rendering with batched updates eliminates visual flickering
 - **Scroll indicators**: Visual arrows showing when more networks are available
 - **Audible key click**: Clear audible feedback on every keypress during text input
@@ -148,10 +153,9 @@ Copy `netmanzx-next.nex` to your SD card and launch it from the Next file browse
 - **About screen** (I key): Shows version, build date, author, GitHub URL, and license
 - **UART debug log**: Toggle with L; a red indicator marks when enabled. Command logs are displayed after the exchange, with a notice when output is truncated
 - **Built-in font**: Compact six-pixel-wide text with no external font file required when running the program
-- **Three UART backends**: Supports ZX-Uno, AY-UART (ZX-Badaloc), and ZX Spectrum Next hardware
+- **Three UART backends**: Supports ZX-Uno, AY-UART, and ZX Spectrum Next hardware
 - **Baud rate auto-detection** (Next only): Try 1152000, 2000000, 9600 and 57600 baud if the ESP does not respond at 115200. Restore 115200 for the session without changing the saved baud rate; reset the ESP if recovery requires it
 - **NEX format** (Next only): Native `.nex` binary for direct launch without mode selection menu
-- **Build date**: Automatically embedded at assembly time via Lua
 
 ## Controls
 
@@ -169,9 +173,20 @@ Copy `netmanzx-next.nex` to your SD card and launch it from the Next file browse
 | W | WPS push-button connect |
 | C | Reconnect to the saved network (UNO/NEXT) |
 | S | Save credentials after connection (UNO/NEXT) |
+| T | Time and date (Next / UNO TAP) |
 | I | About screen |
 
-From the main menu, BREAK returns to BASIC on UNO/AY. On Next it restarts the machine; it does not restore the previous NextZXOS session.
+From the main menu, BREAK asks for confirmation; Y returns to BASIC on UNO/AY and any other key resumes the list. On Next it restarts the machine; it does not restore the previous NextZXOS session.
+
+## Time and date
+
+On **Spectrum Next and UNO TAP**, press T from the network list. The screen shows the detected RTC, clock and UTC offset; the clock refreshes once a second while the screen is open. AY TAP and non-TAP UNO builds do not include Time.
+
+- **Y — Sync SNTP:** connect to WiFi first. NetManZX requests network time through the ESP, updates a writable RTC when detected, and saves the synchronized fields and offset. RTC-write and file-save failures are reported separately.
+- **Z — Zone:** enter a whole-hour UTC offset from `-12` to `+14`. This is a fixed offset; adjust it yourself for daylight-saving changes.
+- **BREAK — Exit:** return to the network list. BREAK also cancels the zone editor and supported AT operations.
+
+Clock settings use `/SYS/CONFIG/NETTIME.CFG` on UNO and `c:/sys/config/nettime.cfg` on Next, separate from WiFi credentials in `NETMAN.CFG`. An RTC is optional: without one the screen can show the last saved synchronization, which is not a continuously running clock across restarts. RTC support includes esxDOS/NextZXOS date services, PCF8563 on UNO and DS1307 on Next.
 
 ## Connection recovery
 
@@ -192,7 +207,7 @@ Next can recover common baud-rate mismatches automatically. On UNO/AY, check the
 # Build for ZX-Uno / DivMMC (default)
 make uno
 
-# Build for AY-UART / ZX-Badaloc
+# Build for AY-UART
 make ay
 
 # Build for ZX Spectrum Next
@@ -202,9 +217,9 @@ make next
 make all
 ```
 
+Build outputs are `build/netmanzx-uno.tap`, `build/netmanzx-ay.tap` and `build/netmanzx-next.nex`. `make all` builds AY, Next and then UNO. Single-target builds clear previous build outputs.
 
-
-Build outputs are placed in `build/`.
+AY supports TAP only; AY +3DOS/DOT variants are rejected.
 
 ## Credits and license
 

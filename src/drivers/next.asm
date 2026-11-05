@@ -3,6 +3,7 @@
 UART_TX = #133B
 UART_RX = #143B
 UART_Sel  equ #153B       ; Selects between ESP and Pi
+UART_Frame equ #163B      ; Frame format and UART reset
 UART_SetBaud equ #143B    ; Sets baudrate (when writing)
 UART_GetStatus equ #133B  ; Reads status
 
@@ -12,9 +13,16 @@ UART_RX_DATA_READY equ %00000001
 UART_RX_ERRORS     equ %01100100
 
 init:
-    ; Select UART
+    ; Select the ESP UART and write prescaler bits 16:14 = 0 (bit 4 latches
+    ; them); otherwise they keep whatever NextZXOS or the last program set.
     ld bc, UART_Sel
-    ld a, %00100000      ; Select UART (bit 5=1)
+    ld a, %00110000
+    out (c), a
+    ; Reset the UART and force 8N1 instead of inheriting the frame format.
+    inc b                ; UART_Frame
+    ld a, %10011000
+    out (c), a
+    ld a, %00011000
     out (c), a
     ld hl, baudTable
     ; Fall through to setBaudFromTable
@@ -46,6 +54,8 @@ setBaudFromTable:
     rla
     or %10000000
     out (c), a           ; High 7 bits
+    xor a
+    ld (Wifi.flushInput.recovering), a
     ret
 
 baudTable:
@@ -55,9 +65,14 @@ write:
     push bc, de, hl
     ld d, a
     ld bc, UART_GetStatus
-    ld hl, Uart.DEFAULT_TIMEOUT
+    ld hl, Uart.TX_TIMEOUT
 .wait
     call readStatus
+    push af
+    ld a, (Uart.io_error)
+    and a
+    jr nz, .fault
+    pop af
     and UART_TX_BUSY
     jr z, .send
     dec hl
@@ -65,6 +80,9 @@ write:
     jr nz, .wait
     ld a, 1
     ld (Uart.io_error), a
+    jr .done
+.fault
+    pop af
     jr .done
 .send
     out (c), d

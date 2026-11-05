@@ -11,7 +11,7 @@ Build from the repository root (sjasmplus on PATH):
 sjasmplus --nologo -isrc --outprefix=build/ --sym=build/ay-timing-probe.sym tests/ay_timing_probe.asm
 ```
 
-On the AY/ZX-Badaloc machine, load the resulting `build/ay-timing-probe.tap`:
+On the machine with AY-UART, load the resulting `build/ay-timing-probe.tap`:
 
 ```basic
 CLEAR 32767

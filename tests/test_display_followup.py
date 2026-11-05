@@ -23,8 +23,57 @@ def _clear_rows(run, first, count):
             run.m.memory[address:address + 32] = bytes(32)
 
 
+def check_footer(image, symbols):
+    # The footer publishes the same pixels as direct text/arrows, without
+    # exposing an empty row first. Repeating it must skip publication.
+    for count in (0, 1, 10, 11, 25, 50):
+        for offset in range(0, max(count, 1), 10):
+            actual, expected = Run(image, symbols), Run(image, symbols)
+            for r in (actual, expected):
+                r.m.memory[0x4000:0x5B00] = b'\xa5' * 6912
+                r.put('Wifi.networks_count', count)
+                r.put('UI.offset', offset)
+            expected.m.a = 17
+            expected.call('UI.clearRowPixels')
+            if count:
+                text = f'{count} networks detected'
+                pages = (count + 9) // 10
+                if pages > 1:
+                    text += f' ({offset // 10 + 1}/{pages} pages)'
+                expected.m.set_memory_block(0x5D00, text.encode() + b'\0')
+                expected.m.memory[symbols['Display.coords']:symbols['Display.coords'] + 2] = bytes((41 - len(text), 17))
+                expected.m.hl = 0x5D00
+                expected.call('Display.putStr')
+            expected.call('UI.showScrollIndicators')
+            actual.call('UI.showPageInfo', 'Display.endRow')
+            assert bytes(actual.m.memory[0x4000:0x5B00]) == b'\xa5' * 6912
+            assert actual.get('Display.row_active') == 1
+            actual.call('Display.endRow')
+            assert bytes(actual.m.memory[0x4000:0x5B00]) == bytes(expected.m.memory[0x4000:0x5B00]), (count, offset)
+            actual.call('UI.showPageInfo')
+            assert actual.m.f & Z_FLAG and not actual.get('Display.row_active')
+            assert actual.m.iy == 0x5C3A and actual.m.sp == 0xFFE2
+            # Shrinking the list erases both old text and old arrows.
+            actual.put('Wifi.networks_count', 0)
+            actual.put('UI.offset', 0)
+            actual.call('UI.showPageInfo')
+            for line in range(8):
+                start = _pixel_addr(17, line)
+                assert bytes(actual.m.memory[start:start + 32]) == bytes(32)
+
+    skipped = Run(image, symbols)
+    skipped.m.memory[0x4000:0x5B00] = b'\xa5' * 6912
+    skipped.put('UI.skip_footer', 1)
+    skipped.put('Wifi.networks_count', 25)
+    skipped.put('UI.offset', 10)
+    skipped.call('UI.showPageInfo')
+    assert bytes(skipped.m.memory[0x4000:0x5B00]) == b'\xa5' * 6912
+    assert not skipped.get('Display.row_active')
+
+
 def check(image, symbols, target):
     del target
+    check_footer(image, symbols)
     run = Run(image, symbols)
 
     # Manual scan replaces the entire count/page row before waiting for WiFi.
@@ -51,7 +100,12 @@ def check(image, symbols, target):
 
     # Exact font produced by the pre-fix e1a0d8d unpacker, including fixes
     # for %, & and _. A fixed baseline catches accidental appearance changes.
-    assert 0xC000 <= cache and cache + 768 <= symbols["static_data_end"]
+    overlay_end = symbols.get("tap_overlay_end", symbols.get("overlay_end"))
+    if overlay_end is not None:
+        assert cache == 0x6000 and cache + 768 <= overlay_end
+    else:
+        assert 0xC000 <= cache and cache + 768 <= symbols["static_data_end"]
+    assert cache % 8 == 0
     font = bytes(run.m.memory[cache:cache + 768])
     assert sha256(font).hexdigest() == "8cf05f8a80299734d444821e2fd0b8a0a3c24bd69ef3ad7720b51586006a2a5a"
     for char in range(32, 128):
@@ -66,6 +120,29 @@ def check(image, symbols, target):
         run.m.a = char
         run.call("Display.decompressChar")
         assert bytes(run.m.memory[glyph_buf:glyph_buf + 8]) == space
+
+    # Optimized phase blitters match the independent general renderer,
+    # including neighbouring pixels in screen and row-buffer destinations.
+    for buffered in (False, True):
+        reference, fast = Run(image, symbols), Run(image, symbols)
+        starts = [symbols["Display.row_buffer"] + 32 * line if buffered
+                  else _pixel_addr(10, line) for line in range(8)]
+        for char in range(32, 128):
+            for col in (0, 1, 2, 3):  # Pixel phases 0, 6, 4 and 2.
+                for renderer in (reference, fast):
+                    renderer.put("Display.row_active", int(buffered))
+                    for start in starts:
+                        renderer.m.memory[start:start + 32] = bytes([0xA5]) * 32
+                    renderer.m.a = char
+                _set_draw_coords(reference, symbols, col, 10)
+                reference.call("Display.drawC")
+                fast.m.b, fast.m.de = col * 6 % 8, starts[0] + col * 6 // 8
+                fast.call("Display.drawCAt")
+                for start in starts:
+                    assert bytes(fast.m.memory[start:start + 32]) == bytes(
+                        reference.m.memory[start:start + 32]
+                    ), (buffered, char, col, start)
+                assert fast.m.iy == 0x5C3A and fast.m.sp == 0xFFE2
 
     # Every glyph followed by a space clears exactly its six-pixel cell at
     # every column, without changing either neighbour's canary pixels.
@@ -154,11 +231,35 @@ def check(image, symbols, target):
             address = _pixel_addr(adjacent, scanline)
             assert bytes(run.m.memory[address:address + 32]) == bytes([0x3C]) * 32
 
+    # Partial-scanline resume in endRow publishes the entire 256-byte row
+    # regardless of which scanline/byte holds the first difference.
+    for first_scan, first_byte in ((0, 0), (3, 22), (7, 31)):
+        expected_row = bytes(((s * 37 + b * 13 + 0x11) & 0xFF) for s in range(8) for b in range(32))
+        screen_row = bytearray(expected_row)
+        for s in range(first_scan, 8):
+            start_b = first_byte if s == first_scan else 0
+            for b in range(start_b, 32):
+                screen_row[s * 32 + b] ^= 0xFF
+        for s in range(8):
+            addr = _pixel_addr(6, s)
+            run.m.memory[addr:addr + 32] = screen_row[s * 32:(s + 1) * 32]
+        run.m.a = 6
+        run.call("Display.beginRow")
+        run.m.memory[row_buffer:row_buffer + 256] = expected_row
+        run.call("Display.endRow")
+        assert not run.m.f & Z_FLAG
+        assert not run.get("Display.row_active")
+        assert run.m.sp == 0xFFE2
+        for s in range(8):
+            addr = _pixel_addr(6, s)
+            assert bytes(run.m.memory[addr:addr + 32]) == expected_row[s * 32:(s + 1) * 32], (first_scan, first_byte, s)
+
     # Row staging reuses consumed RX storage, never the decoded network tables.
     run = Run(image, symbols)
     assert symbols["Display.row_buffer"] == symbols["Wifi.scan_rx_buffer"]
-    for hook in ("Wifi.flushInput", "Wifi.espSendZ_CRLF", "Display.putStrLog"):
+    for hook in ("Wifi.flushInput", "Display.putStrLog"):
         run.hook(hook)
+    run.hook("Wifi.espSendZ_CRLF")
     for name in (b"first-scan", b"second-scan"):
         run.feed(b'+CWLAP:(3,"' + name + b'",-42,"00:11:22:33:44:55",6)\r\nOK\r\n')
         run.call("Wifi.getList")

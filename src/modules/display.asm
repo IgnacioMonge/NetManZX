@@ -68,32 +68,126 @@ setAttrPartial:
     djnz .loop
     ret
 
-putStr:
-    ld bc, (coords)         ; C = col, B = row
+; Input: A = line number, C = color
+; Sets color for the first 21 cells only. List rows use this so the RSSI
+; lock cell (column 28) stays outside the cursor/saved/connected band.
+setAttrList:
+    call attrCalc
+    ld b, 21
+    ld a, c
 .loop
-    ld a, (hl)
-    and a : jr z, .done
-    cp 13 : jr nz, .notCR
-    inc hl : jr .cr
-.notCR
+    ld (hl), a
+    inc hl
+    djnz .loop
+    ret
+
+; Bounded variant used by list rows. A zero limit retains DJNZ's 256-byte rule.
+putStrN:
+    ld a, b
+    ld (putStr.remaining), a
     push hl
+    ld hl, putStr.limited
+    ld (putStr.charNext), hl
+    ld (putStr.crNext), hl
+    pop hl
+    jp putStr.start
+
+putStr:
+    push hl
+    ld hl, .loop
+    ld (.charNext), hl
+    ld (.crNext), hl
+    pop hl
+.start
+    push ix
+    push hl
+    pop ix                  ; IX = string pointer; drawCAt leaves it intact
+    ld hl, (coords)         ; H = row, L = column
+    ld c, l                 ; C = logical column
+    ld b, l
+    call calc               ; L = byte column, A = pixel phase
+    ld b, a                 ; B = pixel phase
+    ld d, h
+    ld e, l
+    ld a, (row_active)
+    and a
+    jr z, .screenTarget
     push bc
-    ld (drawC.coords), bc   ; set drawC coords directly
-    call drawC
+    ld c, e : ld b, 0
+    ld hl, row_buffer
+    add hl, bc
+    ex de, hl
     pop bc
-    inc c                   ; next column
-    ld a, c : cp 42 : jr nc, .cr2  ; wrap at column 42
-    pop hl
-    inc hl
-    jr .loop
-.cr2
-    pop hl
-    inc hl
+    ld a, drawCAt.advBuffer0 - drawCAt.advJr0 - 2
+    jr .targetReady
+.screenTarget
+    call findAddr
+    ld a, drawCAt.advScreen0 - drawCAt.advJr0 - 2
+.targetReady
+    ; The destination kind is invariant for the whole string.
+    ld (drawCAt.advJr0 + 1), a
+    ld (drawCAt.advJr2 + 1), a
+    ld (drawCAt.advJr4 + 1), a
+    ld (drawCAt.advJr6 + 1), a
+.loop
+    ld a, (ix)
+    and a : jr z, .done
+    cp 13 : jr z, .explicitCR
+    push bc
+    push de
+    call drawCAt.prepared
+    pop de
+    pop bc
+    inc ix
+    inc c
+    ; Phases advance 0,6,4,2; every non-zero phase crosses a byte. The staging
+    ; row may straddle a 256-byte page, so the step is 16-bit.
+    ld a, b
+    and a
+    jr z, .phaseReady
+    inc de
+.phaseReady
+    sub 2
+    and 7
+    ld b, a
+    ld a, c
+    cp 42
+    jp c, 0
+.charNext = $ - 2
+    jr .cr
+.explicitCR
+    inc ix
 .cr
-    ld c, 0 : inc b
-    jr .loop
+    xor a
+    ld b, a
+    ld c, a
+    ld hl, coords + 1
+    inc (hl)
+    ld d, (hl)
+    ld e, a
+    ld a, (row_active)
+    and a
+    jr z, .crScreen
+    ld de, row_buffer
+    jr .afterCr
+.crScreen
+    call findAddr
+.afterCr
+    jp 0
+.crNext = $ - 2
+.limited
+    ld a, 0
+.remaining = $ - 1
+    dec a
+    ld (.remaining), a
+    jp nz, .loop
 .done
-    ld (coords), bc         ; save final position
+    ld a, c
+    ld (coords), a          ; row was advanced at each wrap/CR
+    push ix
+    pop hl                  ; preserve the old end-pointer result
+    ld bc, (coords)
+    pop ix
     ret
 
 putStrBig:
@@ -290,18 +384,14 @@ endRow:
     xor a                   ; Z = unchanged
     ret
 .changed
-    pop de
-    pop bc
-    ld a, (row_target)
-    ld d, a
-    ld e, 0
-    call findAddr
-    ld hl, row_buffer
-    ld b, 8
+    ld c, b
+    ld b, 0
+    jr .copyRemainder
 .copyScanline
     push bc
     push de
     ld bc, 32
+.copyRemainder
     ldir
     pop de
     inc d
@@ -311,6 +401,198 @@ endRow:
     or a
     ret
 
+
+; Draw with a precomputed target and pixel phase.
+; Input: A = character, B = phase (0/2/4/6), DE = first target byte.
+; Destroys: AF, BC, DE, HL. The prepared entry expects the scanline step set.
+drawCAt:
+    push af
+    ld a, (row_active)
+    and a
+    ld a, .advScreen0 - .advJr0 - 2
+    jr z, .stepReady
+    ld a, .advBuffer0 - .advJr0 - 2
+.stepReady
+    ld (.advJr0 + 1), a
+    ld (.advJr2 + 1), a
+    ld (.advJr4 + 1), a
+    ld (.advJr6 + 1), a
+    pop af
+.prepared
+    push de
+    call fontCharPtr
+    ex de, hl
+    ex (sp), hl             ; stack = glyph, HL = target
+    push hl                 ; stack = target, glyph
+    ld a, b
+    and a
+    jp z, .phase0
+    cp 4
+    jp z, .phase4
+    jp c, .phase2
+    ; Fall through for phase 6.
+.phase6
+    pop de
+    pop bc
+    ld a, c
+    add a, 8
+    ld (.glyphEnd6), a
+.print6
+    ld a, (bc)
+    inc c
+    rlca
+    rlca
+    ld l, a
+    and #03
+    ld h, a
+    xor l
+    ld l, a
+    ld a, (de)
+    and #fc
+    or h
+    ld (de), a
+    inc de
+    ld a, (de)
+    and #0f
+    or l
+    ld (de), a
+    dec de
+.advJr6
+    jr .advScreen6
+.advBuffer6
+    ld a, e
+    add a, 32
+    ld e, a
+    jr nc, .advDone6
+    inc d
+    jr .advDone6
+.advScreen6
+    inc d
+.advDone6
+    ld a, c
+    cp 0
+.glyphEnd6 = $ - 1
+    jr nz, .print6
+    ret
+
+.phase4
+    pop de
+    pop bc
+    ld a, c
+    add a, 8
+    ld (.glyphEnd4), a
+.print4
+    ld a, (bc)
+    inc c
+    rlca
+    rlca
+    rlca
+    rlca
+    ld l, a
+    and #0F
+    ld h, a
+    xor l
+    ld l, a
+    ld a, (de)
+    and #f0
+    or h
+    ld (de), a
+    inc de
+    ld a, (de)
+    and #3f
+    or l
+    ld (de), a
+    dec de
+.advJr4
+    jr .advScreen4
+.advBuffer4
+    ld a, e
+    add a, 32
+    ld e, a
+    jr nc, .advDone4
+    inc d
+    jr .advDone4
+.advScreen4
+    inc d
+.advDone4
+    ld a, c
+    cp 0
+.glyphEnd4 = $ - 1
+    jr nz, .print4
+    ret
+
+.phase2
+    pop de
+    pop bc
+    ld a, c
+    add a, 8
+    ld (.glyphEnd2), a
+.print2
+    ld a, (bc)
+    inc c
+    rrca
+    rrca
+    ld h, a
+    ld a, (de)
+    and #c0
+    or h
+    ld (de), a
+.advJr2
+    jr .advScreen2
+.advBuffer2
+    ld a, e
+    add a, 32
+    ld e, a
+    jr nc, .advDone2
+    inc d
+    jr .advDone2
+.advScreen2
+    inc d
+.advDone2
+    ld a, c
+    cp 0
+.glyphEnd2 = $ - 1
+    jr nz, .print2
+    ret
+
+.phase0
+    pop de
+    pop bc
+    ld a, c
+    add a, 8
+    ld (.glyphEnd0), a
+.print0
+    ld a, (bc)
+    inc c
+    ld h, a
+    ld a, (de)
+    and #03
+    or h
+    ld (de), a
+.advJr0
+    jr .advScreen0
+.advBuffer0
+    ld a, e
+    add a, 32
+    ld e, a
+    jr nc, .advDone0
+    inc d
+    jr .advDone0
+.advScreen0
+    inc d
+.advDone0
+    ld a, c
+    cp 0
+.glyphEnd0 = $ - 1
+    jr nz, .print0
+    ret
+
+    ASSERT .advBuffer0 - .advJr0 = .advBuffer2 - .advJr2
+    ASSERT .advBuffer0 - .advJr0 = .advBuffer4 - .advJr4
+    ASSERT .advBuffer0 - .advJr0 = .advBuffer6 - .advJr6
+    ASSERT .advScreen0 - .advJr0 = .advScreen2 - .advJr2
+    ASSERT .advScreen0 - .advJr0 = .advScreen4 - .advJr4
+    ASSERT .advScreen0 - .advJr0 = .advScreen6 - .advJr6
 
 drawC:
     call fontCharPtr        ; A = char, returns DE = cached glyph
@@ -327,14 +609,19 @@ drawC:
     ld hl, row_buffer
     add hl, bc
     ld d, h : ld e, l
+    ld a, .advBuffer - .advJr - 2
     jr .targetReady
 .screenTarget
     ld d, h : ld e, l
     call findAddr
+    ld a, .advScreen - .advJr - 2
 .targetReady
-    push de                 ; save screen address
+    ; Pick the scanline step once instead of testing row_active eight times.
+    ld (.advJr + 1), a
+    push de                 ; save target address
 ; Mask table lookup (replaces mask rotation loop)
     ld a, (dcb_rot)
+.phaseReady
     ld c, a : ld b, 0
     ld hl, .maskTable
     add hl, bc              ; HL = &maskTable[pixel_offset]
@@ -343,15 +630,21 @@ drawC:
     ld a, (hl) : ld (.mask1), a
 ; Shift dispatch: compute jr offset into unrolled shift chain
     ld a, c                 ; pixel offset (0,2,4,6)
-    add a, a : add a, a     ; ×4 = bytes to skip back from .shift0
+    add a, a : add a, a     ; x4 = bytes to skip back from .shift0
     ld c, a
     ld a, .shift0 - .shiftJr - 2
     sub c
     ld (.shiftJr + 1), a
-    pop ix, de              ; IX = target address, DE = cached glyph
-    ld b, 8
+    pop de                  ; DE = target address, written through (de) at 7 T
+    pop bc                  ; BC = cached glyph, read through (bc) at 7 T
+    ; Glyphs are 8 bytes on an 8-byte boundary, so they never cross a page:
+    ; the loop counter is C reaching the byte after the last one.
+    ld a, c
+    add a, 8
+    ld (.glyphEnd), a
 .printIt
-    ld a, (de)
+    ld a, (bc)
+    inc c
     ld h, a
     ld l, 0
 .shiftJr
@@ -366,30 +659,34 @@ drawC:
     srl h : rr l
     srl h : rr l
 .shift0
-    ld a, (ix + 1)
-    and #0f
-.mask1 = $ - 1
-    or l
-    ld (ix + 1), a
-    ld a, (ix)
+    ld a, (de)
     and #fc
 .mask2 = $ - 1
     or h
-    ld (ix), a
-    ld a, (row_active)
-    and a
-    jr nz, .nextBuffered
-    inc ixh
-    jr .advanced
-.nextBuffered
-    ld a, ixl
-    add a, 32
-    ld ixl, a
-    jr nc, .advanced
-    inc ixh
-.advanced
+    ld (de), a
     inc de
-    djnz .printIt
+    ld a, (de)
+    and #0f
+.mask1 = $ - 1
+    or l
+    ld (de), a
+    dec de
+.advJr
+    jr .advScreen           ; self-mod: patched once, above
+.advBuffer
+    ld a, e
+    add a, 32
+    ld e, a
+    jr nc, .advDone
+    inc d
+    jr .advDone
+.advScreen
+    inc d
+.advDone
+    ld a, c
+    cp 0
+.glyphEnd = $ - 1
+    jr nz, .printIt
     ret
 
 .maskTable

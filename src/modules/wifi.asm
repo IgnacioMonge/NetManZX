@@ -37,13 +37,17 @@ uartLock:
 uartUnlock:
     xor a
     ld (uart_busy), a
-    ret
+    jp UI.resetAsyncWifi        ; The transaction consumed the previous RX stream.
 
 ; Config constants (MAX_NETWORKS, MAX_SSID_LEN, BUFFER_* defined in main.asm)
 MAX_RETRIES     = 3           ; Init retries
-SCAN_FRAMES     = 30 * 50     ; Whole scan deadline at 50 Hz
+SCAN_FRAMES     = 30 * 50     ; Deadline per scan pass at 50 Hz
 SCAN_GAP_FRAMES = 2 * 50      ; End a raw capture after UART silence
-SCAN_RX_SIZE    = 12000       ; Existing parser hard limit
+SCAN_RX_SIZE    = 10500       ; One pass's raw reply; ~130 rows of the longest firmware format
+SCAN_BYTE_LIMIT = 12000       ; Parser hard limit per pass
+; Retry the plain command only if the firmware rejects or ignores scan parameters.
+SCAN_PHASE_ACTIVE = 0
+SCAN_PHASE_BASIC  = 1
 JOIN_FRAMES     = 20 * 50     ; ESP default join can take 15 seconds
     IFDEF AY
 FLUSH_SILENCE   = 1           ; AY probe already waits ~4.5ms
@@ -66,11 +70,13 @@ checkConnection:
     ld hl, S_AT_CWJAP_Q : call espSendZ_CRLF
     call .waitCwJAP
     jr nc, .connected
+    ret z                           ; A complete "No AP" needs no fallback.
 
     call flushInput
     ld hl, S_AT_CWJAP_CUR : call espSendZ_CRLF
     call .waitCwJAP
     jr nc, .connected
+    ret z
 
     call flushInput
     ld hl, S_AT_CWJAP_DEF : call espSendZ_CRLF
@@ -92,6 +98,7 @@ checkConnection:
 ; .waitCwJAP
 ;   Waits for a +CWJAP... line and extracts SSID.
 ;   Returns: CF=0 if connected (SSID extracted), CF=1 otherwise.
+;   On failure, Z=1 only for a complete No AP response (no fallback needed).
 ; ============================================
 .waitCwJAP
     xor a
@@ -106,6 +113,7 @@ checkConnection:
     pop bc
     jr c, .got
     djnz .loop
+    dec b                           ; NZ distinguishes timeout/unsupported.
     scf
     ret
 
@@ -118,51 +126,56 @@ checkConnection:
 
 .okLine
     ; OK can appear (e.g., from a previous command). Do not treat it as definitive.
-    call .flushToLF
+    call flushReplyLine
     jr .loop
 
 .errorLine
-    ; ERROR can also be stale. Ignore and keep waiting for +CWJAP / No AP.
-    call .flushToLF
+    ld hl, dbg_rx_error + 4
+    call checkOkErrCommon.matchSuffix
+    jr nc, .loop
+    jp nz, .discardLine
+    ; ERROR can be stale, so permit one normal interbyte timeout of grace.
+    ld b, 1
     jr .loop
 
 .noAP
-    ; Consume rest of line ("No AP")
-    call .flushToLF
+    ld hl, .noApSuffix
+    call checkOkErrCommon.matchSuffix
+    jr nc, .loop
+    jp nz, .discardLine
+    xor a                           ; Z marks a definitive disconnected reply.
     scf
     ret
 
 .plusFound
     ; Expect CWJAP (possibly with _CUR/_DEF suffix).
-    ; All ".fail" jumps use jp nc (3 B) instead of jr nc (2 B): the block
-    ; is long enough that future edits could trip jr's ±127 B limit.
     cp 'C' : jp nz, .discardLine
-    call .readCwJAPByte : jp nc, .fail
-    cp 'W' : jp nz, .discardLine
-    call .readCwJAPByte : jp nc, .fail
-    cp 'J' : jp nz, .discardLine
-    call .readCwJAPByte : jp nc, .fail
-    cp 'A' : jp nz, .discardLine
-    call .readCwJAPByte : jp nc, .fail
-    cp 'P' : jp nz, .discardLine
+    ld hl, .cwjapSuffix
+    call checkOkErrCommon.matchSuffix
+    jp nc, .fail
+    jp nz, .discardLine
 
     ; Accept ':' directly, or skip suffix until ':'
 .readUntilColon
-    call .readCwJAPByte : jp nc, .fail
+    call readResponseByte : jp nc, .fail
     cp ':' : jr z, .afterColon
+    cp 13 : jp z, .discardLine
+    cp 10 : jp z, .loop
     jr .readUntilColon
 
 .afterColon
     ; Find opening quote
 .findQuote
-    call .readCwJAPByte : jp nc, .fail
+    call readResponseByte : jp nc, .fail
+    cp 13 : jp z, .discardLine
+    cp 10 : jp z, .loop
     cp '"' : jr nz, .findQuote
 
     ; Read and unescape SSID until closing quote (bounded)
     ld hl, connected_ssid
     ld b, MAX_SSID_LEN
 .readSSID
-    call .readCwJAPByte : jp nc, .clearRejectedSSID
+    call readResponseByte : jp nc, .clearRejectedSSID
     cp #5C : jr z, .readSSIDescape
     cp '"' : jr z, .gotSSID
     cp 13 : jr z, .rejectSSID
@@ -174,24 +187,23 @@ checkConnection:
 
     ; Buffer full: only accept if the very next char closes the quote
 .waitClosingQuote
-    call .readCwJAPByte : jp nc, .clearRejectedSSID
+    call readResponseByte : jp nc, .clearRejectedSSID
     cp '"' : jr z, .gotSSID
     jr .rejectSSID
 
 .readSSIDescape
-    call .readCwJAPByte : jp nc, .clearRejectedSSID
+    call readResponseByte : jp nc, .clearRejectedSSID
     call isSSIDescape
     jr z, .storeSSID
 .rejectSSID
     ; Drop malformed/overlong names without consuming the next line.
     cp 10 : jr z, .clearRejectedSSID
-    call .flushToLF
+    call flushReplyLine
 .clearRejectedSSID
     xor a
     ld (connected_ssid), a
     ld (connected_bssid_valid), a
-    scf
-    ret
+    jp .fail
 
 .gotSSID
     xor a
@@ -199,17 +211,17 @@ checkConnection:
     ld (connected_bssid_valid), a
     ; Current firmware follows SSID with the selected BSSID. Older or
     ; malformed replies still establish SSID state with unknown identity.
-    call .readCwJAPByte
-    jr nc, .finishConnected
+    call readResponseByte
+    jr nc, .clearRejectedSSID
     cp ',' : jr nz, .finishConnected
-    call .readCwJAPByte
-    jr nc, .finishConnected
+    call readResponseByte
+    jr nc, .clearRejectedSSID
     cp '"' : jr nz, .finishConnected
     ld hl, connected_bssid
     ld b, 6
 .readBssid
-    call .readCwJAPByte
-    jr nc, .finishConnected
+    call readResponseByte
+    jr nc, .clearRejectedSSID
     call loadList.hexNibble
     jr nc, .finishConnected
     rlca
@@ -217,48 +229,49 @@ checkConnection:
     rlca
     rlca
     ld c, a
-    call .readCwJAPByte
-    jr nc, .finishConnected
+    call readResponseByte
+    jr nc, .clearRejectedSSID
     call loadList.hexNibble
     jr nc, .finishConnected
     or c
     ld (hl), a
     inc hl
     djnz .bssidSeparator
-    call .readCwJAPByte
-    jr nc, .finishConnected
+    call readResponseByte
+    jr nc, .clearRejectedSSID
     cp '"' : jr nz, .finishConnected
     ld a, 1
     ld (connected_bssid_valid), a
     jr .finishConnected
 .bssidSeparator
-    call .readCwJAPByte
-    jr nc, .finishConnected
+    call readResponseByte
+    jr nc, .clearRejectedSSID
     cp ':' : jr z, .readBssid
 .finishConnected
-    call .flushToLF
-    ld a, (Uart.io_error)
-    and a
-    jr nz, .clearRejectedSSID
+    cp 10 : jr z, .lineComplete
+    call flushReplyLine
+    jr nc, .clearRejectedSSID
+.lineComplete
+    call checkOkErr
+    jr c, .clearRejectedSSID
     ret
 
 .fail
+    or 1                            ; NZ marks timeout/unsupported/malformed.
     scf
     ret
 
 .discardLine
-    call .flushToLF
+    call flushReplyLine
     jp .loop
 
-.readCwJAPByte
-    jp readResponseByte
+.cwjapSuffix db "WJAP", 0
+.noApSuffix db "o AP", 13, 10, 0
 
-.flushToLF
-    jp flushReplyLine
-
-; Drain UART until silence (capped at 1024 bytes to prevent lockup)
+; Drain UART until silence (capped at 2048 bytes to prevent lockup)
 ; Flush until sustained silence (NextSync flush_uart_hard pattern)
 flushInput:
+.drainStart
     ld bc, 2048               ; Hard byte cap — bail if ESP sends continuous garbage
     ld de, FLUSH_SILENCE       ; Sustained silence counter
 .flushLoop
@@ -271,30 +284,49 @@ flushInput:
     dec bc
     ld a, b : or c
     jr nz, .flushLoop
-    jr .flushDone             ; Cap exhausted — bail to prevent infinite hang
+    ld a, (.recovering)
+    and a
+    jr z, .flushDone          ; Preserve normal capped-drain behavior.
+    ld a, 1
+    ld (Uart.io_error), a
+    scf
+    ret
 .flushQuiet
     dec de
     ld a, d : or e
     jr nz, .flushLoop
 .flushDone
+    ld a, (Uart.tx_pending)
+    and a
+    jr nz, .abortLine
     xor a
+    ld (.recovering), a
     ld (Uart.io_error), a
     ret
-
-; Exit transparent mode (+++, guard time, flush)
-; Safe to call even if ESP is not in transparent mode.
-exitTransparent:
-    EspSend "+++"
-    ld b, 75               ; ~1.5s guard time
-.etp_wait
-    halt
-    djnz .etp_wait
-    call flushInput         ; Discard response (may be "NO CHANGE" etc.)
-    ; +++ keeps the socket in passthrough receive mode. Normalize framing
-    ; without closing the socket or changing persistent configuration.
-    ld hl, S_AT_CIPMODE_NORMAL
-    call espSendZCheckOk
-    jp flushInput
+.abortLine
+    ; Make every project AT prefix invalid before terminating the damaged line.
+    xor a
+    ld (Uart.io_error), a
+    ld hl, .abortBytes
+    ld b, 3
+.abortLoop
+    ld a, (hl)
+    call UartImpl.write
+    ld a, (Uart.io_error)
+    and a
+    jr nz, .abortFailed
+    inc hl
+    djnz .abortLoop
+    xor a
+    ld (Uart.tx_pending), a
+    inc a
+    ld (.recovering), a
+    jr .drainStart             ; Consume ERROR before another transaction.
+.abortFailed
+    scf
+    ret
+.recovering db 0
+.abortBytes db '#', 13, 10
 
 init:
     call flushInput
@@ -342,11 +374,6 @@ init:
     jr c, .err
     ld hl, S_AT_CWAUTOCONN : call espSendZCheckOk
     jr c, .err
-    ; Optional on old firmware; defaults already contain these five fields.
-    ld hl, S_AT_CWLAPOPT : call espSendZCheckOk
-    ld a, (Uart.io_error)
-    and a
-    jr nz, .err
     ret
 
 .err
@@ -420,36 +447,38 @@ readBcTimeout:
 getList:
     ; Failure returns A=1 for BREAK cancellation, A=0 otherwise.
     call uartLock
+
+    xor a
+    ld (scan_overflow), a
+    ; Don't clear buffers yet — preserve old data until the scan delivers rows
+    ld (seen_cwlap), a
+    ld (Uart.break_hit), a
+    ld (use_long_timeout), a
+    ld (scan_phase), a          ; SCAN_PHASE_ACTIVE
+    ld hl, loadList.readScan
+    ld (readResponseByte.reader), hl
+    ; fall through to the active scan
+
+; The compatibility fallback gets a fresh capture, deadline and byte budget.
+startPass:
+    call flushInput
     ld hl, (#5C78)
     ld (scan_started), hl
-    call flushInput
-    ld hl, 12000
+    ld hl, SCAN_BYTE_LIMIT
     ld (byte_limit), hl
-
-    ; Runtime capture RAM is undefined and may contain an old response.
-    ld hl, scan_rx_buffer
-    ld de, scan_rx_buffer + 1
-    ld bc, SCAN_RX_SIZE - 1
-    xor a
-    ld (hl), a
-    ldir
-    ld (scan_overflow), a
     ld hl, scan_rx_buffer
     ld (scan_rx_read), hl
     ld (scan_rx_write), hl
-    ; Don't clear buffers yet — preserve old data until scan succeeds
-    xor a
-    ld (seen_cwlap), a
-    ld (Uart.break_hit), a
+    ld a, (scan_phase)
+    ld hl, S_AT_CWLAP_ACTIVE
+    and a
+    jr z, .send
+    ld hl, S_AT_CWLAP
+.send
+    call espSendZ_CRLF
+    jp loadList
 
-    ; Try extended scan with longer dwell time per channel
-    ld a, 1
-    ld (scan_extended), a
-    ld hl, S_AT_CWLAP_EXT : call espSendZ_CRLF
-    ; fall through to loadList
-    jr loadList
-
-; Reset scan pointers + count ONLY. Old SSID bytes remain in buffer but
+; Reset the slot cursor + count ONLY. Old SSID bytes remain in buffer but
 ; are masked by networks_count; as new APs arrive they overwrite slot 0,
 ; 1, ... If the scan fails partway, partial data shows (better than the
 ; previous behavior of wiping old data on first +CWLAP, which left the
@@ -457,16 +486,6 @@ getList:
 resetScanPointers:
     ld hl, buffer
     ld (buff_ptr), hl
-    ld hl, rssi_buffer
-    ld (rssi_ptr), hl
-    ld hl, ecn_buffer
-    ld (ecn_ptr), hl
-    ld hl, channel_buffer
-    ld (chan_ptr), hl
-    ld hl, bssid_buffer
-    ld (bssid_ptr), hl
-    ld hl, ssid_ptr_table
-    ld (ssid_table_ptr), hl
     ld hl, bssid_buffer
     ld de, bssid_buffer + 1
     ld bc, BSSID_STATE_SIZE - 1
@@ -489,36 +508,25 @@ clearScanBuffers:
 
 loadList:
 .waitFirstResponse
-    call .readScan
-    jr c, .gotFirstChar
-    ld a, (Uart.break_hit)
-    and a
-    jp nz, .scanCancelled
-    call .scanBudgetLeft
-    jr c, .waitFirstResponse
-    jp .scanTimeout             ; No response after timeout
-    
-.gotFirstChar
-.dispatchChar
-    cp '+' : jr z, .plusStart
+    ; Share the command parser's line and +IPD framing over captured bytes.
+    call readReplyStart
+    jp nc, .scanTimeout
+    jr z, .plusStart
     cp 'O' : jr z, .okStart
     cp 'E' : jp z, .errStart
-    cp 13  : jr z, loadList          ; CR — back to long timeout
-    cp 10  : jr z, loadList          ; LF — back to long timeout
-    jr .continueLoad
-
-.continueLoad
-    call .readScan
+.discardLine
+    cp 10 : jr z, loadList
+.flushLine
+    call flushReplyLine
     jp nc, .scanTimeout
-    jr .dispatchChar
+    jr loadList
 
 .plusStart
-    call .readScan : jp nc, .scanTimeout
-    cp 'C' : jr nz, loadList
-    call .readScan : jp nc, .scanTimeout
-    cp 'W' : jr nz, loadList
-    call .readScan : jp nc, .scanTimeout
-    cp 'L' : jr nz, loadList
+    cp 'C' : jr nz, .discardLine
+    ld hl, .cwlapSuffix
+    call checkOkErrCommon.matchSuffix
+    jp nc, .scanTimeout
+    jr nz, .discardLine
     ; First +CWLAP: reset pointers only (don't wipe buffer). Old SSID
     ; bytes beyond networks_count stay put; new APs overwrite from slot 0.
     ; On mid-scan timeout, partial new data is shown instead of a wipe.
@@ -532,23 +540,26 @@ loadList:
     jp .loadAp
 
 .okStart
-    call .readScan : jp nc, .scanTimeout
-    cp 'K' : jr nz, loadList
-    call .readScan : jp nc, .scanTimeout
-    cp 13  : jp nz, loadList
+    ld hl, dbg_rx_ok + 4
+    call checkOkErrCommon.matchSuffix
+    jp nc, .scanTimeout
+    jr nz, .discardLine
 
-    ; OK received. If +CWLAP lines were seen, scan is complete.
+    ld a, (scan_overflow)
+    and a
+    jp nz, .scanTimeoutClean
+
+    ; A successful scan with rows finishes without another command.
     ld a, (seen_cwlap)
     and a
     jr nz, .okReturn
 
-    ; No +CWLAP. If extended scan, firmware may not support the params
-    ; (older ESP returns OK with no results instead of ERROR).
-    ; Fall back to basic AT+CWLAP immediately instead of waiting.
-    ld a, (scan_extended)
-    and a
+    ; No +CWLAP yet. A parameterized pass may be silently ignored (older
+    ; ESP returns OK with no results instead of ERROR): try the plain command.
+    ld a, (scan_phase)
+    cp SCAN_PHASE_BASIC
     jr z, .okReturn             ; Basic scan: OK w/o +CWLAP == 0 networks
-    jr .basicScanFallback
+    jr .nextPass
 
 .okReturn
     ; If OK arrived without any +CWLAP, clear old data (0-result scan)
@@ -559,33 +570,25 @@ loadList:
 .okAlreadyClear
     call initDisplayIndices     ; Initialize display indices
     call sortNetworks           ; Auto-sort by RSSI
-    jp uartUnlock
+    jp .scanUnlock
 
 .errStart
-    call .readScan : jr nc, .scanTimeout
-    cp 'R' : jp nz, loadList
-    call .readScan : jr nc, .scanTimeout
-    cp 'R' : jp nz, loadList
-    call .readScan : jr nc, .scanTimeout
-    cp 'O' : jp nz, loadList
-    call .readScan : jr nc, .scanTimeout
-    cp 'R' : jp nz, loadList
-    ; Extended scan not supported? Fallback to basic AT+CWLAP
-    ld a, (scan_extended)
+    ld hl, dbg_rx_error + 4
+    call checkOkErrCommon.matchSuffix
+    jp nc, .scanTimeout
+    jr nz, .discardLine
+    ; Rows received before ERROR remain usable.
+    ld a, (seen_cwlap)
     and a
+    jr nz, .okReturn
+    ; Parameters rejected: fall back to plain AT+CWLAP.
+    ld a, (scan_phase)
+    cp SCAN_PHASE_BASIC
     jr z, .scanFail
-.basicScanFallback
-    xor a
-    ld (scan_extended), a
-    ld (seen_cwlap), a
-    call flushInput
-    ld hl, 12000
-    ld (byte_limit), hl
-    ld hl, scan_rx_buffer
-    ld (scan_rx_read), hl
-    ld (scan_rx_write), hl
-    ld hl, S_AT_CWLAP : call espSendZ_CRLF
-    jp loadList
+.nextPass
+    ld hl, scan_phase
+    inc (hl)
+    jp startPass
 
 .scanFail
     ld hl, .scanErrMsg
@@ -601,29 +604,40 @@ loadList:
     call clearScanBuffers
     jr .scanFail
 .scanTimeoutClean
-    ld a, (scan_overflow)
-    and a
-    jr z, .scanTimeoutNormal
-    call flushInput
-    call clearScanBuffers
-    jr .scanFail
-.scanTimeoutNormal
     ld a, (Uart.break_hit)
     and a
     jp nz, .scanCancelled
+    ld a, (scan_overflow)
+    and a
+    jr z, .scanTimeoutNormal
+    ; The capture buffer filled: the rows it held are committed and the rest
+    ; of the reply was drained, so the list is complete up to that point.
+    ld hl, .truncMsg
+    call Display.putStrLog
+    jp .okReturn
+.truncMsg db 13, "Scan list cut!", 0
+.scanTimeoutNormal
     ld hl, .timeout_msg
     call Display.putStrLog
 .finishPartialScan
     call .finalizePartialScan
-    jp uartUnlockFail
+    call .scanUnlock
+    scf
+    ret
 .timeout_msg db 13, "Scan timeout!", 0
 
 .scanCancelled
     call .finalizePartialScan
-    call uartUnlock
+    call .scanUnlock
     inc a                       ; A=1 distinguishes BREAK from failure
     scf
     ret
+
+.scanUnlock
+    ld hl, readResponseByte.uart
+    ld (readResponseByte.reader), hl
+    jp uartUnlock
+.cwlapSuffix db "WLAP:", 0
 
 .finalizePartialScan
     ld a, (seen_cwlap)
@@ -633,42 +647,28 @@ loadList:
     jp sortNetworks
 
 .loadAp
-    ld a, (networks_count)
-    cp MAX_NETWORKS
-    jr c, .skipToEcn
-    ; Flush rest of line before returning (prevents desync)
-.flushMax
-    call .readScan
-    jr nc, .scanTimeout
-    cp 10
-    jr nz, .flushMax
-    jp loadList
-
+    ; The candidate's fields stay in scratch until its BSSID proves unique and
+    ; a slot is chosen; its name parses into the slot buff_ptr addresses, which
+    ; is the next free one or the scratch slot once the list is full.
 .skipToEcn
-    call .readScan : jr nc, .scanTimeout
-    cp '(' : jr nz, .skipToEcn
+    call .readOrTimeout
+    cp '(' : jp nz, .discardLine
     
-    call .readScan : jr nc, .scanTimeout
+    call .readOrTimeout
     sub '0'
-    ; Save ECN to its own buffer and also to rssi_ptr (open flag, overwritten later)
-    ld hl, (ecn_ptr)
-    ld (hl), a
-    ld hl, (rssi_ptr)
-    ld (hl), a
+    ld (cand_ecn), a
 
 .findQuote
-    call .readScan : jp nc, .scanTimeout
-    cp '"' : jr nz, .findQuote
+    call .readOrTimeout
+    cp ',' : jp nz, .discardLine
+    call .readOrTimeout
+    cp '"' : jp nz, .discardLine
 
     ld de, (buff_ptr)
-    ld hl, (ssid_table_ptr)
-    ld (hl), e
-    inc hl
-    ld (hl), d
     ld b, MAX_SSID_LEN
 
 .loadName
-    call .readScan : jp nc, .scanTimeout
+    call .readOrTimeout
     cp #5C : jr z, .loadNameEscape
     cp '"' : jr z, .loadedName
     cp 13 : jr z, .rejectName
@@ -679,35 +679,35 @@ loadList:
     djnz .loadName
 
 .waitNameQuote
-    call .readScan : jp nc, .scanTimeout
+    call .readOrTimeout
     cp '"' : jr z, .loadedName
     jr .rejectName
 
 .loadNameEscape
-    call .readScan : jp nc, .scanTimeout
+    call .readOrTimeout
     call isSSIDescape
     jr z, .storeName
 .rejectName
     cp 10 : jp z, loadList
 .flushRejectedName
-    call .readScan : jp nc, .scanTimeout
+    call .readOrTimeout
     cp 10 : jr nz, .flushRejectedName
     jp loadList
 
 .loadedName
     xor a
-    ld (de), a : inc de : ld (buff_ptr), de
+    ld (de), a
 
 .findRssi
-    call .readScan : jp nc, .scanTimeout
-    cp ',' : jr nz, .findRssi
+    call .readOrTimeout
+    cp ',' : jp nz, .discardLine
     
-    call .readScan : jp nc, .scanTimeout
+    call .readOrTimeout
     cp '-' : jr nz, .skipRssi   
     
     ld de, 0            
 .readRssiDigit
-    call .readScan : jp nc, .scanTimeout
+    call .readOrTimeout
     cp '0' : jr c, .rssiDone
     cp '9'+1 : jr nc, .rssiDone
     
@@ -726,22 +726,21 @@ loadList:
 .skipRssi
     ld e, 99            
 .rssiDone
-    ld hl, (rssi_ptr)
-    ld a, (hl)          
+    ld a, (cand_ecn)
     and a
     ld a, e
     jr nz, .notOpen
-    or #80              
+    or #80              ; Open network flag rides on the RSSI magnitude
 .notOpen
-    ld (hl), a
+    ld (cand_rssi), a
 
     ; Capture a normalized six-byte BSSID. Nonstandard fields remain unique.
-    call .readScan : jp nc, .scanTimeout
+    call .readOrTimeout
     cp '"' : jr nz, .invalidMac
     ld hl, bssid_temp
     ld b, 6
 .readMac
-    call .readScan : jp nc, .scanTimeout
+    call .readOrTimeout
     call .hexNibble
     jp nc, .invalidMac
     rlca
@@ -749,20 +748,20 @@ loadList:
     rlca
     rlca
     ld c, a
-    call .readScan : jp nc, .scanTimeout
+    call .readOrTimeout
     call .hexNibble
     jp nc, .invalidMac
     or c
     ld (hl), a
     inc hl
     djnz .macSeparator
-    call .readScan : jp nc, .scanTimeout
+    call .readOrTimeout
     cp '"' : jr nz, .invalidMac
     ld a, 1
     ld (mac_valid), a
     jr .validMac
 .macSeparator
-    call .readScan : jp nc, .scanTimeout
+    call .readOrTimeout
     cp ':' : jr z, .readMac
 .invalidMac
     push af
@@ -773,18 +772,19 @@ loadList:
     pop af
     cp ',' : jr z, .macDone
 .skipMac
-    call .readScan : jp nc, .scanTimeout
+    cp 10 : jp z, loadList
+    call .readOrTimeout
     cp ',' : jr nz, .skipMac
     jr .macDone
 .validMac
-    call .readScan : jp nc, .scanTimeout
-    cp ',' : jp nz, loadList
+    call .readOrTimeout
+    cp ',' : jp nz, .discardLine
 .macDone
 
     ; Parse channel number (1-14)
     ld e, 0
 .readChanDigit
-    call .readScan : jp nc, .scanTimeout
+    call .readOrTimeout
     cp '0' : jr c, .chanDone
     cp '9'+1 : jr nc, .chanDone
     sub '0'
@@ -796,47 +796,130 @@ loadList:
     add a, a            ; x8
     add a, e            ; x10
     add a, b            ; x10 + digit
+    cp 15 : jp nc, .discardLine
     ld e, a
     jr .readChanDigit
 .chanDone
+    cp ')' : jr z, .channelEnd
+    cp ',' : jp nz, .discardLine
+.channelEnd
     ld a, e
+    and a : jp z, .discardLine
 .saveChannel
-    ld hl, (chan_ptr)
-    ld (hl), a
+    ld (cand_chan), a
 
     call .deduplicate
-    jp c, loadList
+    jp c, .flushLine
 
-    ; Commit all parallel arrays only after the BSSID is known unique.
-    ld hl, bssid_temp
-    ld de, (bssid_ptr)
-    ld bc, 6
+    ; Commit only after the BSSID is known unique: append while there is a
+    ; free slot, otherwise keep the strongest MAX_NETWORKS by replacing the
+    ; weakest committed AP when the candidate beats it.
+    ld a, (networks_count)
+    cp MAX_NETWORKS
+    jr c, .commitAppend
+    call .weakestSlot           ; A = weakest index, C = its RSSI magnitude
+    ld b, a
+    ld a, (cand_rssi)
+    and #7F
+    cp c
+    jp nc, .flushLine           ; Not stronger than anything kept
+    ; The name waits in the scratch slot: move it into the replaced slot.
+    ld a, b
+    push bc
+    call getSSIDPointer         ; HL = slot B
+    ex de, hl
+    ld hl, (buff_ptr)
+    ld bc, SSID_SLOT_SIZE
     ldir
-    ld (bssid_ptr), de
-    ld hl, (ssid_table_ptr)
+    pop bc
+    ld a, b
+    jr .commitFields
+.commitAppend
+    ld c, a                     ; C = new index; its slot already holds the name
+    ld hl, ssid_ptr_table
+    add a, a
+    add a, l
+    ld l, a
+    jr nc, .appendEntry
+    inc h
+.appendEntry
+    ld de, (buff_ptr)
+    ld (hl), e
     inc hl
-    inc hl
-    ld (ssid_table_ptr), hl
-    ld hl, (rssi_ptr)
-    inc hl
-    ld (rssi_ptr), hl
-    ld hl, (ecn_ptr)
-    inc hl
-    ld (ecn_ptr), hl
-    ld hl, (chan_ptr)
-    inc hl
-    ld (chan_ptr), hl
+    ld (hl), d
+    ld hl, SSID_SLOT_SIZE
+    add hl, de
+    ld (buff_ptr), hl           ; Next slot; the scratch slot follows the last one
     ld hl, networks_count
     inc (hl)
-    jp loadList
+    ld a, c
+.commitFields
+    ; A = slot index: store the candidate's RSSI, ECN, channel and BSSID.
+    ld c, a
+    ld b, 0
+    ld hl, rssi_buffer
+    add hl, bc
+    ld a, (cand_rssi)
+    ld (hl), a
+    ld hl, ecn_buffer
+    add hl, bc
+    ld a, (cand_ecn)
+    ld (hl), a
+    ld hl, channel_buffer
+    add hl, bc
+    ld a, (cand_chan)
+    ld (hl), a
+    ld l, c
+    ld h, b
+    add hl, hl                  ; x2
+    add hl, bc                  ; x3
+    add hl, hl                  ; x6
+    ld de, bssid_buffer
+    add hl, de
+    ex de, hl
+    ld hl, bssid_temp
+    ld bc, 6
+    ldir
+    jp .flushLine
+
+; Output: A = index of the weakest committed AP, C = its RSSI magnitude.
+; Ties keep the earliest entry. Destroys B, DE, HL.
+.weakestSlot
+    ld hl, rssi_buffer
+    ld a, (networks_count)
+    ld b, a
+    ld c, 0
+    ld d, 0                     ; D = weakest index so far
+    ld e, 0                     ; E = current index
+.weakestLoop
+    ld a, (hl)
+    and #7F
+    cp c
+    jr z, .weakestNext
+    jr c, .weakestNext
+    ld c, a
+    ld d, e
+.weakestNext
+    inc hl
+    inc e
+    djnz .weakestLoop
+    ld a, d
+    ret
 
 .hexNibble
-    or #20
+    ld d, a                     ; Recovery needs the raw delimiter on failure.
     sub '0'
     cp 10
     ret c
-    sub 'a' - '0' - 10
-    cp 16
+    or #20                      ; Keep control bytes out of the digit fast path.
+    sub 'a' - '0'
+    cp 6
+    jr nc, .invalidHex
+    add a, 10
+    scf
+    ret
+.invalidHex
+    ld a, d
     ret
 
 ; CF=1 when this exact normalized BSSID is already committed.
@@ -861,11 +944,6 @@ loadList:
     inc hl
     djnz .compareBssid
     pop hl
-    ld hl, (ssid_table_ptr)
-    ld e, (hl)
-    inc hl
-    ld d, (hl)
-    ld (buff_ptr), de
     scf
     ret
 .differentBssid
@@ -915,8 +993,22 @@ loadList:
     or a
     ret
 
+; Read one byte or abandon the scan. The parser needs that pair at 29 sites,
+; so it is a thunk rather than 29 copies of call/jp. Silence ends the scan, so
+; the caller's return address is dropped instead of returned to; INC SP twice
+; does that without touching a register, and .readScan preserves BC/DE/HL.
+.readOrTimeout
+    call .readScan
+    ret c
+    inc sp
+    inc sp
+    jp .scanTimeout
+
 ; Capture at wire speed, then let the parser work from RAM after a quiet gap.
 .captureBurst
+    ld a, (scan_overflow)
+    and a
+    jp nz, .drainOverflow
     ld hl, scan_rx_buffer
     ld (scan_rx_read), hl
     ld (scan_rx_write), hl
@@ -925,7 +1017,7 @@ loadList:
     ld (silence_started), a
 .captureLoop
     call UartImpl.uartRead
-    jr c, .captureByte
+    jp c, .captureByte
     ld a, (Uart.io_error)
     and a
     ret nz
@@ -946,7 +1038,12 @@ loadList:
     ld a, (silence_started)
     and a
     jr nz, .checkSilence
-    inc a
+    ; A terminal-looking tail yields a provisional burst immediately. Check only
+    ; when the UART first goes idle, so the 115200-baud ready-byte path stays
+    ; within its one-character budget on UNO.
+    call .captureComplete
+    jr c, .captureDone
+    ld a, 1
     ld (silence_started), a
     ld hl, (#5C78)
     ld (silence_frame), hl
@@ -960,9 +1057,87 @@ loadList:
     or a
     sbc hl, de
     jr c, .captureLoop
+.captureDone
     ld hl, (.capturePtr)
     ld (scan_rx_write), hl
     scf
+    ret
+
+; Input: HL = captured byte count. CF=1 yields a possible terminal burst.
+; Only loadList may finish the scan, after excluding framed +IPD payloads.
+; Destroys: AF, BC, DE, HL.
+.captureComplete
+    ld b, h
+    ld c, l
+    ld a, h
+    and a
+    jr nz, .captureTail
+    ld a, l
+    cp 4
+    jr c, .captureIncomplete
+.captureTail
+    ld hl, (.capturePtr)
+    dec hl
+    ld a, (hl)
+    cp 10
+    jr nz, .captureIncomplete
+    dec hl
+    ld a, (hl)
+    cp 13
+    jr nz, .captureIncomplete
+    dec hl
+    ld a, (hl)
+    cp 'K'
+    jr z, .captureOk
+    cp 'R'
+    jr nz, .captureIncomplete
+    ld a, b
+    and a
+    jr nz, .captureError
+    ld a, c
+    cp 7
+    jr c, .captureIncomplete
+.captureError
+    dec hl
+    ld a, (hl)
+    cp 'O'
+    jr nz, .captureIncomplete
+    dec hl
+    ld a, (hl)
+    cp 'R'
+    jr nz, .captureIncomplete
+    dec hl
+    ld a, (hl)
+    cp 'R'
+    jr nz, .captureIncomplete
+    dec hl
+    ld a, (hl)
+    cp 'E'
+    jr nz, .captureIncomplete
+    jr .captureLineStart
+.captureOk
+    dec hl
+    ld a, (hl)
+    cp 'O'
+    jr nz, .captureIncomplete
+.captureLineStart
+    ld de, scan_rx_buffer
+    ld a, h
+    cp d
+    jr nz, .capturePrevious
+    ld a, l
+    cp e
+    jr z, .captureTerminal
+.capturePrevious
+    dec hl
+    ld a, (hl)
+    cp 10
+    jr nz, .captureIncomplete
+.captureTerminal
+    scf
+    ret
+.captureIncomplete
+    or a
     ret
 
 .captureByte
@@ -990,20 +1165,63 @@ loadList:
 .captureFast
     xor a
     ld (silence_started), a
-    jr .captureLoop
+    jp .captureLoop
 .captureCancelled
     ld a, 1
     ld (Uart.break_hit), a
     or a
     ret
 .captureFull
+    ; Hand the full buffer to the parser; the next capture drains the rest of
+    ; the reply and ends the scan with the rows that fit.
     ld (.capturePtr), hl
     ld (scan_rx_write), hl
     ld a, 1
     ld (scan_overflow), a
-    ld (Uart.io_error), a
+    scf
+    ret
+
+; Discard the remainder of an overflowed reply until the UART stays quiet,
+; then report no burst so the parser finishes. Destroys AF, DE, HL.
+.drainOverflow
+    ld hl, (#5C78)
+    ld (silence_frame), hl
+    ld a, 1
+    ld (.drainPoll), a
+.drainLoop
+    call UartImpl.uartRead
+    jr c, .drainByte
+    ld a, (Uart.io_error)
+    and a
+    ret nz                      ; CF already clear
+    call Keyboard.checkBreak
+    jp z, .captureCancelled
+    call .scanBudgetLeft
+    ret nc
+    ld hl, (#5C78)
+    ld de, (silence_frame)
+    or a
+    sbc hl, de
+    ld de, SCAN_GAP_FRAMES
+    or a
+    sbc hl, de
+    jr c, .drainLoop
     or a
     ret
+.drainByte
+    ld hl, (#5C78)
+    ld (silence_frame), hl
+    ; Bound continuous discarded traffic without slowing every byte's poll.
+    ld a, 0
+.drainPoll = $ - 1
+    dec a
+    ld (.drainPoll), a
+    jr nz, .drainLoop
+    call Keyboard.checkBreak
+    jp z, .captureCancelled
+    call .scanBudgetLeft
+    ret nc
+    jr .drainLoop
 
 .scanBudgetLeft
     ld hl, (byte_limit)
@@ -1041,11 +1259,29 @@ espSendZCheckOk:
 ; Send Z-string then CR/LF (complete AT commands)
 espSendZ_CRLF:
     call espSendZ
+    ; Diagnostics mute byte logging, so terminate the direct TX line here.
+    ld a, (debug_log)
+    and a
+    jr z, sendCRLF
+    ld a, (Uart.log_enabled)
+    and a
+    jr nz, sendCRLF
+    push hl
+    ld hl, dbg_eol
+    call Display.putStrLog
+    pop hl
 sendCRLF:
     ld a, 13
     call Uart.write
     ld a, 10
-    jp Uart.write
+    call Uart.write
+    ld a, (Uart.io_error)
+    and a
+    ret z
+    call flushInput
+    ld a, 1                     ; Preserve the failed transaction result.
+    ld (Uart.io_error), a
+    ret
 
 espSendZ:
     ; TX log only when debug enabled (protects passwords sent in parts)
@@ -1151,9 +1387,6 @@ logTxMasked:
     jp Display.putStrLog
 
 dbg_prefix       db ">> ", 0
-dbg_tx_cwjap     db "AT+CWJAP=<hidden>", 13, 10, 0
-dbg_rx_ok       db "<< OK", 13, 10, 0
-dbg_rx_error    db "<< ERROR", 13, 10, 0
 dbg_rx_fail     db "<< FAIL", 13, 10, 0
 
 
@@ -1294,6 +1527,9 @@ checkOkErrCommon:
 
 ; Read one in-progress response byte with the interbyte timeout.
 readResponseByte:
+    jp .uart
+.reader = $ - 2
+.uart
     push bc, de, hl
     ld hl, (byte_limit)
     ld a, h
@@ -1597,133 +1833,148 @@ getIP:
 ; ============================================
 getConnectionInfo:
     call uartLock
-
-    ; Clear all connection info buffers (69 contiguous RTVAR bytes)
     xor a
     ld hl, ip_buffer
     ld de, ip_buffer + 1
     ld bc, 68
     ld (hl), a
     ldir
-
-    ; --- Phase 1: AT+CIFSR for IP + MAC ---
     call flushInput
-    ld hl, S_AT_CIFSR : call espSendZ_CRLF
-    ld bc, 500                  ; Byte limit
-
-.cifrLoop
-    call readBcTimeout : jr nc, .cifrDone
-
-    ; Look for 'M' (start of MAC,"...)
-    cp 'M' : jr nz, .cifrNotM
-    call readBcTimeout : jr nc, .cifrDone
-    cp 'A' : jr nz, .cifrLoop
-    call readBcTimeout : jr nc, .cifrDone
-    cp 'C' : jr nz, .cifrLoop
-    ; Skip to opening quote
-.cifrFindQ
-    call readBcTimeout : jr nc, .cifrDone
-    cp '"' : jr nz, .cifrFindQ
-    ; Copy MAC until closing quote
-    ld hl, ci_mac
-    ld d, 17                    ; Max MAC chars (aa:bb:cc:dd:ee:ff)
-.cifrCopyMac
-    call readBcTimeout : jr nc, .cifrMacDone
-    cp '"' : jr z, .cifrMacDone
-    ld (hl), a : inc hl
-    dec d : jr nz, .cifrCopyMac
-.cifrMacDone
-    xor a : ld (hl), a
-    jr .cifrLoop
-
-.cifrNotM
-    ; Also catch STAIP for ip_buffer (reuse existing parser logic)
-    cp 'P' : jr nz, .cifrLoop
-    call readBcTimeout : jr nc, .cifrDone
-    cp ',' : jr nz, .cifrLoop
-    call readBcTimeout : jr nc, .cifrDone
-    cp '"' : jr nz, .cifrLoop
-    ; Copy IP
-    ld hl, ip_buffer
-    ld d, 16
-.cifrCopyIP
-    call readBcTimeout : jr nc, .cifrIPDone
-    cp '"' : jr z, .cifrIPDone
-    ld (hl), a : inc hl
-    dec d : jr nz, .cifrCopyIP
-.cifrIPDone
-    xor a : ld (hl), a
-    jr .cifrLoop
-
-.cifrDone
+    ld hl, S_AT_CIFSR
+    ld de, .cifsrFields
+    call .query
+    ld a, (Uart.break_hit)
+    and a
+    jr nz, .unlock
     call flushInput
-
-    ; --- Phase 2: AT+CIPSTA? / AT+CIPSTA_CUR? for gateway + netmask ---
-    ld hl, S_AT_CIPSTA : call espSendZ_CRLF
-    call .parseCipsta
-    jr nc, .ciDone              ; Success
-
-    ; Fallback: try _CUR variant
+    ld hl, S_AT_CIPSTA
+    ld de, .cipstaFields
+    call .query
+    jr nc, .done
+    ld a, (Uart.break_hit)
+    and a
+    jr nz, .unlock
     call flushInput
-    ld hl, S_AT_CIPSTA_CUR : call espSendZ_CRLF
-    call .parseCipsta
-    ; Ignore result — if both fail, buffers stay empty
-
-.ciDone
+    ld hl, S_AT_CIPSTA_CUR
+    ld de, .cipstaFields
+    call .query
+.done
+    ld a, (Uart.break_hit)
+    and a
+    jr nz, .unlock
     call flushInput
+.unlock
     jp uartUnlock
 
-; Parse +CIPSTA response: look for gateway:"..." and netmask:"..."
-; Output: CF=0 if at least gateway found, CF=1 if not
-.parseCipsta
-    ld bc, 600                  ; Byte limit
-.pcLoop
-    call readBcTimeout : jr nc, .pcFail
-
-    ; Look for 'g' (gateway) or 'n' (netmask) or 'O' (OK = done)
-    cp 'O' : jr z, .pcOk
-    cp 'g' : jr z, .pcGateway
-    cp 'n' : jr z, .pcNetmask
-    jr .pcLoop
-
-.pcGateway
-    ; Skip to opening quote
-.pcGwQ  call readBcTimeout : jr nc, .pcFail
-    cp '"' : jr nz, .pcGwQ
-    ld hl, ci_gateway
-    jr .pcCopy
-
-.pcNetmask
-    ; Skip to opening quote
-.pcNmQ  call readBcTimeout : jr nc, .pcFail
-    cp '"' : jr nz, .pcNmQ
-    ld hl, ci_netmask
-    ; Fall through to .pcCopy
-
-.pcCopy
-    ld d, 16                    ; Max IP-like string length
-.pcCopyLoop
-    call readBcTimeout : jr nc, .pcCopyDone
-    cp '"' : jr z, .pcCopyDone
-    ld (hl), a : inc hl
-    dec d : jr nz, .pcCopyLoop
-.pcCopyDone
-    xor a : ld (hl), a
-    jr .pcLoop
-
-.pcOk
-    ; Check if gateway was found
-    ld a, (ci_gateway)
+; Both queries share framing, exact field prefixes and bounded quoted copies.
+; DE points to the common prefix followed by tag/destination/limit/suffix rows.
+.query
+    ld a, (Uart.break_hit)
     and a
-    jr z, .pcFail
-    or a                        ; CF=0
-    ret
-.pcFail
+    ret nz
+    ld (.fields), de
+    call espSendZ_CRLF
+    xor a
+    ld (use_long_timeout), a
+    ld hl, 4096
+    ld (byte_limit), hl
+.loop
+    call readReplyStart : jr nc, .fail
+    jr z, .plus
+    cp 'O' : jp z, .ok
+    cp 'E' : jr nz, .discard
+    ld hl, dbg_rx_error + 4
+    call checkOkErrCommon.matchSuffix
+    jr nc, .fail
+    jr z, .fail
+    jr .discard
+.plus
+    cp 'C' : jr nz, .discard
+    ld hl, 0
+.fields = $ - 2
+    call checkOkErrCommon.matchSuffix
+    jr nc, .fail
+    jr nz, .discard
+    inc hl
+    ld a, (hl)
+    cp ':'
+    jr nz, .field
+    inc hl
+    push hl
+    call readResponseByte
+    jr nc, .prefixFail
+    cp ':'
+    jr z, .prefixDone
+    cp '_'
+    jr nz, .prefixFail
+    ld hl, .curSuffix
+    call checkOkErrCommon.matchSuffix
+    jr nc, .prefixFail
+    jr nz, .prefixFail
+.prefixDone
+    pop hl
+.field
+    call readResponseByte : jr nc, .fail
+    ld c, a
+.findField
+    ld a, (hl)
+    and a
+    jr z, .discard
+    cp c
+    inc hl
+    ld e, (hl) : inc hl
+    ld d, (hl) : inc hl
+    ld b, (hl) : inc hl
+    jr z, .suffix
+.skipSuffix
+    ld a, (hl)
+    inc hl
+    and a
+    jr nz, .skipSuffix
+    jr .findField
+.prefixFail
+    pop hl
+.fail
+    xor a
+    ld (ci_gateway), a
+    ld (ci_netmask), a
     scf
     ret
-
-S_AT_CIPSTA     db "AT+CIPSTA?", 0
-S_AT_CIPSTA_CUR db "AT+CIPSTA_CUR?", 0
+.discard
+    call flushReplyLine
+    jr c, .loop
+    jr .fail
+.suffix
+    push bc, de
+    call checkOkErrCommon.matchSuffix
+    pop de, bc
+    jr nc, .fail
+    jr nz, .discard
+    ex de, hl
+.copy
+    call readResponseByte
+    jr nc, .copyFail
+    cp '"'
+    jr z, .copied
+    ld (hl), a
+    inc hl
+    djnz .copy
+.copied
+    ld (hl), 0
+    jr .discard
+.copyFail
+    ld (hl), 0
+    jr .fail
+.ok
+    ld hl, dbg_rx_ok + 4
+    call checkOkErrCommon.matchSuffix
+    jr nc, .fail
+    jr nz, .discard
+    ; CIFSR's caller ignores this result; CIPSTA must supply a valid gateway.
+    ld hl, ci_gateway
+    call UI.validateIP.fromHL
+    ret nc
+    jr .fail
 
 ; ============================================
 ; ensureCommandMode
@@ -1744,6 +1995,8 @@ ensureCommandMode:
     jr nc, .normalize
 
     ; Slow path: try to exit a possible transparent/pass-through mode
+    call flushInput
+    ret c
     call uartLock
 
     ; Optional hint in the log (only if UART log is enabled)
@@ -1794,14 +2047,21 @@ ensureCommandMode:
     ld hl, S_AT : call espSendZCheckOk
     ret c
 .normalize
+    ; AT answered, so the modem is in command mode and the caller's question
+    ; is settled. Normalizing the framing is best effort: firmwares that
+    ; reject CIPMODE when no passthrough socket exists used to make this
+    ; report "No AT response" on a perfectly responsive ESP.
     ld hl, S_AT_CIPMODE_NORMAL
-    jp espSendZCheckOk
+    call espSendZCheckOk
+    or a
+    ret
 
 .msg_escape db 13, "-- Escape +++ (trying to exit pass-through)", 13, 10, 0
 
 ; Re-establish an explicit AT transaction boundary after a failed attempt.
 prepareRetry:
     call flushInput
+    jr c, .retryFailed
     ld a, 13
     call UartImpl.write
     ld a, 10
@@ -1810,6 +2070,7 @@ prepareRetry:
     and a
     jr nz, .retryFailed
     call flushInput
+    jr c, .retryFailed
     ld hl, S_AT
     call espSendZCheckOk
     ret nc
@@ -1962,17 +2223,12 @@ sort_swapped    = #5B15
     RTVAR display_indices, MAX_NETWORKS
 
 ; Module variables - pointers need binary init, kept in code section
-buff_ptr        dw buffer
-rssi_ptr        dw rssi_buffer
-ecn_ptr         dw ecn_buffer
-chan_ptr         dw channel_buffer
-bssid_ptr        dw bssid_buffer
-ssid_table_ptr   dw ssid_ptr_table
+buff_ptr        dw buffer     ; Slot receiving the next candidate name
 
 ; Flags in printer buffer (all set before first read)
 seen_cwlap      = #5B12
 ; #5B13 owned by Uart.break_hit
-scan_extended   = #5B14
+scan_phase      = #5B14     ; SCAN_PHASE_* of the pass in progress
 retry_count     = #5B16
 ; networks_count and is_connected migrated to RTVAR (see bottom of module):
 ; esxDOS rst $08 corrupts the printer buffer, and renderListAndLoop reads
@@ -2004,6 +2260,9 @@ uartUnlockFail:
     RTVAR ssid_ptr_table, MAX_NETWORKS * 2
     RTVAR bssid_temp, 6
 BSSID_STATE_SIZE = bssid_temp + 6 - bssid_buffer
+    RTVAR cand_ecn, 1            ; Candidate row fields until it is committed
+    RTVAR cand_rssi, 1
+    RTVAR cand_chan, 1
     RTVAR scan_rx_buffer, SCAN_RX_SIZE
     RTVAR scan_rx_read, 2
     RTVAR scan_rx_write, 2

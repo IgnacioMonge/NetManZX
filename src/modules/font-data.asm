@@ -2,6 +2,7 @@
 
 ; Exact expanded glyphs from e1a0d8d; no duplicate runtime font storage.
 font_cache:
+    ASSERT (font_cache & 7) == 0  ; INC C glyph reads must not cross a page.
     db #00, #00, #00, #00, #00, #00, #00, #00  ; ' '
     db #18, #18, #18, #18, #18, #00, #18, #00  ; '!'
     db #6C, #6C, #00, #00, #00, #00, #00, #00  ; '"'

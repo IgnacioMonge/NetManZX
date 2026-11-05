@@ -3,8 +3,127 @@ from collections import deque
 from audit_regression import Run
 
 
-def check(image, s, target):
+def check_menu_priority(image, s, target):
     new = lambda: Run(image, s)
+
+    # Queued keys precede optional ESP work, including both timer boundaries.
+    for auto, health in ((0, 499), (14999, 0), (14999, 499)):
+        r = new()
+        r.put('Wifi.is_connected', 1)
+        r.put('Keyboard.BASIC_KEY', ord('a'))
+        for name, value in (('UI.autoscan_counter', auto), ('UI.health_counter', health)):
+            r.m.memory[s[name]:s[name] + 2] = value.to_bytes(2, 'little')
+        def unexpected_maintenance():
+            raise AssertionError('queued key waited behind optional ESP work')
+        for name in ('Wifi.checkConnection', 'UI.doAutoRescan'):
+            r.hook(name, unexpected_maintenance)
+        r.call('UI.uiLoopMain', 'UI.cursorDown')
+        assert r.get('Keyboard.BASIC_KEY') == 0
+        for name in ('UI.autoscan_counter', 'UI.health_counter'):
+            assert bytes(r.m.memory[s[name]:s[name] + 2]) == b'\0\0'
+        assert r.m.iy == 0x5C3A and r.m.sp == 0xFFE0
+
+    # With no queued key, scheduled work still runs; a forced scan also runs
+    # with a queued key, and remains deferred while another UART owner is busy.
+    for key, forced, busy in ((0, 0, 0), (ord('a'), 1, 0), (ord('a'), 1, 1)):
+        r = new()
+        r.put('Keyboard.BASIC_KEY', key)
+        r.put('UI.force_rescan', forced)
+        r.put('Wifi.uart_busy', busy)
+        r.put('Wifi.is_connected', 1)
+        events = []
+        if not forced:
+            for name, value in (('UI.autoscan_counter', 14999), ('UI.health_counter', 499)):
+                r.m.memory[s[name]:s[name] + 2] = value.to_bytes(2, 'little')
+        def health_check():
+            events.append('health')
+            r.m.f = 0
+        r.hook('Wifi.checkConnection', health_check)
+        r.hook('UI.doAutoRescan', lambda: events.append('auto'))
+        r.hook('Wifi.getList', lambda: events.append('forced'))
+        for name in ('UI.hideCursor', 'UI.normalizeListPosition', 'UI.showPageInfo',
+                     'UI.renderNetworksOnly', 'UI.showCursor'):
+            r.hook(name)
+        r.call('UI.uiLoopMain', 'UI.cursorDown' if key else 'UI.uiLoopMain.noKey')
+        assert events == (['auto', 'health'] if not forced else [] if busy else ['forced'])
+        assert r.get('UI.force_rescan') == int(bool(forced and busy))
+        assert r.m.iy == 0x5C3A and r.m.sp == 0xFFE0
+
+def check(image, s, target):
+    check_menu_priority(image, s, target)
+    new = lambda: Run(image, s)
+
+    # Status colours affect only their columns on rows 18/19; the second
+    # row clears BRIGHT and leaves every other attribute unchanged.
+    colours = new()
+    for routine, column, width in (('UI.colorIpValueBothRows', 3, 15),
+                                   ('UI.colorStatusAreaBothRows', 22, 10)):
+        for colour in range(256):
+            expected_attrs = bytearray([0xA5]) * 768
+            for row, value in ((18, colour), (19, colour & ~0x40)):
+                start = row * 32 + column
+                expected_attrs[start:start + width] = bytes([value]) * width
+            colours.m.memory[0x5800:0x5B00] = bytes([0xA5]) * 768
+            colours.m.a, colours.m.f = colour, 0xD7
+            colours.m.bc, colours.m.de = 0x7654, 0x9876
+            colours.call(routine)
+            assert bytes(colours.m.memory[0x5800:0x5B00]) == expected_attrs
+            assert (colours.m.f, colours.m.bc, colours.m.de) == (0xD7, 0x54, 0x9876)
+            assert colours.m.iy == 0x5C3A and colours.m.sp == 0xFFE2
+
+    prefix = new()
+    output = s['UI.ip_line_buffer']
+    for text in (b'', b'255.255.255.255', b'Disconnected', b'x' * 35):
+        prefix.m.memory[output - 1:output + 41] = bytes([0xA5]) * 42
+        prefix.m.set_memory_block(0x5D00, text + b'\0')
+        prefix.m.hl = 0x5D00
+        prefix.call('UI.ipSetPrefixed')
+        assert bytes(prefix.m.memory[output:output + len(text) + 5]) == b'IP: ' + text + b'\0'
+        assert prefix.m.memory[output - 1] == prefix.m.memory[output + 40] == 0xA5
+        assert prefix.m.iy == 0x5C3A and prefix.m.sp == 0xFFE2
+
+    def scanline(y):
+        row, subrow = divmod(y, 8)
+        address = ((0x40 | (row & 0x18) | subrow) << 8) | ((row & 7) << 5)
+        return address
+
+    # The two main-menu rows occupy 16 pixels centered between the one-pixel
+    # separators: five blank scanlines above and five below.
+    expected = new()
+    expected.m.a = 3
+    expected.call('Display.gotoXY0')
+    expected.m.hl = s['UI.msg_help']
+    expected.call('Display.putStr')
+    expected.m.a = 4
+    expected.m.hl = s['UI.msg_help2']
+    expected.call('UI.printAt0')
+
+    menu = new()
+    menu.put('Wifi.networks_count', 1)
+    menu.call('UI.renderList', 'UI.renderNetworksCommon')
+    assert bytes(menu.m.memory[scanline(16):scanline(16) + 32]) == bytes([0xFF]) * 32
+    assert bytes(menu.m.memory[scanline(43):scanline(43) + 32]) == bytes([0xFF]) * 32
+    for y in range(17, 22):
+        assert not any(menu.m.memory[scanline(y):scanline(y) + 32]), ('top gap', y)
+    for y in range(22, 38):
+        actual = bytes(menu.m.memory[scanline(y):scanline(y) + 32])
+        reference = bytes(expected.m.memory[scanline(y + 2):scanline(y + 2) + 32])
+        assert actual == reference, ('menu shift', y)
+    for y in range(38, 43):
+        assert not any(menu.m.memory[scanline(y):scanline(y) + 32]), ('bottom gap', y)
+
+    # Both menu strings are composed off-screen; the obsolete unshifted rows
+    # must never be exposed as an intermediate frame.
+    staged = new()
+    staged.put('Wifi.networks_count', 1)
+    menu_draws = []
+    def note_menu_draw():
+        row = staged.m.memory[s['Display.coords'] + 1]
+        if row in (3, 4):
+            menu_draws.append((row, staged.get('Display.row_active')))
+    staged.hook('Display.putStr', note_menu_draw)
+    staged.call('UI.renderList', 'UI.renderNetworksCommon')
+    assert menu_draws == [(3, 1), (4, 1)], menu_draws
 
     # Horizontal arrows share O/P paging; every page starts on a ten-row boundary.
     dispatch = image[s['UI.uiLoopMain'] - 0x8000:s['UI.rescan'] - 0x8000]
@@ -71,8 +190,7 @@ def check(image, s, target):
     # Idle recovery drains faults with or without data, then accepts fresh events.
     for ready in (False, True):
         r = new()
-        r.put('UI.async_buf_idx', 7)
-        r.put('UI.async_buf_count', 4)
+        r.put('UI.async_state', 7)
         first = [True]
         def idle_fault():
             r.m.a, r.m.f = ord('X'), int(first[0] and ready)
@@ -83,7 +201,7 @@ def check(image, s, target):
         r.call('UI.checkAsyncWifi')
         assert r.m.a == 0 and r.m.sp == 0xFFE2
         assert not any(r.get(name) for name in (
-            'Uart.io_error', 'Wifi.uart_busy', 'UI.async_buf_idx', 'UI.async_buf_count'))
+            'Uart.io_error', 'Wifi.uart_busy', 'UI.async_state'))
         r.feed(b'WIFI GOT IP\r\n')
         r.call('UI.checkAsyncWifi')
         assert r.m.a == s['UI.ASYNC_EVENT_GOTIP']
@@ -128,6 +246,20 @@ def check(image, s, target):
         r.call('UI.passwordInput.piClrTail', 'UI.passwordInput.piWait')
         assert draws == expected, draws
 
+    # Masked full redraw must emit exactly one glyph per password character.
+    for cursor in (2, 4):
+        r = new()
+        r.put('UI.pass_len', 4)
+        r.put('UI.pass_cursor', cursor)
+        r.put('UI.show_password', 0)
+        r.m.set_memory_block(s['UI.pass_buffer'], b'abcd\0')
+        glyphs = []
+        r.hook('UI.setRowsColor')
+        r.hook('Display.putCBigGlyph', lambda: glyphs.append(True))
+        r.hook('Display.putCBig')
+        r.call('UI.passwordInput.piRedraw', 'UI.passwordInput.piWait')
+        assert len(glyphs) == 4, (cursor, len(glyphs))
+
     # SDK version is a valid GMR line; SEND OK is still noise.
     for line, visible in ((b'SDK version:3.0\0', True), (b'SEND OK\0', False)):
         r = new()
@@ -152,6 +284,20 @@ def check(image, s, target):
     r.call('UI.doConfigSummary.cs_fw_loop', 'UI.doConfigSummary.cs_fw_done')
     assert displayed == [b'1.7.4'] and not lines
 
+    # Every config-summary value starts at six-pixel column 12, the byte-aligned
+    # position used by the signal bar.
+    summary_labels = (
+        'cs_ssid', 'cs_ip_lbl', 'cs_gw_lbl', 'cs_mask_lbl',
+        'cs_mac_lbl', 'cs_hn_lbl', 'cs_fw_lbl',
+    )
+    if target != 'AY':
+        summary_labels += ('cs_saved_lbl',)
+    for label in summary_labels:
+        address = s[f'UI.doConfigSummary.{label}']
+        text = bytes(r.m.memory[address:address + 16]).split(bytes(1))[0]
+        assert len(text) == 12, (label, text)
+    assert s['UI.RSSI_COL_DETAIL'] * 8 == 12 * 6
+
     # Volatile esxDOS printer RAM can no longer alter a saved ping length.
     assert s['UI.ping_ip_len'] >= s['buffer']
     r = new()
@@ -171,7 +317,8 @@ def check(image, s, target):
     r.put('UI.diag_line', s['UI.DIAG_ROW_LIMIT'] - 1)
     r.m.set_memory_block(s['UI.diag_buffer'], b'X' * 60 + b'\0')
     rows = []
-    r.hook('Display.drawC', lambda: rows.append(r.m.memory[s['Display.drawC.coords'] + 1]))
+    r.hook('Display.drawCAt.prepared',
+           lambda: rows.append(r.m.memory[s['Display.coords'] + 1]))
     r.call('UI.showDiagLine')
     assert rows and max(rows) == s['UI.DIAG_ROW_LIMIT'] - 1
     assert r.get('UI.diag_line') == s['UI.DIAG_ROW_LIMIT']
@@ -277,11 +424,16 @@ def check(image, s, target):
             (1, b'\x00\x11\x22\x33\x44\x66', 'UI.selectItem.notConnectedYet'),
             (0, b'\0' * 6, 'UI.selectItem.alreadyConnected')):
         r = new()
-        r.put('UI.selected_real_idx', 0)
+        r.put('Wifi.is_connected', 1)
+        r.put('Wifi.networks_count', 1)
+        r.put('Wifi.display_indices', 0)
+        r.m.set_memory_block(s['buffer'], b'Legacy\0')
+        r.m.set_memory_block(s['Wifi.connected_ssid'], b'Legacy\0')
+        r.m.set_memory_block(s['Wifi.ssid_ptr_table'], s['buffer'].to_bytes(2, 'little'))
         r.m.set_memory_block(s['Wifi.bssid_buffer'], selected_mac)
         r.put('Wifi.connected_bssid_valid', current_valid)
         r.m.set_memory_block(s['Wifi.connected_bssid'], current_mac)
-        r.call('UI.selectItem.sameSSID', destination)
+        r.call('UI.selectItem', destination)
         assert r.m.sp == 0xFFE0
 
     r = new()
@@ -356,6 +508,83 @@ def check(image, s, target):
     assert all(r.m.memory[s['UI.row_cache'] + i * 32 + 30] == 0 for i in range(10))
     r.call('UI.renderNetworksCommon')
     assert any(r.m.memory[0x40E0 + y * 256] for y in range(8))
+
+
+    # The row cache is keyed on the bar that gets drawn, not on the raw
+    # reading: a 1 dBm wobble that quantises to the same cell count must not
+    # force a recompose. rssiCells maps 9 dBm per cell.
+    r2 = new()
+    for i in range(10):
+        r2.m.set_memory_block(s['buffer'] + i * 33, b'NET_' + bytes([48 + i]) + bytes(1))
+        addr = s['buffer'] + i * 33
+        r2.m.set_memory_block(s['Wifi.ssid_ptr_table'] + i * 2,
+                              addr.to_bytes(2, 'little'))
+        r2.m.memory[s['Wifi.rssi_buffer'] + i] = 60 + i
+    r2.put('Wifi.networks_count', 10)
+    r2.put('UI.offset', 0)
+    r2.put('Wifi.is_connected', 0)
+    r2.call('Wifi.initDisplayIndices')
+    r2.call('UI.renderNetworksCommon')
+    row = 0x4000 + (6 // 8) * 0x800 + (6 % 8) * 32
+    drawn = bytes(r2.m.memory[row:row + 32])
+    for i in range(10):
+        r2.m.memory[s['Wifi.rssi_buffer'] + i] = 60 + i + 1
+    r2.call('UI.renderNetworksCommon')
+    assert bytes(r2.m.memory[row:row + 32]) == drawn, 'a 1 dBm wobble changed the bar'
+    key_same = r2.m.memory[s['UI.row_cache'] + 29]
+    for i in range(10):
+        r2.m.memory[s['Wifi.rssi_buffer'] + i] = 60 + i + 20
+    r2.call('UI.renderNetworksCommon')
+    assert r2.m.memory[s['UI.row_cache'] + 29] != key_same, 'a real level change was missed'
+
+    # RSSI pixels always complete the block. Active cells use two solid 3x6
+    # bars; the remainder uses four dim-white 1x6 vertical stripes.
+    inactive_patterns = (0xAA,) * 6
+    zones = (0x02, 0x02, 0x02, 0x06, 0x06, 0x06, 0x04, 0x04, 0x04)
+    assert s['UI.RSSI_COL_LIST'] == 23
+    assert s['UI.RSSI_COL_DETAIL'] == 9
+    # Byte 9 is pixel 72, exactly where the 6px column 12 starts.
+    assert s['UI.RSSI_COL_DETAIL'] * 8 == 12 * 6
+    for column in (s['UI.RSSI_COL_LIST'], s['UI.RSSI_COL_DETAIL']):
+        for buffered in (False, True):
+            bar = new()
+            bar.put('UI.drb_col', column)
+            if buffered:
+                bar.m.a = 10
+                bar.call('Display.beginRow')
+                starts = [s['Display.row_buffer'] + 32 * scanline + column
+                          for scanline in range(1, 7)]
+            else:
+                bar.m.d, bar.m.e = 10, column
+                bar.call('Display.findAddr')
+                first = (bar.m.d << 8) | bar.m.e
+                starts = [first + 0x100 * scanline for scanline in range(1, 7)]
+            for lit in range(1, 10):
+                bar.m.a, bar.m.c = 10, lit
+                bar.call('UI.drawRssiBlock')
+                for start, pattern in zip(starts, inactive_patterns):
+                    actual_pixels = bytes(bar.m.memory[start:start + 9])
+                    expected_pixels = bytes([0xEE]) * lit + bytes([pattern]) * (9 - lit)
+                    assert actual_pixels == expected_pixels, (
+                        column, buffered, lit, hex(start), actual_pixels.hex()
+                    )
+                attrs = 0x5800 + 10 * 32 + column
+                expected_attrs = bytes(
+                    [zone | 0x40 for zone in zones[:lit]] + [0x07] * (9 - lit)
+                )
+                actual_attrs = bytes(bar.m.memory[attrs:attrs + 9])
+                assert actual_attrs == expected_attrs, (
+                    column, buffered, lit, actual_attrs.hex()
+                )
+
+    # The detail screens print 12-character labels, so their values and the
+    # bar line up in one column.
+    for label in ('UI.showNetDetail.nd_sec', 'UI.showNetDetail.nd_chan',
+                  'UI.showNetDetail.nd_sig', 'UI.selectItem.ci_ip_lbl',
+                  'UI.selectItem.ci_gw_lbl', 'UI.selectItem.ci_mask_lbl',
+                  'UI.selectItem.ci_mac_lbl'):
+        text = bytes(image[s[label] - 0x8000:s[label] - 0x8000 + 20])
+        assert len(text.split(bytes(1))[0]) == 12, label
 
     # A changed signal affects the exact row key even when the name is unchanged.
     r.put('UI.current_line', 6)

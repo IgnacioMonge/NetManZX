@@ -216,7 +216,7 @@ build_uno:
 build_ay:
 	$(call BANNER)
 	$(call STEP,2/3,Build AY)
-	$(call INFO,Target: AY-UART / ZX-Badaloc)
+	$(call INFO,Target: AY-UART - TAP only)
 	$(call INFO,Flags: -DAY -DTAP)
 	$(call RUN_ASM,AY,-DAY -DTAP)
 	$(call MKDIR_P,$(BUILDDIR))
@@ -274,7 +274,7 @@ info:
 	@echo.
 	@echo Targets:
 	@echo   make uno   - ZX-Uno / DivMMC [default]
-	@echo   make ay    - AY-UART / ZX-Badaloc
+	@echo   make ay    - AY-UART - TAP only
 	@echo   make next  - ZX Spectrum Next
 	@echo   make all   - Build all targets
 	@echo   make clean - Remove build artifacts

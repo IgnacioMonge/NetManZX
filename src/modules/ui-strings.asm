@@ -1,3 +1,4 @@
+    IFNDEF UI_DIAG_STRINGS_PASS
     module start
 ; Keep descriptive startup text without consuming the remaining code space.
 msg_preparing db "UART init...", 13, 0
@@ -33,7 +34,7 @@ at_middle       db '","', 0
 msg_ssid        db "Selected SSID:", 0
 msg_pass        db "Password (BREAK=cancel, UP=show):", 0
 msg_yes_anykey  db "(Y)es / any key = cancel", 0
-at_quote_crlf   db '"', 0
+at_quote_crlf   = at_middle + 2
 
 msg_head
     db "NetManZX "
@@ -43,26 +44,41 @@ msg_head
 msg_wifi_label
     db "WiFi:", 0
 
-msg_help   db "Q/A:Nav O/P:Page R:Refresh D:Diagnostics", 0
-msg_help_conn db "R:Refresh X:Disconnect D:Diagnostics", 0
+    IFDEF HAS_TIME
+msg_help   db "Q/A:Nav O/P:Page R:Refresh D:Diag T:Time", 0
+msg_help_conn db "R:Refresh X:Disconnect D:Diag T:Time", 0
+    ELSE
+msg_help   db "Q/A:Nav O/P:Page R:Refresh D:Diag", 0
+msg_help_conn db "R:Refresh X:Disconnect D:Diag", 0
+    ENDIF
     IFDEF HAS_ESXDOS
 msg_help2  db "H:Hidden W:WPS L:Log C:Reconnect I:About", 0
     ELSE
 msg_help2  db "H:Hidden W:WPS L:Log I:About", 0
     ENDIF
+    endmodule
+    ENDIF
 
+    IFNDEF DIAG_STRINGS_OVERLAY
+    module UI
     module showDiagnostics
 msg_diag_title db "DIAGNOSTICS", 0
-msg_diag_opt1  db "Ping test", 0
-msg_diag_opt2  db "Module info (firmware)", 0
-msg_diag_opt3  db "Network info", 0
-msg_diag_opt4  db "UART baud rate", 0
-msg_diag_opt5  db "Static IP config", 0
-msg_diag_opt6  db "Set hostname", 0
-msg_diag_opt7  db "Config summary", 0
 diagPtrs:
-    dw msg_diag_opt1, msg_diag_opt2, msg_diag_opt3, msg_diag_opt4
-    dw msg_diag_opt5, msg_diag_opt6, msg_diag_opt7
+    db 6
+msg_diag_opt1  db "Ping test", 0
+    db 7
+msg_diag_opt2  db "Module info (firmware)", 0
+    db 8
+msg_diag_opt3  db "Network info", 0
+    db 9
+msg_diag_opt4  db "UART baud rate", 0
+    db 10
+msg_diag_opt5  db "Static IP config", 0
+    db 11
+msg_diag_opt6  db "Set hostname", 0
+    db 12
+msg_diag_opt7  db "Config summary", 0
+    db 255
 msg_diag_exit  db "ENTER:Select BREAK:Exit", 0
 
     endmodule
@@ -79,7 +95,9 @@ msg_uart_none db "No UART info (no response).", 0
 msg_uart_error db "UART query returned ERROR.", 0
 
     endmodule
+    ENDIF
 
+    IFNDEF UI_DIAG_STRINGS_PASS
     module Wifi
 ; Shared AT command strings (Z-terminated; sender appends CRLF)
 S_AT            db "AT", 0
@@ -93,20 +111,23 @@ S_AT_CWJAP_Q    db "AT+CWJAP?", 0
 S_AT_CWJAP_CUR  db "AT+CWJAP_CUR?", 0
 S_AT_CWJAP_DEF  db "AT+CWJAP_DEF?", 0
 S_AT_CWLAP      db "AT+CWLAP", 0
-S_AT_CWLAP_EXT  db "AT+CWLAP=,,,,200,200", 0
+; One active scan keeps startup and rescans responsive. ESP8266 needs equal dwell limits.
+S_AT_CWLAP_ACTIVE db "AT+CWLAP=,,,0,200,200", 0
 S_AT_CWLAPOPT   db "AT+CWLAPOPT=0,31", 0
 S_AT_CIFSR      db "AT+CIFSR", 0
 S_AT_CIPMODE_NORMAL db "AT+CIPMODE=0", 0
 
     endmodule
+    ENDIF
 
+    IFNDEF DIAG_STRINGS_OVERLAY
     module UI
     module doPing
 msg_ping_title  db "PING TEST", 0
 msg_ip_prompt   db "Enter IP address:", 0
 msg_ping_help   db "ENTER=ping, BREAK=cancel", 0
 msg_pinging     db "Pinging ", 0
-msg_dots        db "...", 0
+msg_dots        = UI.msg_conn_attempt + 13
 cmd_ping_start  db "AT+PING=", '"', 0
 msg_time_lbl    db "Response time: ", 0
 msg_time_ms     db " ms", 0
@@ -121,3 +142,4 @@ hn_err     db "Hostname failed!", 0
 hn_cmd     db "AT+CWHOSTNAME=\"", 0
     endmodule
     endmodule
+    ENDIF

@@ -1,15 +1,20 @@
     module Uart
 
-; Default timeout - Next needs more due to faster CPU
+; Default timeout, counted in poll_block iterations - Next needs more due
+; to faster CPU
     IFDEF NEXT
 DEFAULT_TIMEOUT = #FFFF          ; Next: max 16-bit timeout
     ELSE
         IFDEF AY
 DEFAULT_TIMEOUT = #0160          ; AY: uartRead already waits ~4.5ms
         ELSE
-DEFAULT_TIMEOUT = #8000          ; UNO/divMMC: ~1.6s at 3.5MHz
+DEFAULT_TIMEOUT = 54400          ; UNO/divMMC: 153 T idle poll, ~2.4s at 3.5MHz
         ENDIF
     ENDIF
+
+; TX wait, counted in status polls before latching io_error. A 9600-baud
+; byte (Next baud scan) lasts ~1ms; 4096 polls last >=20ms at 28MHz.
+TX_TIMEOUT = #1000
 
 ; Long timeout: multiple blocks to tolerate long pauses
 ; (JOIN/DHCP/SCAN) without premature timeout.
@@ -21,32 +26,24 @@ LONG_TIMEOUT_BLOCK = #FFFF
     IFDEF NEXT
 LONG_TIMEOUT_REPS  = 80          ; Next: faster CPU needs more reps
     ELSE
-LONG_TIMEOUT_REPS  = 8
-    ENDIF
-
-; Medium timeout: for in-progress data reads (e.g. scan)
-    IFDEF NEXT
-MEDIUM_TIMEOUT = #FFFF
-    ELSE
         IFDEF AY
-MEDIUM_TIMEOUT = #0160
+LONG_TIMEOUT_REPS  = 8
         ELSE
-MEDIUM_TIMEOUT = #8000
+LONG_TIMEOUT_REPS  = 13          ; UNO: ~2.9s blocks, ~37s total
         ENDIF
     ENDIF
 
 init:
     call UartImpl.init
-    ; Runtime RAM is undefined until explicitly initialized.
-    ld hl, log_buf
-    ld (log_ptr), hl
-    ld de, log_buf + 1
-    ld bc, LOG_BUF_SIZE - 1
+    ; Warm entry resets resident state; flush terminates only captured bytes.
     xor a
-    ld (hl), a
-    ldir
-    ld (log_lost), a
-    ret
+    ld (log_enabled), a
+    ld (io_error), a
+    ld (tx_pending), a
+    IFNDEF STANDALONE_PROBE
+    ld (Wifi.flushInput.recovering), a
+    ENDIF
+    jp logReset
 
 write:
     push af
@@ -59,6 +56,9 @@ write:
     ld a, (io_error)
     and a
     jr nz, .skipLog
+    pop af
+    push af
+    call trackTx
     ld a, (log_enabled)
     and a
     jr z, .skipLog
@@ -68,6 +68,17 @@ write:
 .skipLog
 .skipWrite
     pop af
+    ret
+
+; Track complete AT lines without treating raw +++ as a command.
+trackTx:
+    sub 10
+    jr z, .store
+    cp 'A' - 10
+    ret nz
+    ld a, 1
+.store
+    ld (tx_pending), a
     ret
   
 
@@ -121,25 +132,31 @@ readTimeoutLong:
 ;   Out: CF=1 byte available (A=byte), CF=0 timeout
 ; ============================================
 poll_block:
-.start
-    ld (.counter), de
+    IFNDEF NEXT
+    ; Only the Next backend latches io_error while polling.
+    ld a, (io_error)
+    and a
+    ret nz
+    ENDIF
 .loop
+    push de                     ; AY backend destroys DE
     call UartImpl.uartRead
+    pop de
     ret c
+    IFDEF NEXT
     ld a, (io_error)
     and a
     ret nz
 
-    ; Small delay to avoid bus saturation
+    ; Keeps Next's 16-bit counters calibrated; its FIFO absorbs the delay.
+    ; UNO has a one-byte RX register, so it polls without one.
     ld a, 4
 .delay
     dec a
     jr nz, .delay
+    ENDIF
 
-    ld de, 0
-.counter = $ - 2
     dec de
-    ld (.counter), de
     ld a, e
     or a
     jr nz, .loop
@@ -196,8 +213,8 @@ log_char:
     jr .done
 
 .have_space
+    add hl, de
     ld a, c
-    ld hl, (log_ptr)
     ld (hl), a
     inc hl
     ld (log_ptr), hl
@@ -226,10 +243,7 @@ logFlushPending:
     ld hl, .truncated
     call Display.putStrLog
 .reset
-    ld hl, log_buf
-    ld (log_ptr), hl
-    xor a
-    ld (log_lost), a
+    call logReset
     pop hl, de, bc, af
     ret
 .truncated db 13, 10, "<< UART log truncated", 13, 10, 0
@@ -247,6 +261,8 @@ logReset:
 log_enabled  db 0
 ; Sticky transaction fault; cleared only after an explicit input drain.
 io_error     db 0
+; Set after the first transmitted AT byte and cleared by its LF.
+tx_pending   db 0
 log_ptr      dw 0
 ; ponytail: bounded capture reports loss; enlarge only if real traces need it.
 log_lost     db 0

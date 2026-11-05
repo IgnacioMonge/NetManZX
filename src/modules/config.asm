@@ -267,6 +267,15 @@ createPath:
 .cpOpenFail
     ld d, h
     ld e, l
+    inc hl
+    ld a, (hl)
+    cp ':'
+    jr z, .cpDrive
+    dec hl
+    jr .cpRoot
+.cpDrive
+    inc hl
+.cpRoot
     ld a, (hl)
     cp '/'
     jr nz, .cpLoop

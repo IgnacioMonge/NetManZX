@@ -1,7 +1,5 @@
     module UartImpl
-    IFNDEF DOT
-        ASSERT $ > #8000
-    ENDIF
+    ASSERT $ > #8000
 
 init:
     di
@@ -82,19 +80,14 @@ write:
     di
     push hl, de, bc
     push af
-    ld c, #fd ; prepare port addresses
-    ld d, #ff
-    ld e, #bf
-    ld b, d
+    ld bc, #fffd
     
     ld a, #0e
     out (c), a ; Select AY's PORT A
 
-    ld hl, (_baud)
-    ld de, #0002
-    or a
-    sbc hl, de
-    ex hl, de
+    ld de, (_baud)
+    dec de
+    dec de
 
     pop af
     cpl
@@ -183,9 +176,13 @@ readTimeOut:
     dec b 
     exx
     jr nz, waitStartBit
+    ld a, h
+    or #04
+    ld b, e
+    out (c), a
     xor a
-    push af
-    jr readFinish
+    ei
+    ret
 startBitFound:
     in a, (c)
     and #80

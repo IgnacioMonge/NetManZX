@@ -2,6 +2,7 @@
 ; Configure #6000 and #600C before USR #8000; see docs/ay-timing.md.
     DEVICE ZXSPECTRUM48
     DEFINE AY
+    DEFINE STANDALONE_PROBE
     ORG #8000
     jp probe
 
